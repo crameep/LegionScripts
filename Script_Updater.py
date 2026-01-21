@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.2
+# Script Updater v1.3
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -26,7 +26,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -70,6 +70,7 @@ status_message = "Ready"
 script_data = {}  # Dict: {filename: {local_version, remote_version, status, selected, error}}
 checking_all = False
 backup_path = ""
+updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -308,13 +309,13 @@ def fetch_github_script_list():
             data = response.read()
             files = json.loads(data)
 
-        # Filter for .py files, exclude Script_Updater.py
+        # Filter for .py files, include Script_Updater.py for self-updates
         script_list = []
         for item in files:
             if item.get('type') == 'file' and item.get('name', '').endswith('.py'):
                 filename = item['name']
-                # Exclude the updater itself and any __init__.py files
-                if filename != 'Script_Updater.py' and filename != '__init__.py':
+                # Exclude only __init__.py files
+                if filename != '__init__.py':
                     script_list.append(filename)
 
         debug_msg("Found " + str(len(script_list)) + " scripts on GitHub")
@@ -331,7 +332,7 @@ def discover_local_scripts():
         script_list = []
 
         for filename in os.listdir(script_dir):
-            if filename.endswith('.py') and filename != 'Script_Updater.py' and filename != '__init__.py':
+            if filename.endswith('.py') and filename != '__init__.py':
                 # Skip backup directory
                 full_path = os.path.join(script_dir, filename)
                 if os.path.isfile(full_path):
@@ -515,7 +516,7 @@ def start_update_all():
 
 def process_backing_up():
     """Process BACKING_UP state - backup one script"""
-    global STATE, current_script, backup_path, status_message
+    global STATE, current_script, backup_path, status_message, updater_was_updated
 
     if current_script_index >= len(scripts_to_update):
         # Done with all updates
@@ -523,6 +524,12 @@ def process_backing_up():
         status_message = "Update complete!"
         update_status_display()
         API.SysMsg("Update complete! " + str(len(scripts_to_update)) + " scripts updated", HUE_GREEN)
+
+        # Remind user if updater was updated
+        if updater_was_updated:
+            API.SysMsg("", HUE_GREEN)
+            API.SysMsg("REMINDER: Restart Script_Updater.py to use new version!", HUE_YELLOW)
+
         return
 
     # Backup next script
@@ -568,7 +575,7 @@ def process_downloading():
 
 def process_writing():
     """Process WRITING state - write downloaded content to file"""
-    global STATE, current_script_index, status_message
+    global STATE, current_script_index, status_message, updater_was_updated
 
     filename = current_script
     status_message = "Writing " + filename + "..."
@@ -585,6 +592,14 @@ def process_writing():
         script_data[filename]['selected'] = False  # Deselect after update
 
         API.SysMsg("Updated: " + filename + " -> v" + (new_version or "?"), HUE_GREEN)
+
+        # Special handling for self-update
+        if filename == "Script_Updater.py":
+            updater_was_updated = True
+            API.SysMsg("", HUE_GREEN)
+            API.SysMsg("=== UPDATER SELF-UPDATE COMPLETE ===", HUE_YELLOW)
+            API.SysMsg("Please RESTART this script for changes to take effect!", HUE_YELLOW)
+            API.SysMsg("Close and reopen Script_Updater.py", HUE_YELLOW)
     else:
         # Write failed
         script_data[filename]['status'] = STATUS_ERROR
