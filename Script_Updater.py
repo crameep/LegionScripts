@@ -35,16 +35,16 @@ DOWNLOAD_TIMEOUT = 5  # seconds
 
 # Scripts to manage
 MANAGED_SCRIPTS = [
-    "Tamer_Suite_v1.py",
-    "Tamer_Healer_v7.py",
-    "Tamer_Commands_v3.py",
-    "Mage_SpellMenu_v1.py",
-    "Dexer_Suite_v1.py",
-    "Util_Runebook_v1.py",
-    "Util_GumpInspector_v2.py",
-    "Util_GoldSatchel_v1.py",
-    "Test_Tamer_Healer_v7.py",
-    "Test_Tamer_Commands_v3.py",
+    "Tamer_Suite.py",
+    "Tamer_Healer.py",
+    "Tamer_Commands.py",
+    "Mage_SpellMenu.py",
+    "Dexer_Suite.py",
+    "Util_Runebook.py",
+    "Util_GumpInspector.py",
+    "Util_GoldSatchel.py",
+    "Test_Tamer_Healer.py",
+    "Test_Tamer_Commands.py",
     "Test_ModuleAvailability.py"
 ]
 

@@ -37,7 +37,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ## Tamer Scripts
 
-### Tamer_Suite_v1.py
+### Tamer_Suite.py
 **The all-in-one tamer automation suite.** Combines pet healing, commands, and combat support into a single non-blocking script.
 
 **Features:**
@@ -63,7 +63,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
-### Tamer_Healer_v7.py
+### Tamer_Healer.py
 **Standalone pet healing script.** Simpler architecture than the Suite (uses blocking waits). Great for understanding the priority system or if you just want healing without commands.
 
 **Features:**
@@ -78,7 +78,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
-### Tamer_Commands_v3.py
+### Tamer_Commands.py
 **Pet command hotkey system.** Lightweight script for issuing pet commands with ORDER mode support.
 
 **Features:**
@@ -94,14 +94,14 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
-### Test_Tamer_Healer_v7.py / Test_Tamer_Commands_v3.py
+### Test_Tamer_Healer.py / Test_Tamer_Commands.py
 **Experimental versions** with additional features and testing. Use at your own risk - may be unstable.
 
 ---
 
 ## Dexer Scripts
 
-### Dexer_Suite_v1.py
+### Dexer_Suite.py
 **Complete melee automation suite.** Handles healing, curing, buffs, and targeting for warriors/dexers.
 
 **Features:**
@@ -126,7 +126,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ## Mage Scripts
 
-### Mage_SpellMenu_v1.py
+### Mage_SpellMenu.py
 **Spell combo system** for quick-casting common PvP and PvE spell sequences.
 
 **Features:**
@@ -144,7 +144,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ## Utility Scripts
 
-### Util_GoldSatchel_v1.py
+### Util_GoldSatchel.py
 **Auto-loot gold from corpses.** Automatically picks up gold from nearby corpses and displays total looted.
 
 **Features:**
@@ -157,7 +157,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
-### Util_Runebook_v1.py
+### Util_Runebook.py
 **Quick travel system.** Hotkeys for instant runebook recalls to 4 preset locations.
 
 **Features:**
@@ -169,7 +169,7 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
-### Util_GumpInspector_v2.py
+### Util_GumpInspector.py
 **Developer tool** for discovering gump IDs, button IDs, and text field IDs in the Legion API.
 
 **Features:**
