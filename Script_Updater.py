@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.0
+# Script Updater v1.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -26,27 +26,16 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
+GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/"
 BACKUP_DIR = "_backups"
 DOWNLOAD_TIMEOUT = 5  # seconds
 
-# Scripts to manage
-MANAGED_SCRIPTS = [
-    "Tamer_Suite.py",
-    "Tamer_Healer.py",
-    "Tamer_Commands.py",
-    "Mage_SpellMenu.py",
-    "Dexer_Suite.py",
-    "Util_Runebook.py",
-    "Util_GumpInspector.py",
-    "Util_GoldSatchel.py",
-    "Test_Tamer_Healer.py",
-    "Test_Tamer_Commands.py",
-    "Test_ModuleAvailability.py"
-]
+# Scripts to manage - dynamically loaded from GitHub
+MANAGED_SCRIPTS = []
 
 # ============ CONSTANTS ============
 # GUI colors
@@ -298,10 +287,76 @@ def restore_backup(backup_path, filename):
     except Exception as e:
         return (False, str(e))
 
+def fetch_github_script_list():
+    """Fetch list of .py files from GitHub repository. Returns list of filenames."""
+    try:
+        debug_msg("Fetching script list from GitHub API...")
+
+        try:
+            # Python 3 style
+            import json
+            req = urllib.request.Request(GITHUB_API_URL)
+            response = urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
+            data = response.read().decode('utf-8')
+            files = json.loads(data)
+        except:
+            # Python 2 style fallback
+            import urllib2
+            import json
+            req = urllib2.Request(GITHUB_API_URL)
+            response = urllib2.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
+            data = response.read()
+            files = json.loads(data)
+
+        # Filter for .py files, exclude Script_Updater.py
+        script_list = []
+        for item in files:
+            if item.get('type') == 'file' and item.get('name', '').endswith('.py'):
+                filename = item['name']
+                # Exclude the updater itself and any __init__.py files
+                if filename != 'Script_Updater.py' and filename != '__init__.py':
+                    script_list.append(filename)
+
+        debug_msg("Found " + str(len(script_list)) + " scripts on GitHub")
+        return script_list
+    except Exception as e:
+        debug_msg("Error fetching GitHub list: " + str(e))
+        # Fallback to local discovery
+        return discover_local_scripts()
+
+def discover_local_scripts():
+    """Discover .py files in local directory as fallback. Returns list of filenames."""
+    try:
+        script_dir = get_script_dir()
+        script_list = []
+
+        for filename in os.listdir(script_dir):
+            if filename.endswith('.py') and filename != 'Script_Updater.py' and filename != '__init__.py':
+                # Skip backup directory
+                full_path = os.path.join(script_dir, filename)
+                if os.path.isfile(full_path):
+                    script_list.append(filename)
+
+        debug_msg("Discovered " + str(len(script_list)) + " local scripts")
+        return script_list
+    except:
+        return []
+
 # ============ INITIALIZATION ============
 def init_script_data():
     """Initialize script data structure"""
-    global script_data
+    global script_data, MANAGED_SCRIPTS
+
+    # Fetch script list from GitHub
+    API.SysMsg("Fetching script list from GitHub...", HUE_BLUE)
+    MANAGED_SCRIPTS = fetch_github_script_list()
+
+    if not MANAGED_SCRIPTS:
+        API.SysMsg("No scripts found! Check network connection.", HUE_RED)
+        return
+
+    API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts in repository", HUE_GREEN)
+
     for filename in MANAGED_SCRIPTS:
         script_data[filename] = {
             'local_version': None,
@@ -390,6 +445,8 @@ def process_checking():
             cmp = compare_versions(local_ver, remote_ver)
             if cmp == -1:
                 script_data[filename]['status'] = STATUS_UPDATE
+                # Auto-select scripts that are installed and have updates
+                script_data[filename]['selected'] = True
             elif cmp == 0:
                 script_data[filename]['status'] = STATUS_OK
             else:
