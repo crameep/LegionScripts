@@ -24,7 +24,7 @@
 import API
 import time
 
-__version__ = "1.0"
+__version__ = "2.0"
 
 # ============ USER SETTINGS ============
 # Item graphics
