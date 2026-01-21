@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.3
+# Script Updater v1.4
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -26,7 +26,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.3"
+__version__ = "1.4"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -464,7 +464,8 @@ def process_checking():
         script_data[filename]['error'] = content  # Error message
 
     current_script_index += 1
-    update_script_list()
+    # Don't update GUI every script - wait until all checking is done
+    # update_script_list()
 
 def start_update_selected():
     """Start updating selected scripts"""
@@ -682,24 +683,26 @@ def update_script_list():
         status = data['status']
         selected = data['selected']
 
+        # Determine color first
+        if status == STATUS_OK:
+            color = HUE_GREEN
+        elif status == STATUS_UPDATE:
+            color = HUE_YELLOW
+        elif status == STATUS_NEW:
+            color = HUE_BLUE
+        elif status == STATUS_ERROR:
+            color = HUE_RED
+        else:  # N-A
+            color = HUE_GRAY
+
         # Build display text: [X] Script.py | v1.0 | v1.1 | UPDATE
         checkbox = "[X]" if selected else "[ ]"
         text = checkbox + " " + filename[:22].ljust(22) + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
 
-        # Update label
-        script_rows[i]['label'].SetText(text)
-
-        # Update color based on status
-        if status == STATUS_OK:
-            script_rows[i]['label'].SetBackgroundHue(HUE_GREEN)
-        elif status == STATUS_UPDATE:
-            script_rows[i]['label'].SetBackgroundHue(HUE_YELLOW)
-        elif status == STATUS_NEW:
-            script_rows[i]['label'].SetBackgroundHue(HUE_BLUE)
-        elif status == STATUS_ERROR:
-            script_rows[i]['label'].SetBackgroundHue(HUE_RED)
-        else:  # N-A
-            script_rows[i]['label'].SetBackgroundHue(HUE_GRAY)
+        # Update button - set color first, then text to force redraw
+        btn = script_rows[i]['label']
+        btn.SetBackgroundHue(color)
+        btn.SetText(text)
 
 # ============ CLEANUP ============
 def cleanup():
