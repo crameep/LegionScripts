@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.1
+# Script Updater v1.2
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -26,7 +26,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -449,8 +449,12 @@ def process_checking():
                 script_data[filename]['selected'] = True
             elif cmp == 0:
                 script_data[filename]['status'] = STATUS_OK
+                # Auto-select scripts that are already installed
+                script_data[filename]['selected'] = True
             else:
                 script_data[filename]['status'] = STATUS_OK  # Local is newer
+                # Auto-select scripts that are already installed
+                script_data[filename]['selected'] = True
 
         script_data[filename]['error'] = None
     else:
