@@ -16,6 +16,8 @@
 import API
 import time
 
+__version__ = "3.0"
+
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 10             # Max distance to search for hostiles
 SHOW_RADIUS_INDICATOR = True  # Show range circle around player

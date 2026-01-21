@@ -18,6 +18,8 @@
 # ============================================================
 import API
 
+__version__ = "1.0"
+
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 12
 CAST_HOTKEY = "CTRL+M"           # Execute selected combo on nearest hostile

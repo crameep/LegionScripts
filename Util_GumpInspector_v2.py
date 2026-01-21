@@ -21,6 +21,8 @@
 import API
 import time
 
+__version__ = "2.0"
+
 # ============ SETTINGS ============
 SETTINGS_KEY = "GumpInspector_XY"
 MONITOR_INTERVAL = 0.2   # How often to check for gump changes

@@ -20,6 +20,8 @@
 import API
 import time
 
+__version__ = "1.0"
+
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
 RECALL_COOLDOWN = 1.0      # Seconds between recalls

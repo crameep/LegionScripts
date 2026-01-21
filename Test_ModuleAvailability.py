@@ -1,6 +1,8 @@
 import API
 import time
 
+__version__ = "1.0"
+
 # Test script to check which Python modules are available in Legion
 # Run this script and check the system messages to see what's available
 

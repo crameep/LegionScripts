@@ -22,6 +22,8 @@
 import API
 import time
 
+__version__ = "1.0"
+
 # ============ USER SETTINGS ============
 DEBUG = False
 

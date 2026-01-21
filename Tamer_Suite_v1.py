@@ -24,6 +24,8 @@
 import API
 import time
 
+__version__ = "1.0"
+
 # ============ USER SETTINGS ============
 # Item graphics
 BANDAGE = 3617                # Bandage item ID

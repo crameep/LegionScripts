@@ -27,6 +27,8 @@ import API
 import time
 from collections import namedtuple
 
+__version__ = "7.0"
+
 # ============ USER SETTINGS ============
 # Item graphic
 BANDAGE = 3617                # Bandage item ID

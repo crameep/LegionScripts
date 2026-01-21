@@ -26,6 +26,8 @@
 import API
 import time
 
+__version__ = "1.5"
+
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED          # Gold pile graphic ID
 CHECK_GRAPHIC = 0x14F0         # Bank check graphic ID

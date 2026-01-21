@@ -10,6 +10,31 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
+## Script Management
+
+### Script_Updater.py
+**Automatic script updater for keeping your Legion scripts up-to-date.** Downloads latest versions directly from GitHub with version tracking and backup functionality.
+
+**Features:**
+- **Version Checking**: Compares your local scripts against the GitHub repository
+- **Selective Updates**: Choose which scripts to update with checkboxes
+- **Automatic Backups**: Creates timestamped backups before every update in `_backups/` folder
+- **Restore Capability**: Recover previous versions if needed
+- **Status Indicators**: Visual feedback (OK/UPDATE/NEW/ERROR) for each script
+- **Non-Blocking**: GUI stays responsive during downloads
+- **Error Handling**: Graceful network and file error recovery
+
+**Usage:**
+1. Launch the script to see your current script versions
+2. Click **[Check Updates]** to compare with GitHub
+3. Select scripts to update (or use **[Update All]**)
+4. Click **[Update Selected]** to download and install
+5. Scripts are automatically backed up before updating
+
+**First Time Setup:** Just run the script - it will automatically check for updates and show you what's available.
+
+---
+
 ## Tamer Scripts
 
 ### Tamer_Suite_v1.py
