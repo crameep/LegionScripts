@@ -1,0 +1,52 @@
+# AI Assistant Instructions
+CLAUDE.md
+GEMINI.md
+*.ai.md
+.claude/
+.cursor/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Backup and Temporary Files
+*.bak
+*.tmp
+*.temp
+*.log
+*.old
+*_backup.*
+*_old.*
+
+# TazUO/Legion Specific
+# Add any TazUO-specific temp/cache files here if discovered
