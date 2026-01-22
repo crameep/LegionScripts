@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.5.5
+# Script Updater v1.6.0
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.5.5"
+__version__ = "1.6.0"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -108,7 +108,8 @@ def parse_version(script_path):
     """Parse __version__ from a script file. Returns version string or None."""
     try:
         API.SysMsg("DEBUG PARSE: Opening " + script_path, 88)
-        with open(script_path, 'r') as f:
+        # Explicitly use UTF-8 encoding to handle any encoding issues
+        with open(script_path, 'r', encoding='utf-8') as f:
             content = f.read()
             API.SysMsg("DEBUG PARSE: Read " + str(len(content)) + " chars", 88)
             # Regex: __version__ = "1.0" or __version__ = '1.0'
@@ -264,13 +265,25 @@ def write_script(relative_path, content):
             os.makedirs(dir_path)
             API.SysMsg("DEBUG WRITE: Created dir " + dir_path, 88)
 
-        with open(path, 'w') as f:
+        # Write with explicit UTF-8 encoding and Unix line endings (newline='\n')
+        # This prevents Windows from converting LF to CRLF which can cause parsing issues
+        with open(path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
 
         # Verify file was written
         if os.path.exists(path):
             file_size = os.path.getsize(path)
             API.SysMsg("DEBUG WRITE: File exists, size=" + str(file_size), 88)
+
+            # Verify it can be parsed
+            try:
+                test_version = parse_version(path)
+                if test_version:
+                    API.SysMsg("DEBUG WRITE: Verified version: " + test_version, HUE_GREEN)
+                else:
+                    API.SysMsg("DEBUG WRITE: WARNING - No version found after write!", HUE_YELLOW)
+            except:
+                pass
         else:
             API.SysMsg("DEBUG WRITE: ERROR - File doesn't exist after write!", HUE_RED)
 
