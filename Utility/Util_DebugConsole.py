@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v1.3
+# Debug Console v2.0
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "1.3"
+__version__ = "2.0"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -35,7 +35,7 @@ COLLAPSED_HEIGHT = 24
 EXPANDED_HEIGHT = 480
 POLL_INTERVAL = 0.2
 MAX_MESSAGES = 500
-VISIBLE_LINES = 15
+MESSAGE_LINE_HEIGHT = 16  # Height per message line in scroll area
 DEBUG_QUEUE_KEY = "DebugConsole_Queue"
 DEBUG_ENABLED_KEY = "DebugConsole_Enabled"
 SETTINGS_KEY = "DebugConsole"
@@ -55,6 +55,7 @@ LEVEL_COLORS = {
 is_expanded = True
 state = "polling"  # States: polling, paused
 messages = []  # List of parsed message dicts: {timestamp, source, level, message, raw_time}
+message_labels = []  # List of label controls currently in scroll area
 last_queue_hash = ""
 next_poll = 0
 next_display_update = 0
@@ -223,7 +224,7 @@ def format_message(msg):
     return ts + " " + prefix + " " + source[:10].ljust(10) + ": " + text
 
 def update_message_display():
-    """Update the message display labels"""
+    """Update the scrollable message display"""
     visible = get_visible_messages()
     total_messages = len(messages)
     visible_count = len(visible)
@@ -231,21 +232,46 @@ def update_message_display():
     # Update status line
     statusLabel.SetText("Showing " + str(visible_count) + " of " + str(total_messages) + " messages")
 
-    # Get messages to display (last VISIBLE_LINES if auto-scroll, else first VISIBLE_LINES)
+    # Clear existing message labels from scroll area
+    for lbl in message_labels:
+        try:
+            scrollArea.Remove(lbl)
+        except:
+            pass
+    message_labels.clear()
+
+    # If no messages, show helper text
+    if visible_count == 0:
+        help_label = API.Gumps.CreateGumpTTFLabel(
+            "No messages yet\n\nLegend: [i]=INFO [!]=WARN [X]=ERROR [.]=DEBUG",
+            10, "#666666", maxWidth=360
+        )
+        help_label.SetPos(5, 5)
+        scrollArea.Add(help_label)
+        message_labels.append(help_label)
+        return
+
+    # Add message labels to scroll area (newest at bottom or top based on auto_scroll)
+    y_pos = 5
+    line_height = 16
+
+    # Determine which messages to show (auto-scroll shows newest at bottom)
     if auto_scroll:
-        display_msgs = visible[-VISIBLE_LINES:] if len(visible) > VISIBLE_LINES else visible
+        display_msgs = visible  # Show all, scrolled to bottom
     else:
-        display_msgs = visible[:VISIBLE_LINES] if len(visible) > VISIBLE_LINES else visible
+        display_msgs = visible  # Show all, user can scroll manually
 
-    # Build display text
-    display_text = ""
     for msg in display_msgs:
-        display_text += format_message(msg) + "\n"
+        msg_text = format_message(msg)
+        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 9, "#aaaaaa", maxWidth=360)
+        msg_label.SetPos(5, y_pos)
+        scrollArea.Add(msg_label)
+        message_labels.append(msg_label)
+        y_pos += line_height
 
-    if not display_text:
-        display_text = "No messages match current filters\n\nAdjust filters or wait for messages\n\nLegend: [i]=INFO [!]=WARN [X]=ERROR [.]=DEBUG"
-
-    messageTextBox.SetText(display_text.strip())
+    # If auto-scroll is on, scroll to bottom (newest messages)
+    # Note: Legion ScrollArea may not have direct scroll control,
+    # but having newest at bottom works naturally
 
 def export_to_file():
     """Export visible messages to timestamped file"""
@@ -420,7 +446,7 @@ def expand_window():
 
     # Show message display
     messageBg.IsVisible = True
-    messageTextBox.IsVisible = True
+    scrollArea.IsVisible = True
     statusLabel.IsVisible = True
 
     # Show export and close buttons
@@ -449,7 +475,7 @@ def collapse_window():
 
     # Hide message display
     messageBg.IsVisible = False
-    messageTextBox.IsVisible = False
+    scrollArea.IsVisible = False
     statusLabel.IsVisible = False
 
     # Hide export and close buttons
@@ -578,12 +604,10 @@ messageBg.SetRect(5, y, 390, 340)
 messageBg.IsVisible = is_expanded
 gump.Add(messageBg)
 
-# Message display (TTFLabel with maxWidth for proper wrapping)
-# Note: CreateGumpTextBox is for INPUT fields, not display-only text
-messageTextBox = API.Gumps.CreateGumpTTFLabel("Waiting for messages...\n\nMonitoring queue every 200ms", 10, "#aaaaaa", maxWidth=375)
-messageTextBox.SetPos(8, y + 3)
-messageTextBox.IsVisible = is_expanded
-gump.Add(messageTextBox)
+# Scrollable message area - proper way to display many messages
+scrollArea = API.Gumps.CreateGumpScrollArea(8, y + 3, 375, 330)
+scrollArea.IsVisible = is_expanded
+gump.Add(scrollArea)
 
 # Status line
 y += 343
@@ -616,7 +640,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v1.3 Started ===", 68)
+API.SysMsg("=== Debug Console v2.0 Started - Now with scrollable log! ===", 68)
 API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
 
 next_poll = time.time()
