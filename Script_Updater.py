@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.5.3
+# Script Updater v1.5.4
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.5.3"
+__version__ = "1.5.4"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -167,6 +167,7 @@ def download_script(relative_path):
     """Download script content from GitHub. Returns (success, content_or_error)"""
     url = GITHUB_BASE_URL + relative_path
     try:
+        API.SysMsg("DEBUG DOWNLOAD: " + url, 88)
         debug_msg("Downloading: " + url)
         try:
             # Python 3 style
@@ -180,10 +181,14 @@ def download_script(relative_path):
             response = urllib2.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
             content = response.read()
 
+        API.SysMsg("DEBUG DOWNLOAD: Got " + str(len(content)) + " bytes", 88)
+        if len(content) < 100:
+            API.SysMsg("DEBUG DOWNLOAD: Content preview: " + content[:100], 88)
         debug_msg("Downloaded " + str(len(content)) + " bytes")
         return (True, content)
     except Exception as e:
         error = str(e)
+        API.SysMsg("DEBUG DOWNLOAD: ERROR - " + error, HUE_RED)
         debug_msg("Download error: " + error)
         return (False, error)
 
@@ -234,17 +239,29 @@ def write_script(relative_path, content):
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
 
+        API.SysMsg("DEBUG WRITE: path=" + path, 88)
+        API.SysMsg("DEBUG WRITE: content length=" + str(len(content)), 88)
+
         # Ensure directory exists
         dir_path = os.path.dirname(path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path)
+            API.SysMsg("DEBUG WRITE: Created dir " + dir_path, 88)
 
         with open(path, 'w') as f:
             f.write(content)
 
+        # Verify file was written
+        if os.path.exists(path):
+            file_size = os.path.getsize(path)
+            API.SysMsg("DEBUG WRITE: File exists, size=" + str(file_size), 88)
+        else:
+            API.SysMsg("DEBUG WRITE: ERROR - File doesn't exist after write!", HUE_RED)
+
         debug_msg("Wrote " + str(len(content)) + " bytes to " + relative_path)
         return (True, None)
     except Exception as e:
+        API.SysMsg("DEBUG WRITE: Exception: " + str(e), HUE_RED)
         return (False, str(e))
 
 def list_backups(filename):
