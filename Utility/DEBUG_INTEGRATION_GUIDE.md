@@ -29,23 +29,28 @@ def _debug_log(level, message):
             return  # Console disabled, skip entirely
 
         # Format message: timestamp|source|level|message
+        # Escape record separator to prevent parsing errors
         timestamp = str(time.time())
-        record = timestamp + "|" + _debug_script_name + "|" + level + "|" + str(message)
+        safe_message = str(message).replace("\x1E", "\\x1E")
+        record = timestamp + "|" + _debug_script_name + "|" + level + "|" + safe_message
 
         # Append to queue
         queue = API.GetPersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
-        if queue:
-            records = queue.split("\x1E")  # ASCII Record Separator
-            records.append(record)
-            # Keep last 50 messages to prevent queue overflow
-            if len(records) > 50:
-                records = records[-50:]
+
+        # Safety: prevent queue overflow
+        if len(queue) > 40000:  # 40KB limit leaves room for new message
+            # Keep most recent 30 messages
+            records = queue.split("\x1E")
+            records = records[-30:]
             queue = "\x1E".join(records)
+
+        if queue:
+            queue = queue + "\x1E" + record
         else:
             queue = record
 
         API.SavePersistentVar(DEBUG_QUEUE_KEY, queue, API.PersistentVar.Char)
-    except:
+    except Exception:
         pass  # Silent fail - don't crash main script
 
 # Convenience functions

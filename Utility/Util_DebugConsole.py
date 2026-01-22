@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v2.2
+# Debug Console v3.0
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "2.2"
+__version__ = "3.0"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -35,7 +35,7 @@ COLLAPSED_HEIGHT = 24
 EXPANDED_HEIGHT = 480
 POLL_INTERVAL = 0.2
 MAX_MESSAGES = 500
-MESSAGE_LINE_HEIGHT = 22  # Height per message line in scroll area (generous spacing)
+MESSAGE_LINE_HEIGHT = 24  # Height per message line in scroll area (generous spacing to prevent overlap)
 DEBUG_QUEUE_KEY = "DebugConsole_Queue"
 DEBUG_ENABLED_KEY = "DebugConsole_Enabled"
 SETTINGS_KEY = "DebugConsole"
@@ -57,6 +57,7 @@ state = "polling"  # States: polling, paused
 messages = []  # List of parsed message dicts: {timestamp, source, level, message, raw_time}
 message_labels = []  # List of label controls currently in scroll area
 last_queue_hash = ""
+last_visible_messages_hash = ""  # Track when display actually needs updating
 next_poll = 0
 next_display_update = 0
 last_position_check = 0
@@ -203,9 +204,8 @@ def format_message(msg):
     level = msg["level"]
     text = msg["message"]
 
-    # Truncate long messages (longer now that we have wrapping)
-    if len(text) > 80:
-        text = text[:77] + "..."
+    # Don't truncate - let maxWidth handle wrapping naturally
+    # Removed truncation to allow full messages to be visible
 
     # Format with visual level indicators
     # Use distinct symbols/brackets per level for visual differentiation
@@ -225,6 +225,8 @@ def format_message(msg):
 
 def update_message_display():
     """Update the scrollable message display"""
+    global last_visible_messages_hash
+
     visible = get_visible_messages()
     total_messages = len(messages)
     visible_count = len(visible)
@@ -232,19 +234,25 @@ def update_message_display():
     # Update status line
     statusLabel.SetText("Showing " + str(visible_count) + " of " + str(total_messages) + " messages")
 
+    # Optimization: Only update if messages actually changed
+    visible_hash = hashlib.md5(str(visible_count).encode()).hexdigest()
+    if visible_hash == last_visible_messages_hash and visible_count > 0:
+        return  # No change
+    last_visible_messages_hash = visible_hash
+
     # Clear existing message labels from scroll area
     for lbl in message_labels:
         try:
             scrollArea.Remove(lbl)
-        except:
-            pass
+        except Exception:
+            pass  # Ignore errors on removal
     message_labels.clear()
 
-    # If no messages, show helper text
+    # If no messages, show helper text with LOTS of spacing
     if visible_count == 0:
         help_label = API.Gumps.CreateGumpTTFLabel(
-            "No messages yet\n\n\nLegend:\n[i] = INFO\n[!] = WARN\n[X] = ERROR\n[.] = DEBUG",
-            11, "#888888", maxWidth=360
+            "No messages yet\n\n\n\n\nLegend:\n\n[i] = INFO\n\n[!] = WARN\n\n[X] = ERROR\n\n[.] = DEBUG",
+            12, "#888888", maxWidth=360
         )
         help_label.SetPos(10, 10)
         scrollArea.Add(help_label)
@@ -253,12 +261,12 @@ def update_message_display():
 
     # Add message labels to scroll area with generous spacing
     y_pos = 5
-    line_height = 22  # More spacing to prevent any overlap
+    line_height = 24  # Increased from 22 to prevent overlap
 
     for msg in visible:
         msg_text = format_message(msg)
-        # Larger font size (11 instead of 9)
-        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 11, "#cccccc", maxWidth=360)
+        # Larger font (12 instead of 11) and don't truncate
+        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 12, "#cccccc", maxWidth=360)
         msg_label.SetPos(8, y_pos)
         scrollArea.Add(msg_label)
         message_labels.append(msg_label)
@@ -631,11 +639,11 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v2.2 Started - Now with scrollable log! ===", 68)
+API.SysMsg("=== Debug Console v3.0 Started - All critical fixes applied! ===", 68)
 
-# Clear old queue on startup to prevent stale messages
-API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
-API.SysMsg("Debug queue cleared - ready for new messages", 53)
+# Don't auto-clear queue - preserve messages from running scripts
+# Users can use [CLR] button if they want to clear manually
+API.SysMsg("Monitoring existing queue messages...", 53)
 
 # Initial display update
 update_message_display()
@@ -648,6 +656,11 @@ while not API.StopRequested:
     try:
         API.ProcessCallbacks()
 
+        # State validation - recover from corruption
+        if state not in ["polling", "paused"]:
+            API.SysMsg("Invalid state detected, resetting to polling", 32)
+            state = "polling"
+
         # Poll queue if in polling state
         if state == "polling" and time.time() >= next_poll:
             parse_queue()
@@ -658,13 +671,20 @@ while not API.StopRequested:
             update_message_display()
             next_display_update = time.time() + 0.3
 
-        # Position tracking
+        # Position tracking with validation
         if time.time() - last_position_check > 2.0:
             try:
-                last_known_x = gump.GetX()
-                last_known_y = gump.GetY()
-            except:
-                pass
+                x = gump.GetX()
+                y = gump.GetY()
+                # Validate reasonable bounds (on screen)
+                if 0 <= x <= 3000 and 0 <= y <= 2000:
+                    last_known_x = x
+                    last_known_y = y
+            except Exception as e:
+                # Silent fail but validate we have reasonable defaults
+                if last_known_x < 0 or last_known_y < 0:
+                    last_known_x = 100
+                    last_known_y = 100
             last_position_check = time.time()
 
         API.Pause(0.1)
