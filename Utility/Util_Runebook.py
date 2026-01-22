@@ -1,5 +1,5 @@
 # ============================================================
-# Runebook Recaller v1.2
+# Runebook Recaller v1.3
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -22,7 +22,7 @@
 import API
 import time
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
@@ -48,6 +48,9 @@ def slot_to_button(slot):
 last_recall_time = 0
 is_expanded = True
 current_setup_key = None
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 destinations = {
     "Home": {"runebook": 0, "slot": 0, "name": "Home"},
     "Bank": {"runebook": 0, "slot": 0, "name": "Bank"},
@@ -165,6 +168,32 @@ def load_expanded_state():
     global is_expanded
     saved = API.GetPersistentVar(SETTINGS_KEY + "_Expanded", "True", API.PersistentVar.Char)
     is_expanded = (saved == "True")
+
+def save_window_position():
+    """Save window position to persistence using last known position"""
+    global last_known_x, last_known_y
+
+    # Validate coordinates
+    if last_known_x < 0 or last_known_y < 0:
+        return
+
+    pos = str(last_known_x) + "," + str(last_known_y)
+    API.SavePersistentVar(SETTINGS_KEY + "_XY", pos, API.PersistentVar.Char)
+
+def load_window_position():
+    """Load window position from persistence"""
+    global last_known_x, last_known_y
+
+    saved = API.GetPersistentVar(SETTINGS_KEY + "_XY", "100,100", API.PersistentVar.Char)
+    parts = saved.split(',')
+    x = int(parts[0])
+    y = int(parts[1])
+
+    # Update last known position with loaded values
+    last_known_x = x
+    last_known_y = y
+
+    return x, y
 
 # ============ RECALL FUNCTION ============
 def do_recall(dest_key):
@@ -382,25 +411,25 @@ def recall_custom2():
 
 # ============ CLEANUP ============
 def stop_script():
-    API.SavePersistentVar(SETTINGS_KEY + "_XY", str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     gump.Dispose()
     API.Stop()
 
 def onClosed():
-    API.SavePersistentVar(SETTINGS_KEY + "_XY", str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    """Handle window close event"""
+    save_window_position()
     API.Stop()
 
 # ============ BUILD GUI ============
-# Load expanded state first
+# Load expanded state and position
 load_expanded_state()
+x, y = load_window_position()
 
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
-savedPos = API.GetPersistentVar(SETTINGS_KEY + "_XY", "100,100", API.PersistentVar.Char)
-posXY = savedPos.split(',')
 initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
-gump.SetRect(int(posXY[0]), int(posXY[1]), WINDOW_WIDTH, initial_height)
+gump.SetRect(x, y, WINDOW_WIDTH, initial_height)
 
 # Background
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
@@ -546,10 +575,28 @@ API.Gumps.AddGump(gump)
 
 # ============ INITIALIZATION ============
 load_destinations()
-API.SysMsg("=== Runebook Recall v1.2 ===", 68)
+API.SysMsg("=== Runebook Recall v1.3 ===", 68)
 API.SysMsg("Click destination to recall, [SET] to configure", 53)
 
 # ============ MAIN LOOP ============
 while not API.StopRequested:
-    API.ProcessCallbacks()
-    API.Pause(0.1)
+    try:
+        API.ProcessCallbacks()
+
+        # Periodically update last known position (every 2 seconds)
+        if not API.StopRequested:
+            current_time = time.time()
+            if current_time - last_position_check > 2.0:
+                last_position_check = current_time
+                try:
+                    last_known_x = gump.GetX()
+                    last_known_y = gump.GetY()
+                except:
+                    pass  # Silently ignore if gump is disposed
+
+        API.Pause(0.1)
+    except Exception as e:
+        # Don't show "operation canceled" errors during shutdown
+        if "operation canceled" not in str(e).lower() and not API.StopRequested:
+            API.SysMsg("Error in main loop: " + str(e), 32)
+        API.Pause(1)
