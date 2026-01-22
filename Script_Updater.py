@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.5.4
+# Script Updater v1.5.5
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.5.4"
+__version__ = "1.5.5"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -107,14 +107,23 @@ def ensure_backup_dir():
 def parse_version(script_path):
     """Parse __version__ from a script file. Returns version string or None."""
     try:
+        API.SysMsg("DEBUG PARSE: Opening " + script_path, 88)
         with open(script_path, 'r') as f:
             content = f.read()
+            API.SysMsg("DEBUG PARSE: Read " + str(len(content)) + " chars", 88)
             # Regex: __version__ = "1.0" or __version__ = '1.0'
             match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
             if match:
-                return match.group(1)
-    except:
-        pass
+                version = match.group(1)
+                API.SysMsg("DEBUG PARSE: Found version " + version, 88)
+                return version
+            else:
+                API.SysMsg("DEBUG PARSE: No version match found", HUE_YELLOW)
+                # Show first 500 chars to diagnose
+                preview = content[:500].replace('\n', '\\n').replace('\r', '\\r')
+                API.SysMsg("DEBUG PARSE: Content preview: " + preview[:200], 88)
+    except Exception as e:
+        API.SysMsg("DEBUG PARSE: Exception: " + str(e), HUE_RED)
     return None
 
 def compare_versions(v1, v2):
@@ -157,10 +166,17 @@ def get_local_version(relative_path):
     try:
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
+        API.SysMsg("DEBUG LOCAL: Checking " + relative_path, 88)
+        API.SysMsg("DEBUG LOCAL: Full path = " + path, 88)
+        API.SysMsg("DEBUG LOCAL: Exists = " + str(os.path.exists(path)), 88)
         if os.path.exists(path):
-            return parse_version(path)
-    except:
-        pass
+            file_size = os.path.getsize(path)
+            API.SysMsg("DEBUG LOCAL: File size = " + str(file_size), 88)
+            version = parse_version(path)
+            API.SysMsg("DEBUG LOCAL: Version = " + (version or "NOT FOUND"), 88)
+            return version
+    except Exception as e:
+        API.SysMsg("DEBUG LOCAL: Exception: " + str(e), HUE_RED)
     return None
 
 def download_script(relative_path):
