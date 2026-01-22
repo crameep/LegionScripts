@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ USER SETTINGS ============
 TARGET_TIMEOUT = 5.0  # Seconds to wait for target cursor
@@ -72,6 +72,9 @@ HUE_ERROR = 32       # Red
 is_expanded = True
 executing_command = None
 command_buttons = {}
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # ============ UTILITY FUNCTIONS ============
 def get_command_by_hotkey(hotkey):
@@ -202,15 +205,31 @@ def make_command_executor(cmd_key):
 
 # ============ PERSISTENCE ============
 def save_window_position():
-    """Save window position to persistence"""
-    pos = str(gump.GetX()) + "," + str(gump.GetY())
+    """Save window position to persistence using last known position"""
+    global last_known_x, last_known_y
+
+    # Validate coordinates
+    if last_known_x < 0 or last_known_y < 0:
+        API.SysMsg("Invalid position (" + str(last_known_x) + "," + str(last_known_y) + "), not saving", 43)
+        return
+
+    pos = str(last_known_x) + "," + str(last_known_y)
     API.SavePersistentVar(SETTINGS_KEY + "_XY", pos, API.PersistentVar.Char)
 
 def load_window_position():
     """Load window position from persistence"""
+    global last_known_x, last_known_y
+
     saved = API.GetPersistentVar(SETTINGS_KEY + "_XY", "100,100", API.PersistentVar.Char)
     parts = saved.split(',')
-    return int(parts[0]), int(parts[1])
+    x = int(parts[0])
+    y = int(parts[1])
+
+    # Update last known position with loaded values
+    last_known_x = x
+    last_known_y = y
+
+    return x, y
 
 def save_expanded_state():
     """Save expanded state to persistence"""
@@ -264,8 +283,8 @@ bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
 # Title bar
-title = API.Gumps.CreateGumpTTFLabel("Util Hotkeys", 10, "#00d4ff")
-title.SetPos(5, 4)
+title = API.Gumps.CreateGumpTTFLabel("Util Hotkeys", 16, "#00d4ff")
+title.SetPos(5, 2)
 gump.Add(title)
 
 # Expand/collapse button
@@ -319,14 +338,29 @@ for cmd_key, cmd in COMMANDS.items():
     API.OnHotKey(cmd["hotkey"], make_command_executor(cmd_key))
 
 # ============ STARTUP MESSAGE ============
-API.SysMsg("=== Utility Hotkeys v1.0 ===", 68)
+API.SysMsg("=== Utility Hotkeys v1.1 ===", 68)
 API.SysMsg("CTRL+1=Secure, CTRL+2=Lock, CTRL+3=Release", 53)
 
 # ============ MAIN LOOP ============
 while not API.StopRequested:
     try:
         API.ProcessCallbacks()  # Process hotkeys and GUI events
+
+        # Periodically update last known position (every 2 seconds)
+        # Skip if stop is requested to avoid "operation canceled" errors
+        if not API.StopRequested:
+            current_time = time.time()
+            if current_time - last_position_check > 2.0:
+                last_position_check = current_time
+                try:
+                    last_known_x = gump.GetX()
+                    last_known_y = gump.GetY()
+                except:
+                    pass  # Silently ignore if gump is disposed
+
         API.Pause(0.1)
     except Exception as e:
-        API.SysMsg("Error in main loop: " + str(e), 32)
+        # Don't show "operation canceled" errors during shutdown
+        if "operation canceled" not in str(e).lower() and not API.StopRequested:
+            API.SysMsg("Error in main loop: " + str(e), 32)
         API.Pause(1)

@@ -1,5 +1,5 @@
 # ============================================================
-# Gold Satchel Auto-Mover v1.6
+# Gold Satchel Auto-Mover v1.7
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@
 import API
 import time
 
-__version__ = "1.6"
+__version__ = "1.7"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED          # Gold pile graphic ID
@@ -585,8 +585,8 @@ bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
 # Title bar
-titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Satchel", 10, "#ffaa00")
-titleLabel.SetPos(5, 4)
+titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Satchel", 16, "#ffaa00")
+titleLabel.SetPos(5, 2)
 gump.Add(titleLabel)
 
 # Expand/collapse button
@@ -682,7 +682,7 @@ API.Gumps.AddGump(gump)
 # Initial display update
 update_display()
 
-API.SysMsg("Gold Satchel v1.6 loaded!", 68)
+API.SysMsg("Gold Satchel v1.7 loaded!", 68)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
 else:

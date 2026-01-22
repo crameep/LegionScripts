@@ -1,5 +1,5 @@
 # ============================================================
-# Runebook Recaller v1.1
+# Runebook Recaller v1.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -22,7 +22,7 @@
 import API
 import time
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
@@ -408,8 +408,8 @@ bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
 # Title bar
-title = API.Gumps.CreateGumpTTFLabel("Runebook", 10, "#00d4ff")
-title.SetPos(5, 4)
+title = API.Gumps.CreateGumpTTFLabel("Runebook", 16, "#00d4ff")
+title.SetPos(5, 2)
 gump.Add(title)
 
 # Expand/collapse button
@@ -546,7 +546,7 @@ API.Gumps.AddGump(gump)
 
 # ============ INITIALIZATION ============
 load_destinations()
-API.SysMsg("=== Runebook Recall v1.1 ===", 68)
+API.SysMsg("=== Runebook Recall v1.2 ===", 68)
 API.SysMsg("Click destination to recall, [SET] to configure", 53)
 
 # ============ MAIN LOOP ============
