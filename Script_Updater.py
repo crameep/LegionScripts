@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.5
+# Script Updater v1.5.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.5"
+__version__ = "1.5.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
@@ -815,8 +815,9 @@ y = 68
 script_rows = []
 row_height = 22
 
-for i, filename in enumerate(MANAGED_SCRIPTS):
+for i, (category, relative_path) in enumerate(MANAGED_SCRIPTS):
     # Clickable row
+    filename = os.path.basename(relative_path)
     btn = API.Gumps.CreateSimpleButton("[ ] " + filename, 560, row_height - 2)
     btn.SetPos(10, y + (i * row_height))
     btn.SetBackgroundHue(HUE_GRAY)
