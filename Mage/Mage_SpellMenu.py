@@ -1,5 +1,5 @@
 # ============================================================
-# Mage Spell Menu v1.1
+# Mage Spell Menu v1.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -19,7 +19,7 @@
 import API
 import time
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 12
@@ -464,24 +464,17 @@ gump.Add(interruptBtn)
 # === ACTION BUTTONS ===
 actionY = y + 35
 
-castBtn = API.Gumps.CreateSimpleButton("[CAST ON NEAREST]", 160, 25)
+castBtn = API.Gumps.CreateSimpleButton("[CAST NEAREST]", 133, 25)
 castBtn.SetPos(col1X, actionY)
 castBtn.SetBackgroundHue(32)
 API.Gumps.AddControlOnClick(castBtn, find_and_attack)
 gump.Add(castBtn)
 
-lastBtn = API.Gumps.CreateSimpleButton("[CAST ON LAST]", 160, 25)
-lastBtn.SetPos(170, actionY)
+lastBtn = API.Gumps.CreateSimpleButton("[CAST LAST]", 133, 25)
+lastBtn.SetPos(142, actionY)
 lastBtn.SetBackgroundHue(53)
 API.Gumps.AddControlOnClick(lastBtn, attack_last_target)
 gump.Add(lastBtn)
-
-# === CLOSE BUTTON ===
-closeBtn = API.Gumps.CreateSimpleButton("[CLOSE SCRIPT]", 330, 22)
-closeBtn.SetPos(col1X, actionY + 30)
-closeBtn.SetBackgroundHue(32)
-API.Gumps.AddControlOnClick(closeBtn, stop_script)
-gump.Add(closeBtn)
 
 API.Gumps.AddGump(gump)
 
