@@ -1,5 +1,5 @@
 # ============================================================
-# Gold Satchel Auto-Mover v1.5
+# Gold Satchel Auto-Mover v1.6
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -7,6 +7,7 @@
 # Gold Satchel container, and banks satchel gold when needed.
 #
 # Features:
+#   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - 2-second polling interval for backpack scans
 #   - Searches ALL containers in backpack recursively (pouches, bags, etc.)
 #   - Excludes gold already in the satchel (won't move satchel gold back to satchel)
@@ -17,7 +18,7 @@
 #   - Large readable counter shows total gold banked this session
 #   - Enable/Disable toggle with persistent state
 #   - Retarget button for changing satchel
-#   - Modern gump styling with compact UI
+#   - Unified UI design matching other utility scripts
 #   - Safe handling of full satchels, missing satchels, and edge cases
 #
 # Hotkeys: None (GUI-driven)
@@ -26,7 +27,7 @@
 import API
 import time
 
-__version__ = "1.5"
+__version__ = "1.6"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED          # Gold pile graphic ID
@@ -35,14 +36,21 @@ SCAN_INTERVAL = 2.0            # Seconds between backpack scans
 MOVE_PAUSE = 0.65              # Pause after each gold move for server response
 DEBUG = False                  # Enable debug messages
 
+# ============ GUI DIMENSIONS ============
+WINDOW_WIDTH = 140
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 235
+
 # ============ PERSISTENCE KEYS ============
 SATCHEL_KEY = "GoldSatchel_Serial"
 ENABLED_KEY = "GoldSatchel_Enabled"
 SETTINGS_KEY = "GoldSatchel_XY"
+EXPANDED_KEY = "GoldSatchel_Expanded"
 
 # ============ RUNTIME STATE ============
 satchel_serial = 0
 enabled = True
+is_expanded = True
 session_gold = 0
 last_scan_time = 0
 last_error_time = 0
@@ -51,6 +59,7 @@ ERROR_COOLDOWN = 5.0
 
 # GUI elements
 gump = None
+bg = None
 statusLabel = None
 satchelLabel = None
 sessionLabel = None
@@ -58,6 +67,10 @@ errorLabel = None
 enableBtn = None
 bankBtn = None
 checkBtn = None
+retargetBtn = None
+resetBtn = None
+expandBtn = None
+infoLabel = None
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -340,6 +353,73 @@ def clear_error():
     global last_error_msg
     last_error_msg = ""
 
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls
+    statusLabel.IsVisible = True
+    satchelLabel.IsVisible = True
+    sessionLabel.IsVisible = True
+    errorLabel.IsVisible = True
+    enableBtn.IsVisible = True
+    retargetBtn.IsVisible = True
+    resetBtn.IsVisible = True
+    bankBtn.IsVisible = True
+    checkBtn.IsVisible = True
+    infoLabel.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls
+    statusLabel.IsVisible = False
+    satchelLabel.IsVisible = False
+    sessionLabel.IsVisible = False
+    errorLabel.IsVisible = False
+    enableBtn.IsVisible = False
+    retargetBtn.IsVisible = False
+    resetBtn.IsVisible = False
+    bankBtn.IsVisible = False
+    checkBtn.IsVisible = False
+    infoLabel.IsVisible = False
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
+
 # ============ GUI CALLBACKS ============
 def toggle_enabled():
     """Toggle auto-move on/off"""
@@ -448,7 +528,7 @@ def update_display():
             errorLabel.SetText("")
 
         # Update enable button
-        enableBtn.SetText("[" + ("ENABLED" if enabled else "DISABLED") + "]")
+        enableBtn.SetText("[" + ("ON" if enabled else "OFF") + "]")
         enableBtn.SetBackgroundHue(68 if enabled else 32)
 
         # Update bank button - green if bank is open, gray if closed
@@ -477,6 +557,9 @@ except Exception as e:
     debug_msg("Failed to load enabled state: " + str(e))
     enabled = True
 
+# Load expanded state
+load_expanded_state()
+
 # ============ BUILD GUI ============
 # Default window position
 window_x = 100
@@ -488,87 +571,110 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
-# Create modern gump with styling
-gump = API.Gumps.CreateModernGump(lastX, lastY, 210, 235, False, 210, 235)
+# Determine initial height
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+
+# Create gump with background
+gump = API.Gumps.CreateGump()
+gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
 API.Gumps.AddControlOnDisposed(gump, on_closed)
 
-# Constants
-leftMargin = 8
-btnW = 75
-btnH = 20
+# Background
+bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
+gump.Add(bg)
 
-# Title
-y = 5
-titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Satchel", 11, "#ffaa00", aligned="center", maxWidth=210)
-titleLabel.SetPos(0, y)
+# Title bar
+titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Satchel", 10, "#ffaa00")
+titleLabel.SetPos(5, 4)
 gump.Add(titleLabel)
 
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(115, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
+# Constants
+leftMargin = 5
+btnW = 65
+btnH = 20
+y = 26
+
 # Status
-y += 16
-statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 9, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 8, "#00ff00")
 statusLabel.SetPos(leftMargin, y)
+statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
 # Satchel info
-y += 14
-satchelLabel = API.Gumps.CreateGumpTTFLabel("Satchel: [Not Set]", 9, "#ff6666")
+y += 12
+satchelLabel = API.Gumps.CreateGumpTTFLabel("Satchel: [Not Set]", 8, "#ff6666")
 satchelLabel.SetPos(leftMargin, y)
+satchelLabel.IsVisible = is_expanded
 gump.Add(satchelLabel)
 
 # Banked counter - BIG and centered
-y += 18
-sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 16, "#ffcc00", aligned="center", maxWidth=210)
+y += 16
+sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 13, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH)
 sessionLabel.SetPos(0, y)
+sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 # Error display
-y += 22
-errorLabel = API.Gumps.CreateGumpTTFLabel("", 8, "#ff3333")
+y += 20
+errorLabel = API.Gumps.CreateGumpTTFLabel("", 7, "#ff3333")
 errorLabel.SetPos(leftMargin, y)
+errorLabel.IsVisible = is_expanded
 gump.Add(errorLabel)
 
 # Buttons row 1
-y += 18
-enableBtn = API.Gumps.CreateSimpleButton("[ENABLED]", btnW, btnH)
+y += 16
+enableBtn = API.Gumps.CreateSimpleButton("[ON]", btnW, btnH)
 enableBtn.SetPos(leftMargin, y)
 enableBtn.SetBackgroundHue(68)
+enableBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(enableBtn, toggle_enabled)
 gump.Add(enableBtn)
 
-retargetBtn = API.Gumps.CreateSimpleButton("[RETARGET]", btnW, btnH)
-retargetBtn.SetPos(leftMargin + 80, y)
+retargetBtn = API.Gumps.CreateSimpleButton("[TARGET]", btnW, btnH)
+retargetBtn.SetPos(leftMargin + 65, y)
 retargetBtn.SetBackgroundHue(66)
+retargetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(retargetBtn, retarget_satchel)
 gump.Add(retargetBtn)
 
 # Buttons row 2
 y += 24
-resetBtn = API.Gumps.CreateSimpleButton("[RESET COUNT]", 100, btnH)
+resetBtn = API.Gumps.CreateSimpleButton("[RESET]", btnW, btnH)
 resetBtn.SetPos(leftMargin, y)
 resetBtn.SetBackgroundHue(53)
+resetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(resetBtn, reset_session)
 gump.Add(resetBtn)
 
-# Buttons row 3
-y += 24
-bankBtn = API.Gumps.CreateSimpleButton("[BANK GOLD]", 100, btnH)
-bankBtn.SetPos(leftMargin, y)
+bankBtn = API.Gumps.CreateSimpleButton("[BANK]", btnW, btnH)
+bankBtn.SetPos(leftMargin + 65, y)
 bankBtn.SetBackgroundHue(90)
+bankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankBtn, move_satchel_to_bank)
 gump.Add(bankBtn)
 
-# Buttons row 4
+# Buttons row 3
 y += 24
-checkBtn = API.Gumps.CreateSimpleButton("[MAKE CHECK]", 100, btnH)
+checkBtn = API.Gumps.CreateSimpleButton("[MAKE CHECK]", 130, btnH)
 checkBtn.SetPos(leftMargin, y)
 checkBtn.SetBackgroundHue(43)
+checkBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkBtn, make_check)
 gump.Add(checkBtn)
 
 # Info label
 y += 25
-infoLabel = API.Gumps.CreateGumpTTFLabel("Scans every 2 seconds", 8, "#888888", aligned="center", maxWidth=210)
+infoLabel = API.Gumps.CreateGumpTTFLabel("Scans every 2s", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 infoLabel.SetPos(0, y)
+infoLabel.IsVisible = is_expanded
 gump.Add(infoLabel)
 
 API.Gumps.AddGump(gump)
@@ -576,7 +682,7 @@ API.Gumps.AddGump(gump)
 # Initial display update
 update_display()
 
-API.SysMsg("Gold Satchel v1.5 loaded!", 68)
+API.SysMsg("Gold Satchel v1.6 loaded!", 68)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
 else:
