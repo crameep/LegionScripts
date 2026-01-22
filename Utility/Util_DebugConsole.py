@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v1.0
+# Debug Console v1.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -202,13 +202,25 @@ def format_message(msg):
     level = msg["level"]
     text = msg["message"]
 
-    # Truncate long messages
-    if len(text) > 60:
-        text = text[:57] + "..."
+    # Truncate long messages (longer now that we have wrapping)
+    if len(text) > 80:
+        text = text[:77] + "..."
 
-    # Format: HH:MM:SS [Source] LEVEL: message
-    # Use brackets and spacing for readability in monochrome display
-    return ts + " [" + source[:8].ljust(8) + "] " + level.ljust(5) + ": " + text
+    # Format with visual level indicators
+    # Use distinct symbols/brackets per level for visual differentiation
+    if level == "INFO":
+        prefix = "[i]"  # info
+    elif level == "WARN":
+        prefix = "[!]"  # warning/alert
+    elif level == "ERROR":
+        prefix = "[X]"  # error/failure
+    elif level == "DEBUG":
+        prefix = "[.]"  # debug/trace
+    else:
+        prefix = "[?]"
+
+    # Format: HH:MM:SS [Symbol] Source: message
+    return ts + " " + prefix + " " + source[:10].ljust(10) + ": " + text
 
 def update_message_display():
     """Update the message display labels"""
@@ -231,7 +243,7 @@ def update_message_display():
         display_text += format_message(msg) + "\n"
 
     if not display_text:
-        display_text = "No messages match current filters\n\nAdjust filters to see messages"
+        display_text = "No messages match current filters\n\nAdjust filters or wait for messages\n\nLegend: [i]=INFO [!]=WARN [X]=ERROR [.]=DEBUG"
 
     messageLabel.SetText(display_text.strip())
 
@@ -566,8 +578,8 @@ messageBg.SetRect(5, y, 390, 340)
 messageBg.IsVisible = is_expanded
 gump.Add(messageBg)
 
-# Message label (green monospace text on black)
-messageLabel = API.Gumps.CreateGumpTTFLabel("Waiting for messages...\n\nMonitoring queue every 200ms", 9, "#00ff00")
+# Message label (gray text on black, using color-coded symbols)
+messageLabel = API.Gumps.CreateGumpTTFLabel("Waiting for messages...\n\nMonitoring queue every 200ms", 10, "#aaaaaa", maxWidth=380)
 messageLabel.SetPos(8, y + 3)
 messageLabel.IsVisible = is_expanded
 gump.Add(messageLabel)
@@ -603,7 +615,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v1.0 Started ===", 68)
+API.SysMsg("=== Debug Console v1.1 Started ===", 68)
 API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
 
 next_poll = time.time()
