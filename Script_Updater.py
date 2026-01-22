@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v2.1.1
+# Script Updater v1.5
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -7,15 +7,15 @@
 # Non-blocking state machine keeps GUI responsive during downloads.
 #
 # Features:
-#   - Collapsible folder hierarchy (Tamer/, Mage/, Dexer/, Utility/)
 #   - Check for script updates from GitHub repository
 #   - Compare local vs remote versions (semantic versioning)
 #   - Backup scripts before updating (_backups directory)
 #   - Restore previous versions from backup
 #   - Scrollable list with checkboxes for selective updates
+#   - Category indicators: [Tamer], [Mage], [Dexer], [Utility]
 #   - Status indicators: NEW, OK, UPDATE, N-A, ERROR
 #   - Network error handling with timeouts
-#   - Auto-select installed scripts after version check
+#   - Warning if script might be running
 #
 # ============================================================
 import API
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "2.1.1"
+__version__ = "1.5"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
@@ -39,7 +39,7 @@ DOWNLOAD_TIMEOUT = 5  # seconds
 EXCLUDED_DIRS = ["__pycache__", ".git", ".github", "_backups", "Test"]
 
 # Scripts to manage - dynamically loaded from GitHub
-MANAGED_SCRIPTS = []  # List of (folder_name, relative_path) tuples
+MANAGED_SCRIPTS = []  # List of (category, relative_path) tuples
 
 # ============ CONSTANTS ============
 # GUI colors
@@ -47,7 +47,7 @@ HUE_GREEN = 68      # OK/active
 HUE_RED = 32        # Error/danger
 HUE_YELLOW = 43     # Warning/update available
 HUE_GRAY = 90       # Neutral/disabled
-HUE_BLUE = 66       # Special/folder
+HUE_BLUE = 66       # Special
 
 # Status indicators
 STATUS_OK = "OK"
@@ -58,7 +58,6 @@ STATUS_ERROR = "ERROR"
 
 # ============ PERSISTENCE KEYS ============
 SETTINGS_KEY = "Updater_WindowXY"
-FOLDER_STATE_KEY = "Updater_FolderState"
 
 # ============ STATE MACHINE ============
 # States: IDLE, CHECKING, BACKING_UP, DOWNLOADING, WRITING, ERROR
@@ -72,8 +71,7 @@ error_message = ""
 status_message = "Ready"
 
 # ============ RUNTIME STATE ============
-script_data = {}  # Dict: {relative_path: {local_version, remote_version, status, selected, error, folder}}
-folder_data = {}  # Dict: {folder_name: {expanded: bool, script_count: int, update_count: int}}
+script_data = {}  # Dict: {relative_path: {local_version, remote_version, status, selected, error, category}}
 checking_all = False
 backup_path = ""
 updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
@@ -249,8 +247,59 @@ def write_script(relative_path, content):
     except Exception as e:
         return (False, str(e))
 
+def list_backups(filename):
+    """List all backup files for a given script. Returns list of (path, timestamp)"""
+    try:
+        script_dir = get_script_dir()
+        backup_dir = os.path.join(script_dir, BACKUP_DIR)
+
+        if not os.path.exists(backup_dir):
+            return []
+
+        base_name = filename.replace(".py", "")
+        backups = []
+
+        for f in os.listdir(backup_dir):
+            if f.startswith(base_name + "_") and f.endswith(".py"):
+                path = os.path.join(backup_dir, f)
+                # Extract timestamp from filename
+                try:
+                    parts = f.replace(".py", "").split("_")
+                    if len(parts) >= 3:
+                        date_str = parts[-2]  # YYYYMMDD
+                        time_str = parts[-1]  # HHMMSS
+                        timestamp = date_str + "_" + time_str
+                        backups.append((path, timestamp))
+                except:
+                    backups.append((path, "unknown"))
+
+        # Sort by timestamp (newest first)
+        backups.sort(key=lambda x: x[1], reverse=True)
+        return backups
+    except:
+        return []
+
+def restore_backup(backup_path, filename):
+    """Restore a backup file. Returns (success, error_or_none)"""
+    try:
+        script_dir = get_script_dir()
+        target_path = os.path.join(script_dir, filename)
+
+        # Read backup
+        with open(backup_path, 'r') as src:
+            content = src.read()
+
+        # Write to script
+        with open(target_path, 'w') as dst:
+            dst.write(content)
+
+        debug_msg("Restored from: " + backup_path)
+        return (True, None)
+    except Exception as e:
+        return (False, str(e))
+
 def fetch_github_script_list():
-    """Recursively fetch .py files from GitHub repository. Returns list of (folder_name, relative_path) tuples."""
+    """Recursively fetch .py files from GitHub repository. Returns list of (category, relative_path) tuples."""
     try:
         debug_msg("Fetching script list from GitHub API...")
 
@@ -282,8 +331,8 @@ def fetch_github_script_list():
                     # Skip __init__.py files
                     if item_name != '__init__.py':
                         relative_path = path_prefix + item_name if path_prefix else item_name
-                        folder_name = path_prefix.rstrip('/') if path_prefix else "_root"
-                        script_list.append((folder_name, relative_path))
+                        category = path_prefix.rstrip('/') if path_prefix else ""
+                        script_list.append((category, relative_path))
 
                 elif item_type == 'dir' and item_name not in EXCLUDED_DIRS:
                     # Recursively fetch from subdirectory
@@ -303,7 +352,7 @@ def fetch_github_script_list():
         return discover_local_scripts()
 
 def discover_local_scripts():
-    """Discover .py files in local directory as fallback. Returns list of (folder_name, relative_path) tuples."""
+    """Discover .py files in local directory as fallback. Returns list of (category, relative_path) tuples."""
     try:
         script_dir = get_script_dir()
         script_list = []
@@ -316,8 +365,8 @@ def discover_local_scripts():
 
                     if os.path.isfile(item_path) and item_name.endswith('.py') and item_name != '__init__.py':
                         relative_path = path_prefix + item_name if path_prefix else item_name
-                        folder_name = path_prefix.rstrip('/') if path_prefix else "_root"
-                        script_list.append((folder_name, relative_path))
+                        category = path_prefix.rstrip('/') if path_prefix else ""
+                        script_list.append((category, relative_path))
 
                     elif os.path.isdir(item_path) and item_name not in EXCLUDED_DIRS:
                         sub_path_prefix = path_prefix + item_name + "/"
@@ -331,51 +380,10 @@ def discover_local_scripts():
     except:
         return []
 
-# ============ FOLDER MANAGEMENT ============
-def load_folder_state():
-    """Load folder expanded/collapsed state from persistent storage"""
-    global folder_data
-    try:
-        saved_state = API.GetPersistentVar(FOLDER_STATE_KEY, "", API.PersistentVar.Char)
-        if saved_state:
-            # Format: "Tamer:1|Mage:0|Dexer:1"
-            for pair in saved_state.split('|'):
-                if ':' in pair:
-                    folder_name, expanded = pair.split(':')
-                    if folder_name in folder_data:
-                        folder_data[folder_name]['expanded'] = (expanded == '1')
-    except:
-        pass
-
-def save_folder_state():
-    """Save folder expanded/collapsed state to persistent storage"""
-    try:
-        state_parts = []
-        for folder_name, data in folder_data.items():
-            expanded = '1' if data['expanded'] else '0'
-            state_parts.append(folder_name + ':' + expanded)
-        state_str = '|'.join(state_parts)
-        API.SavePersistentVar(FOLDER_STATE_KEY, state_str, API.PersistentVar.Char)
-    except:
-        pass
-
-def toggle_folder(folder_name):
-    """Toggle folder expanded/collapsed state"""
-    if folder_name in folder_data:
-        folder_data[folder_name]['expanded'] = not folder_data[folder_name]['expanded']
-        save_folder_state()
-        update_script_list()
-
-def make_folder_toggle_callback(folder_name):
-    """Create callback for toggling folder"""
-    def callback():
-        toggle_folder(folder_name)
-    return callback
-
 # ============ INITIALIZATION ============
 def init_script_data():
     """Initialize script data structure"""
-    global script_data, MANAGED_SCRIPTS, folder_data
+    global script_data, MANAGED_SCRIPTS
 
     # Fetch script list from GitHub
     API.SysMsg("Fetching script list from GitHub...", HUE_BLUE)
@@ -387,34 +395,20 @@ def init_script_data():
 
     API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts in repository", HUE_GREEN)
 
-    # Initialize script data and folder data
-    for folder_name, relative_path in MANAGED_SCRIPTS:
+    for category, relative_path in MANAGED_SCRIPTS:
         script_data[relative_path] = {
             'local_version': None,
             'remote_version': None,
             'status': STATUS_NA,
             'selected': False,
             'error': None,
-            'folder': folder_name
+            'category': category
         }
-
         # Get local version
         local_ver = get_local_version(relative_path)
         script_data[relative_path]['local_version'] = local_ver
         if local_ver:
             script_data[relative_path]['status'] = STATUS_OK
-
-        # Initialize folder data
-        if folder_name not in folder_data:
-            folder_data[folder_name] = {
-                'expanded': True,  # Default to expanded
-                'script_count': 0,
-                'update_count': 0
-            }
-        folder_data[folder_name]['script_count'] += 1
-
-    # Load saved folder state
-    load_folder_state()
 
 # ============ STATE MACHINE ACTIONS ============
 def start_check_updates(selected_only=False):
@@ -428,7 +422,7 @@ def start_check_updates(selected_only=False):
     # Build list of scripts to check
     scripts_to_update = []
     if selected_only:
-        for folder_name, relative_path in MANAGED_SCRIPTS:
+        for category, relative_path in MANAGED_SCRIPTS:
             if script_data[relative_path]['selected']:
                 scripts_to_update.append(relative_path)
         if not scripts_to_update:
@@ -436,7 +430,7 @@ def start_check_updates(selected_only=False):
             return
         checking_all = False
     else:
-        scripts_to_update = [relative_path for folder_name, relative_path in MANAGED_SCRIPTS]
+        scripts_to_update = [relative_path for category, relative_path in MANAGED_SCRIPTS]
         checking_all = True
 
     current_script_index = 0
@@ -454,9 +448,6 @@ def process_checking():
         STATE = "IDLE"
         status_message = "Check complete"
         update_status_display()
-
-        # Update folder counts
-        update_folder_counts()
         update_script_list()
 
         # Count updates available
@@ -512,16 +503,8 @@ def process_checking():
         script_data[relative_path]['error'] = content  # Error message
 
     current_script_index += 1
-
-def update_folder_counts():
-    """Update folder update counts"""
-    for folder_name in folder_data:
-        folder_data[folder_name]['update_count'] = 0
-
-    for relative_path, data in script_data.items():
-        folder_name = data['folder']
-        if data['status'] == STATUS_UPDATE:
-            folder_data[folder_name]['update_count'] += 1
+    # Don't update GUI every script - wait until all checking is done
+    # update_script_list()
 
 def start_update_selected():
     """Start updating selected scripts"""
@@ -533,7 +516,7 @@ def start_update_selected():
 
     # Build list of selected scripts
     scripts_to_update = []
-    for folder_name, relative_path in MANAGED_SCRIPTS:
+    for category, relative_path in MANAGED_SCRIPTS:
         if script_data[relative_path]['selected']:
             scripts_to_update.append(relative_path)
 
@@ -557,7 +540,7 @@ def start_update_all():
 
     # Build list of scripts with updates
     scripts_to_update = []
-    for folder_name, relative_path in MANAGED_SCRIPTS:
+    for category, relative_path in MANAGED_SCRIPTS:
         if script_data[relative_path]['status'] in [STATUS_UPDATE, STATUS_NEW]:
             scripts_to_update.append(relative_path)
 
@@ -580,8 +563,6 @@ def process_backing_up():
         STATE = "IDLE"
         status_message = "Update complete!"
         update_status_display()
-        update_folder_counts()
-        update_script_list()
         API.SysMsg("Update complete! " + str(len(scripts_to_update)) + " scripts updated", HUE_GREEN)
 
         # Remind user if updater was updated
@@ -699,16 +680,32 @@ def on_update_all():
     """Update all scripts with updates available"""
     start_update_all()
 
-def toggle_script_selection(relative_path):
-    """Toggle selection checkbox for a script"""
-    if relative_path in script_data:
-        script_data[relative_path]['selected'] = not script_data[relative_path]['selected']
-        update_script_list()
+def on_restore_backup():
+    """Restore a script from backup"""
+    global STATE
 
-def make_toggle_callback(relative_path):
+    if STATE != "IDLE":
+        API.SysMsg("Please wait until current operation finishes", HUE_YELLOW)
+        return
+
+    API.SysMsg("Select a script to restore (target it)...", HUE_BLUE)
+    # Note: Restore functionality would require a file picker dialog
+    # For now, just show message
+    API.SysMsg("Restore feature: Use file manager to copy from _backups/", HUE_YELLOW)
+
+def toggle_script_selection(index):
+    """Toggle selection checkbox for a script"""
+    if index < 0 or index >= len(MANAGED_SCRIPTS):
+        return
+
+    category, relative_path = MANAGED_SCRIPTS[index]
+    script_data[relative_path]['selected'] = not script_data[relative_path]['selected']
+    update_script_list()
+
+def make_toggle_callback(index):
     """Create callback for toggling script selection"""
     def callback():
-        toggle_script_selection(relative_path)
+        toggle_script_selection(index)
     return callback
 
 # ============ DISPLAY UPDATES ============
@@ -716,109 +713,48 @@ def update_status_display():
     """Update status bar"""
     statusLabel.SetText(status_message)
 
-def build_display_list():
-    """Build list of items to display (folders + scripts)"""
-    display_list = []
-
-    # Sort folders alphabetically (_root at the end)
-    sorted_folders = sorted(folder_data.keys(), key=lambda x: ('~' if x == '_root' else x))
-
-    for folder_name in sorted_folders:
-        folder_info = folder_data[folder_name]
-
-        # Add folder row
-        display_list.append(('folder', folder_name))
-
-        # Add scripts if folder is expanded
-        if folder_info['expanded']:
-            folder_scripts = []
-            for folder, relative_path in MANAGED_SCRIPTS:
-                if folder == folder_name:
-                    folder_scripts.append(relative_path)
-
-            # Sort scripts alphabetically
-            folder_scripts.sort()
-
-            for relative_path in folder_scripts:
-                display_list.append(('script', relative_path))
-
-    return display_list
-
 def update_script_list():
     """Update the script list display"""
-    display_list = build_display_list()
+    for i, (category, relative_path) in enumerate(MANAGED_SCRIPTS):
+        if i >= len(script_rows):
+            continue
 
-    for i in range(len(script_rows)):
-        btn = script_rows[i]['btn']
+        data = script_data[relative_path]
+        filename = os.path.basename(relative_path)
+        local_ver = data['local_version'] or "---"
+        remote_ver = data['remote_version'] or "---"
+        status = data['status']
+        selected = data['selected']
 
-        if i < len(display_list):
-            item_type, item_value = display_list[i]
+        # Determine color first
+        if status == STATUS_OK:
+            color = HUE_GREEN
+        elif status == STATUS_UPDATE:
+            color = HUE_YELLOW
+        elif status == STATUS_NEW:
+            color = HUE_BLUE
+        elif status == STATUS_ERROR:
+            color = HUE_RED
+        else:  # N-A
+            color = HUE_GRAY
 
-            if item_type == 'folder':
-                # Render folder row
-                folder_name = item_value
-                folder_info = folder_data[folder_name]
-                expand_icon = "v" if folder_info['expanded'] else ">"
-                display_name = "Other" if folder_name == "_root" else folder_name
+        # Build display text with category: [X] [Tamer] Script.py | v1.0 | v1.1 | UPDATE
+        checkbox = "[X]" if selected else "[ ]"
 
-                update_text = ""
-                if folder_info['update_count'] > 0:
-                    update_text = " - " + str(folder_info['update_count']) + " update"
-                    if folder_info['update_count'] > 1:
-                        update_text += "s"
-
-                text = expand_icon + " " + display_name + " (" + str(folder_info['script_count']) + " scripts)" + update_text
-
-                # Color
-                if folder_info['update_count'] > 0:
-                    color = HUE_YELLOW
-                else:
-                    color = HUE_BLUE
-
-                btn.SetBackgroundHue(color)
-                btn.SetText(text)
-
-                # Update callback
-                script_rows[i]['callback'] = make_folder_toggle_callback(folder_name)
-
-            else:  # script
-                # Render script row
-                relative_path = item_value
-                data = script_data[relative_path]
-                filename = os.path.basename(relative_path)
-
-                local_ver = data['local_version'] or "---"
-                remote_ver = data['remote_version'] or "---"
-                status = data['status']
-                selected = data['selected']
-
-                # Determine color
-                if status == STATUS_OK:
-                    color = HUE_GREEN
-                elif status == STATUS_UPDATE:
-                    color = HUE_YELLOW
-                elif status == STATUS_NEW:
-                    color = HUE_BLUE
-                elif status == STATUS_ERROR:
-                    color = HUE_RED
-                else:  # N-A
-                    color = HUE_GRAY
-
-                # Build display text: [X]  Script.py | v1.0 | v1.1 | UPDATE
-                checkbox = "[X]" if selected else "[ ]"
-                text = checkbox + "  " + filename[:20].ljust(20) + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
-
-                # Update button - set color first, then text
-                btn.SetBackgroundHue(color)
-                btn.SetText(text)
-
-                # Update callback
-                script_rows[i]['callback'] = make_toggle_callback(relative_path)
+        # Format category indicator
+        if category:
+            cat_display = "[" + category + "]"
         else:
-            # Clear unused rows - set to empty text with neutral gray background
-            btn.SetBackgroundHue(HUE_GRAY)
-            btn.SetText("")
-            script_rows[i]['callback'] = None
+            cat_display = ""
+
+        # Combine: checkbox + category + filename with appropriate spacing
+        name_part = (cat_display + " " + filename)[:30].ljust(30) if cat_display else filename[:30].ljust(30)
+        text = checkbox + " " + name_part + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
+
+        # Update button - set color first, then text to force redraw
+        btn = script_rows[i]['label']
+        btn.SetBackgroundHue(color)
+        btn.SetText(text)
 
 # ============ CLEANUP ============
 def cleanup():
@@ -849,8 +785,8 @@ lastX = int(posXY[0])
 lastY = int(posXY[1])
 
 # Window size
-win_width = 600
-win_height = 500
+win_width = 580
+win_height = 450
 gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
@@ -870,7 +806,7 @@ gump.Add(instructions)
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] Script Name          | Local  | Remote | Status", 9, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 9, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
@@ -878,51 +814,46 @@ gump.Add(header)
 y = 68
 script_rows = []
 row_height = 22
-max_rows = 15
 
-# Create row pool
-for i in range(max_rows):
-    btn = API.Gumps.CreateSimpleButton("", 580, row_height - 2)
+for i, filename in enumerate(MANAGED_SCRIPTS):
+    # Clickable row
+    btn = API.Gumps.CreateSimpleButton("[ ] " + filename, 560, row_height - 2)
     btn.SetPos(10, y + (i * row_height))
     btn.SetBackgroundHue(HUE_GRAY)
+    API.Gumps.AddControlOnClick(btn, make_toggle_callback(i))
     gump.Add(btn)
 
     script_rows.append({
-        'btn': btn,
-        'callback': None
+        'label': btn,
+        'filename': filename
     })
 
-# Setup click callbacks
-def make_row_click_handler(row_index):
-    """Create click handler that calls the current callback for this row"""
-    def handler():
-        if script_rows[row_index]['callback']:
-            script_rows[row_index]['callback']()
-    return handler
-
-for i in range(len(script_rows)):
-    API.Gumps.AddControlOnClick(script_rows[i]['btn'], make_row_click_handler(i))
-
 # Bottom buttons
-y = 68 + (max_rows * row_height) + 10
+y = 68 + (len(MANAGED_SCRIPTS) * row_height) + 10
 
-checkBtn = API.Gumps.CreateSimpleButton("[Check Updates]", 140, 25)
+checkBtn = API.Gumps.CreateSimpleButton("[Check Updates]", 135, 25)
 checkBtn.SetPos(10, y)
 checkBtn.SetBackgroundHue(HUE_BLUE)
 API.Gumps.AddControlOnClick(checkBtn, on_check_updates)
 gump.Add(checkBtn)
 
-updateSelectedBtn = API.Gumps.CreateSimpleButton("[Update Selected]", 140, 25)
-updateSelectedBtn.SetPos(155, y)
+updateSelectedBtn = API.Gumps.CreateSimpleButton("[Update Selected]", 135, 25)
+updateSelectedBtn.SetPos(150, y)
 updateSelectedBtn.SetBackgroundHue(HUE_YELLOW)
 API.Gumps.AddControlOnClick(updateSelectedBtn, on_update_selected)
 gump.Add(updateSelectedBtn)
 
-updateAllBtn = API.Gumps.CreateSimpleButton("[Update All]", 140, 25)
-updateAllBtn.SetPos(300, y)
+updateAllBtn = API.Gumps.CreateSimpleButton("[Update All]", 135, 25)
+updateAllBtn.SetPos(290, y)
 updateAllBtn.SetBackgroundHue(HUE_GREEN)
 API.Gumps.AddControlOnClick(updateAllBtn, on_update_all)
 gump.Add(updateAllBtn)
+
+restoreBtn = API.Gumps.CreateSimpleButton("[Restore Backup]", 135, 25)
+restoreBtn.SetPos(430, y)
+restoreBtn.SetBackgroundHue(HUE_GRAY)
+API.Gumps.AddControlOnClick(restoreBtn, on_restore_backup)
+gump.Add(restoreBtn)
 
 # Status bar
 y += 30
