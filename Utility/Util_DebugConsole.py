@@ -350,7 +350,7 @@ def toggle_error():
     global show_error
     show_error = not show_error
     save_filter_state(SETTINGS_KEY + "_ShowError", show_error)
-    errorBtn.SetBackgroundHue(32 if show_error else 90)
+    errorBtn.SetBackgroundHue(68 if show_error else 32)  # Fixed: green when ON, red when OFF
     update_message_display()
 
 def toggle_debug():
@@ -358,7 +358,7 @@ def toggle_debug():
     global show_debug
     show_debug = not show_debug
     save_filter_state(SETTINGS_KEY + "_ShowDebug", show_debug)
-    debugBtn.SetBackgroundHue(90 if show_debug else 32)
+    debugBtn.SetBackgroundHue(68 if show_debug else 32)  # Fixed: green when ON, red when OFF
     update_message_display()
 
 def cycle_source_filter():
@@ -549,14 +549,14 @@ gump.Add(warnBtn)
 
 errorBtn = API.Gumps.CreateSimpleButton("[ERR]", 45, 20)
 errorBtn.SetPos(111, y)
-errorBtn.SetBackgroundHue(32 if show_error else 90)
+errorBtn.SetBackgroundHue(68 if show_error else 32)  # Fixed: green when ON, red when OFF
 errorBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(errorBtn, toggle_error)
 gump.Add(errorBtn)
 
 debugBtn = API.Gumps.CreateSimpleButton("[DBG]", 45, 20)
 debugBtn.SetPos(159, y)
-debugBtn.SetBackgroundHue(90 if show_debug else 32)
+debugBtn.SetBackgroundHue(68 if show_debug else 32)  # Fixed: green when ON, red when OFF
 debugBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(debugBtn, toggle_debug)
 gump.Add(debugBtn)
