@@ -1,5 +1,5 @@
 # ============================================================
-# Gold Satchel Auto-Mover v1.7
+# Gold Satchel Auto-Mover v1.8
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@
 import API
 import time
 
-__version__ = "1.7"
+__version__ = "1.8"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED          # Gold pile graphic ID
@@ -39,7 +39,7 @@ DEBUG = False                  # Enable debug messages
 # ============ GUI DIMENSIONS ============
 WINDOW_WIDTH = 140
 COLLAPSED_HEIGHT = 24
-EXPANDED_HEIGHT = 235
+EXPANDED_HEIGHT = 160
 
 # ============ PERSISTENCE KEYS ============
 SATCHEL_KEY = "GoldSatchel_Serial"
@@ -609,28 +609,28 @@ statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
 # Satchel info
-y += 12
+y += 10
 satchelLabel = API.Gumps.CreateGumpTTFLabel("Satchel: [Not Set]", 8, "#ff6666")
 satchelLabel.SetPos(leftMargin, y)
 satchelLabel.IsVisible = is_expanded
 gump.Add(satchelLabel)
 
 # Banked counter - BIG and centered
-y += 16
-sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 13, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH)
+y += 14
+sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 12, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH)
 sessionLabel.SetPos(0, y)
 sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 # Error display
-y += 20
+y += 16
 errorLabel = API.Gumps.CreateGumpTTFLabel("", 7, "#ff3333")
 errorLabel.SetPos(leftMargin, y)
 errorLabel.IsVisible = is_expanded
 gump.Add(errorLabel)
 
 # Buttons row 1
-y += 16
+y += 14
 enableBtn = API.Gumps.CreateSimpleButton("[ON]", btnW, btnH)
 enableBtn.SetPos(leftMargin, y)
 enableBtn.SetBackgroundHue(68)
@@ -646,7 +646,7 @@ API.Gumps.AddControlOnClick(retargetBtn, retarget_satchel)
 gump.Add(retargetBtn)
 
 # Buttons row 2
-y += 24
+y += 22
 resetBtn = API.Gumps.CreateSimpleButton("[RESET]", btnW, btnH)
 resetBtn.SetPos(leftMargin, y)
 resetBtn.SetBackgroundHue(53)
@@ -662,7 +662,7 @@ API.Gumps.AddControlOnClick(bankBtn, move_satchel_to_bank)
 gump.Add(bankBtn)
 
 # Buttons row 3
-y += 24
+y += 22
 checkBtn = API.Gumps.CreateSimpleButton("[MAKE CHECK]", 130, btnH)
 checkBtn.SetPos(leftMargin, y)
 checkBtn.SetBackgroundHue(43)
@@ -671,7 +671,7 @@ API.Gumps.AddControlOnClick(checkBtn, make_check)
 gump.Add(checkBtn)
 
 # Info label
-y += 25
+y += 22
 infoLabel = API.Gumps.CreateGumpTTFLabel("Scans every 2s", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 infoLabel.SetPos(0, y)
 infoLabel.IsVisible = is_expanded
@@ -682,7 +682,7 @@ API.Gumps.AddGump(gump)
 # Initial display update
 update_display()
 
-API.SysMsg("Gold Satchel v1.7 loaded!", 68)
+API.SysMsg("Gold Satchel v1.8 loaded!", 68)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
 else:
