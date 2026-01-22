@@ -164,6 +164,21 @@ rez_friend_name = ""
 MAX_REZ_ATTEMPTS = 50
 REZ_FRIEND_DELAY = 8.0
 
+# Journal messages for resurrection detection
+JOURNAL_REZ_SUCCESS = [
+    "You are able to resurrect your patient",  # Primary success message
+    "You have resurrected",                     # Alternate shard message
+    "returns to life"                           # Alternate shard message
+]
+
+JOURNAL_REZ_FAIL = [
+    "You fail to resurrect your patient",       # Failed attempt
+    "That being is not damaged",                # Target not dead
+    "You cannot perform beneficial acts",       # Criminal/grey
+    "That is too far away",                     # Out of range
+    "Target cannot be seen"                     # Line of sight
+]
+
 # ============ UTILITY FUNCTIONS ============
 def is_poisoned(mob):
     if not mob:
@@ -456,6 +471,34 @@ def handle_auto_target():
             # No more targets in range
             current_attack_target = 0
 
+def check_journal_for_message(msg):
+    """Check if journal contains a message"""
+    try:
+        return API.InJournal(msg, False)  # Don't clear matches
+    except:
+        return False
+
+def clear_journal_safe():
+    """Safely clear journal"""
+    try:
+        API.ClearJournal()
+    except:
+        pass
+
+def check_rez_success():
+    """Check journal for resurrection success messages"""
+    for msg in JOURNAL_REZ_SUCCESS:
+        if check_journal_for_message(msg):
+            return True
+    return False
+
+def check_rez_fail():
+    """Check journal for resurrection failure messages"""
+    for msg in JOURNAL_REZ_FAIL:
+        if check_journal_for_message(msg):
+            return msg  # Return the specific failure message
+    return None
+
 # ============ PERSISTENCE ============
 def load_settings():
     global USE_MAGERY, USE_REZ, HEAL_SELF, SKIP_OUT_OF_RANGE, TANK_PET, VET_KIT_GRAPHIC
@@ -698,12 +741,17 @@ def get_next_heal_action():
     Does NOT block - just decides what to do.
 
     Priority:
+    0. FRIEND REZ: Absolute highest priority (blocks all other healing)
     1. TRAPPED POUCH: Break paralyze (if safe HP)
     2. PLAYER POTIONS: Critical/poison/heal
     3. SELF BANDAGES: After potions
     4. VET KIT: Multiple pets hurt
     5. PET HEALING: Tank and others
     """
+    # FRIEND REZ: Absolute highest priority - pauses all other healing
+    if rez_friend_active:
+        return None  # Don't do any other healing while rezzing friend
+
     # Skip if we're already healing
     if HEAL_STATE != "idle":
         return None
@@ -815,8 +863,246 @@ def get_next_heal_action():
         if mob and not mob.IsDead and mob.HitsDiff > 0:
             if get_distance(mob) <= (SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE):
                 return (TANK_PET, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
+
     return None
+
+# ============ FRIEND REZ FUNCTIONS ============
+def start_friend_rez():
+    """Start the friend resurrection process"""
+    global rez_friend_target, rez_friend_active, rez_friend_attempts, rez_friend_name
+
+    API.SysMsg("Target a DEAD friend to resurrect...", 38)
+    cancel_all_targets()
+
+    target = API.RequestTarget(timeout=15)
+
+    if not target:
+        API.SysMsg("Targeting cancelled", 32)
+        return
+
+    mob = API.FindMobile(target)
+    if not mob:
+        API.SysMsg("Not a valid mobile!", 32)
+        return
+
+    # Check if they're dead
+    if not mob.IsDead:
+        API.SysMsg(get_mob_name(mob) + " is not dead!", 32)
+        return
+
+    # Start rezzing
+    rez_friend_target = target
+    rez_friend_name = get_mob_name(mob)
+    rez_friend_attempts = 0
+    rez_friend_active = True
+
+    API.SysMsg("=== REZZING " + rez_friend_name.upper() + " ===", 38)
+    API.SysMsg("Pet healing PAUSED until rez complete or cancelled", 43)
+
+    update_rez_friend_display()
+
+def cancel_friend_rez():
+    """Cancel the friend resurrection process"""
+    global rez_friend_target, rez_friend_active, rez_friend_attempts, rez_friend_name
+
+    if rez_friend_active:
+        API.SysMsg("Friend rez cancelled after " + str(rez_friend_attempts) + " attempts", 43)
+
+    rez_friend_target = 0
+    rez_friend_name = ""
+    rez_friend_attempts = 0
+    rez_friend_active = False
+
+    update_rez_friend_display()
+
+def attempt_friend_rez():
+    """Attempt to resurrect the targeted friend"""
+    global rez_friend_attempts, rez_friend_active
+
+    if not rez_friend_active or rez_friend_target == 0:
+        return False
+
+    mob = API.FindMobile(rez_friend_target)
+    if not mob:
+        API.SysMsg("Lost target - " + rez_friend_name + " not found!", 32)
+        cancel_friend_rez()
+        return False
+
+    # Check if they're still dead
+    if not mob.IsDead:
+        API.SysMsg("=== " + rez_friend_name.upper() + " IS ALIVE! ===", 68)
+        API.HeadMsg("ALIVE!", rez_friend_target, 68)
+        heal_friend_after_rez()
+        cancel_friend_rez()
+        return True
+
+    # Check max attempts
+    if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
+        API.SysMsg("Max attempts reached (" + str(MAX_REZ_ATTEMPTS) + ") - giving up on " + rez_friend_name, 32)
+        cancel_friend_rez()
+        return False
+
+    # Increment attempt counter
+    rez_friend_attempts += 1
+
+    # Check distance
+    distance = get_distance(mob)
+    if distance > BANDAGE_RANGE:
+        API.SysMsg("Following " + rez_friend_name + " (distance: " + str(distance) + ")", 53)
+        # Simple follow - just move towards them
+        API.AutoFollow(rez_friend_target)
+        timeout = time.time() + 5.0
+        while time.time() < timeout:
+            mob = API.FindMobile(rez_friend_target)
+            if not mob:
+                API.CancelAutoFollow()
+                return False
+            if get_distance(mob) <= BANDAGE_RANGE:
+                break
+            API.Pause(0.2)
+        API.CancelAutoFollow()
+
+        # Re-check distance
+        mob = API.FindMobile(rez_friend_target)
+        if not mob or get_distance(mob) > BANDAGE_RANGE:
+            API.SysMsg("Couldn't reach " + rez_friend_name + " - retrying...", 32)
+            return False
+
+    # Check bandages
+    if not check_bandages():
+        API.SysMsg("Out of bandages! Rez paused.", 32)
+        return False
+
+    # Attempt rez
+    cancel_all_targets()
+    clear_journal_safe()
+
+    API.HeadMsg("Rez #" + str(rez_friend_attempts), rez_friend_target, 38)
+    API.SysMsg("Rez attempt #" + str(rez_friend_attempts) + " on " + rez_friend_name, 38)
+
+    API.PreTarget(rez_friend_target, "beneficial")
+    API.Pause(0.2)
+    API.UseObject(API.Found, False)
+    API.Pause(0.5)
+    API.CancelPreTarget()
+    clear_stray_cursor()
+
+    # Wait and check for success
+    start_time = time.time()
+    while time.time() - start_time < REZ_FRIEND_DELAY:
+        # Check if they're alive now
+        mob = API.FindMobile(rez_friend_target)
+        if mob and not mob.IsDead:
+            API.SysMsg("=== " + rez_friend_name.upper() + " RESURRECTED! ===", 68)
+            API.HeadMsg("RESURRECTED!", rez_friend_target, 68)
+            heal_friend_after_rez()
+            cancel_friend_rez()
+            return True
+
+        # Check journal for success
+        if check_rez_success():
+            API.SysMsg("=== " + rez_friend_name.upper() + " RESURRECTED! (journal) ===", 68)
+            API.HeadMsg("RESURRECTED!", rez_friend_target, 68)
+            clear_journal_safe()
+            heal_friend_after_rez()
+            cancel_friend_rez()
+            return True
+
+        # Check for failures
+        fail_msg = check_rez_fail()
+        if fail_msg:
+            if "not damaged" in fail_msg.lower():
+                # Target is alive!
+                API.SysMsg("=== " + rez_friend_name.upper() + " IS ALIVE! ===", 68)
+                heal_friend_after_rez()
+                cancel_friend_rez()
+                return True
+            else:
+                API.SysMsg("Rez failed: " + fail_msg, 43)
+                clear_journal_safe()
+                break
+
+        API.Pause(0.5)
+
+    # Not successful yet, will retry on next loop
+    update_rez_friend_display()
+    return False
+
+def heal_friend_after_rez():
+    """Bandage the friend once after resurrection"""
+    global rez_friend_target, rez_friend_name
+
+    if rez_friend_target == 0:
+        return
+
+    API.SysMsg("Healing " + rez_friend_name + " after rez...", 68)
+    API.HeadMsg("Healing!", rez_friend_target, 68)
+
+    # Check bandages
+    if not check_bandages():
+        API.SysMsg("No bandages to heal after rez!", 32)
+        return
+
+    # Check if in range
+    mob = API.FindMobile(rez_friend_target)
+    if not mob:
+        return
+
+    distance = get_distance(mob)
+    if distance > BANDAGE_RANGE:
+        # Try to follow
+        API.AutoFollow(rez_friend_target)
+        timeout = time.time() + 5.0
+        while time.time() < timeout:
+            mob = API.FindMobile(rez_friend_target)
+            if not mob:
+                API.CancelAutoFollow()
+                return
+            if get_distance(mob) <= BANDAGE_RANGE:
+                break
+            API.Pause(0.2)
+        API.CancelAutoFollow()
+
+        # Re-check
+        mob = API.FindMobile(rez_friend_target)
+        if not mob or get_distance(mob) > BANDAGE_RANGE:
+            API.SysMsg("Couldn't reach " + rez_friend_name + " to heal", 32)
+            return
+
+    # Bandage them
+    cancel_all_targets()
+    clear_journal_safe()
+
+    API.PreTarget(rez_friend_target, "beneficial")
+    API.Pause(0.2)
+    API.UseObject(API.Found, False)
+    API.Pause(0.5)
+    API.CancelPreTarget()
+    clear_stray_cursor()
+
+    # Wait for bandage
+    API.Pause(VET_DELAY)
+    clear_stray_cursor()
+
+    API.SysMsg("Post-rez heal complete!", 68)
+
+def update_rez_friend_display():
+    """Update the rez friend button and label"""
+    if rez_friend_active:
+        rezFriendBtn.SetText("[CANCEL REZ]")
+        rezFriendBtn.SetBackgroundHue(32)
+        rezFriendLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
+    else:
+        rezFriendBtn.SetText("[REZ FRIEND]")
+        rezFriendBtn.SetBackgroundHue(38)
+        rezFriendLabel.SetText("Friend Rez: Inactive")
+
+def toggle_rez_friend():
+    """Toggle friend rez on/off"""
+    if rez_friend_active:
+        cancel_friend_rez()
+    else:
+        start_friend_rez()
 
 # ============ PET COMMANDS (INSTANT) ============
 def find_attack_target():
@@ -1344,6 +1630,7 @@ def cleanup():
 def onClosed():
     cleanup()
     cancel_heal()
+    cancel_friend_rez()
     API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
     API.Stop()
 
@@ -1456,6 +1743,24 @@ gump.Add(pauseBtn)
 statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
 statusLabel.SetPos(leftX + 95, y + 3)
 gump.Add(statusLabel)
+
+# Friend Rez section
+y += 28
+friendRezTitle = API.Gumps.CreateGumpTTFLabel("=== FRIEND REZ ===", 9, "#ff66ff", aligned="center", maxWidth=195)
+friendRezTitle.SetPos(leftX, y)
+gump.Add(friendRezTitle)
+
+y += 16
+rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
+rezFriendLabel.SetPos(leftX, y)
+gump.Add(rezFriendLabel)
+
+y += 14
+rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
+rezFriendBtn.SetPos(leftX, y)
+rezFriendBtn.SetBackgroundHue(38)
+API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
+gump.Add(rezFriendBtn)
 
 # ========== RIGHT PANEL (COMMANDS) ==========
 rightX = 205
@@ -1640,8 +1945,9 @@ update_tank_display()
 update_vetkit_display()
 update_bandage_display()
 update_potion_display()
+update_rez_friend_display()
 
-API.SysMsg("Tamer Suite v2 loaded! NEW: Potions, Trapped Pouch, Auto-Target", 68)
+API.SysMsg("Tamer Suite v2 loaded! NEW: Friend Rez, Potions, Trapped Pouch, Auto-Target", 68)
 API.SysMsg("Kill:" + (ALL_KILL_HOTKEY or "-") + " Guard:" + (GUARD_HOTKEY or "-") + " Follow:" + (FOLLOW_HOTKEY or "-") + " Pause:" + (PAUSE_HOTKEY or "-"), 53)
 
 # ============ MAIN LOOP (NON-BLOCKING) ============
@@ -1678,11 +1984,20 @@ while not API.StopRequested:
             update_vetkit_display()
             update_bandage_display()
             update_potion_display()
+            if rez_friend_active:
+                update_rez_friend_display()
             next_display = time.time() + DISPLAY_INTERVAL
         
         # Check alerts (even when paused)
         check_critical_alerts()
-        
+
+        # FRIEND REZ LOGIC (highest priority - pauses all other healing)
+        if not PAUSED and rez_friend_active:
+            statusLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
+            attempt_friend_rez()
+            # Continue to next iteration - skip normal healing
+            continue
+
         # HEALER LOGIC (non-blocking)
         if not PAUSED and HEAL_STATE == "idle":
             action = get_next_heal_action()
