@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v2.0
+# Script Updater v3.0
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -7,15 +7,17 @@
 # Non-blocking state machine keeps GUI responsive during downloads.
 #
 # Features:
+#   - Collapsible folder hierarchy for organized script display
 #   - Check for script updates from GitHub repository
 #   - Compare local vs remote versions (semantic versioning)
 #   - Backup scripts before updating (_backups directory)
 #   - Restore previous versions from backup
-#   - Scrollable list with checkboxes for selective updates
+#   - Pagination for large script lists (14 rows per page)
+#   - Dual-button rows (checkbox + content) for clean interaction
 #   - Status indicators: NEW, OK, UPDATE, N-A, ERROR
 #   - Network error handling with timeouts
-#   - Warning if script might be running
-#   - Recursive folder structure support (Tamer/, Mage/, etc.)
+#   - Auto-select scripts with updates after version check
+#   - Persistent folder expand/collapse state
 #
 # ============================================================
 import API
@@ -27,7 +29,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "2.0"
+__version__ = "3.0"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
@@ -56,8 +58,12 @@ STATUS_NEW = "NEW"
 STATUS_NA = "N-A"
 STATUS_ERROR = "ERROR"
 
+# Pagination
+MAX_VISIBLE_ROWS = 14
+
 # ============ PERSISTENCE KEYS ============
 SETTINGS_KEY = "Updater_WindowXY"
+FOLDER_STATE_KEY = "Updater_FolderExpanded"
 
 # ============ STATE MACHINE ============
 # States: IDLE, CHECKING, BACKING_UP, DOWNLOADING, WRITING, ERROR
@@ -72,9 +78,20 @@ status_message = "Ready"
 
 # ============ RUNTIME STATE ============
 script_data = {}  # Dict: {relative_path: {local_version, remote_version, status, selected, error}}
+folder_data = {}  # Dict: {folder_name: {scripts: [], expanded: bool, update_count: int, total_count: int}}
+FOLDER_ORDER = []  # Sorted list of folder names
+visible_items = []  # Dynamic list of what's currently visible: ("folder", name) or ("script", path)
+current_page = 0
+total_pages = 1
 checking_all = False
 backup_path = ""
 updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
+
+# GUI References
+script_rows = []  # List of {checkbox_btn, content_btn}
+pageLabel = None
+prevPageBtn = None
+nextPageBtn = None
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -399,64 +416,310 @@ def discover_local_scripts():
         API.SysMsg("Error discovering local scripts: " + str(e), HUE_RED)
         return []
 
-def migrate_old_scripts():
-    """
-    One-time migration: Move old root-level scripts to new folders if they exist.
-    Maps old filenames to new folder structure.
-    """
-    migration_map = {
-        "Tamer_Suite_v1.py": "Tamer/Tamer_Suite.py",
-        "Tamer_Healer_v7.py": "Tamer/Tamer_Healer.py",
-        "Tamer_Commands_v3.py": "Tamer/Tamer_Commands.py",
-        "Mage_SpellMenu_v1.py": "Mage/Mage_SpellMenu.py",
-        "Dexer_Suite_v1.py": "Dexer/Dexer_Suite.py",
-        "Util_GumpInspector_v2.py": "Utility/Util_GumpInspector.py",
-        "Util_Runebook_v1.py": "Utility/Util_Runebook.py",
-        "Util_GoldSatchel_v1.py": "Utility/Util_GoldSatchel.py",
-        "Util_HotkeyBar_v1.py": "Utility/Util_HotkeyBar.py"
-    }
+# ============ FOLDER MANAGEMENT ============
+def group_scripts_by_folder():
+    """Organize MANAGED_SCRIPTS into folder_data structure"""
+    global folder_data, FOLDER_ORDER
 
-    script_dir = get_script_dir()
-    migrated = []
+    folder_data = {}
 
-    for old_name, new_path in migration_map.items():
-        old_path = os.path.join(script_dir, old_name)
-        new_full_path = os.path.join(script_dir, new_path)
+    for relative_path in MANAGED_SCRIPTS:
+        # Determine folder name
+        if os.sep in relative_path or "/" in relative_path:
+            # Has folder: "Tamer/Script.py" or "Tamer\Script.py"
+            folder_name = relative_path.split(os.sep)[0].split("/")[0]
+        else:
+            # Root level: "Script.py"
+            folder_name = "_root"
 
-        # Check if old file exists and new location doesn't
-        if os.path.exists(old_path) and not os.path.exists(new_full_path):
-            try:
-                # Create new directory if needed
-                new_dir = os.path.dirname(new_full_path)
-                if not os.path.exists(new_dir):
-                    os.makedirs(new_dir)
+        # Initialize folder if needed
+        if folder_name not in folder_data:
+            folder_data[folder_name] = {
+                'scripts': [],
+                'expanded': True,  # Default to expanded
+                'update_count': 0,
+                'total_count': 0
+            }
 
-                # Move file
-                with open(old_path, 'r') as src:
-                    content = src.read()
-                with open(new_full_path, 'w') as dst:
-                    dst.write(content)
+        # Add script to folder
+        folder_data[folder_name]['scripts'].append(relative_path)
+        folder_data[folder_name]['total_count'] += 1
 
-                # Delete old file
-                os.remove(old_path)
+    # Sort folders: Alphabetically, with _root at end
+    FOLDER_ORDER = sorted([f for f in folder_data.keys() if f != "_root"])
+    if "_root" in folder_data:
+        FOLDER_ORDER.append("_root")
 
-                migrated.append(old_name + " -> " + new_path)
-                debug_msg("Migrated: " + old_name + " -> " + new_path)
-            except Exception as e:
-                debug_msg("Migration failed for " + old_name + ": " + str(e))
+    debug_msg("Grouped into " + str(len(folder_data)) + " folders: " + str(FOLDER_ORDER))
 
-    if migrated:
-        API.SysMsg("Migrated " + str(len(migrated)) + " scripts to new folder structure", HUE_BLUE)
-        for msg in migrated:
-            API.SysMsg("  " + msg, HUE_GRAY)
+    # Load saved expand state
+    load_folder_state()
+
+def update_folder_counts():
+    """Calculate update counts per folder after version check"""
+    for folder_name, folder in folder_data.items():
+        update_count = 0
+        for script_path in folder['scripts']:
+            if script_data[script_path]['status'] == STATUS_UPDATE:
+                update_count += 1
+        folder['update_count'] = update_count
+        debug_msg("Folder " + folder_name + ": " + str(update_count) + " updates")
+
+def toggle_folder_expand(folder_name):
+    """Toggle expand/collapse state for a folder"""
+    if folder_name in folder_data:
+        folder_data[folder_name]['expanded'] = not folder_data[folder_name]['expanded']
+        save_folder_state()
+        rebuild_visible_items()
+        render_visible_rows()
+        debug_msg("Toggled folder: " + folder_name + " -> " + str(folder_data[folder_name]['expanded']))
+
+def toggle_folder_selection(folder_name):
+    """Select/deselect all scripts in a folder"""
+    if folder_name not in folder_data:
+        return
+
+    # Determine target state: if any script is unselected, select all; otherwise deselect all
+    scripts = folder_data[folder_name]['scripts']
+    any_unselected = any(not script_data[path]['selected'] for path in scripts)
+    target_state = any_unselected
+
+    for script_path in scripts:
+        script_data[script_path]['selected'] = target_state
+
+    debug_msg("Set folder " + folder_name + " selection to: " + str(target_state))
+    render_visible_rows()
+
+def get_folder_selection_state(folder_name):
+    """Get selection state for folder: 'all', 'none', or 'partial'"""
+    if folder_name not in folder_data:
+        return 'none'
+
+    scripts = folder_data[folder_name]['scripts']
+    selected_count = sum(1 for path in scripts if script_data[path]['selected'])
+
+    if selected_count == 0:
+        return 'none'
+    elif selected_count == len(scripts):
+        return 'all'
+    else:
+        return 'partial'
+
+def save_folder_state():
+    """Save folder expand/collapse state to persistence"""
+    try:
+        # Format: "Tamer:1|Mage:0|Utility:1" (1=expanded, 0=collapsed)
+        state_list = []
+        for folder_name in FOLDER_ORDER:
+            expanded = folder_data[folder_name]['expanded']
+            state_list.append(folder_name + ":" + ("1" if expanded else "0"))
+
+        state_str = "|".join(state_list)
+        API.SavePersistentVar(FOLDER_STATE_KEY, state_str, API.PersistentVar.Char)
+        debug_msg("Saved folder state: " + state_str)
+    except Exception as e:
+        debug_msg("Error saving folder state: " + str(e))
+
+def load_folder_state():
+    """Load folder expand/collapse state from persistence"""
+    try:
+        state_str = API.GetPersistentVar(FOLDER_STATE_KEY, "", API.PersistentVar.Char)
+        if not state_str:
+            return
+
+        # Parse: "Tamer:1|Mage:0|Utility:1"
+        for entry in state_str.split("|"):
+            if ":" not in entry:
+                continue
+            folder_name, expanded_str = entry.split(":", 1)
+            if folder_name in folder_data:
+                folder_data[folder_name]['expanded'] = (expanded_str == "1")
+
+        debug_msg("Loaded folder state: " + state_str)
+    except Exception as e:
+        debug_msg("Error loading folder state: " + str(e))
+
+# ============ VISIBLE ITEMS & PAGINATION ============
+def rebuild_visible_items():
+    """Build list of visible items based on expand state"""
+    global visible_items, total_pages, current_page
+
+    visible_items = []
+
+    for folder_name in FOLDER_ORDER:
+        folder = folder_data[folder_name]
+
+        # Add folder header
+        visible_items.append(("folder", folder_name))
+
+        # Add scripts if expanded
+        if folder['expanded']:
+            for script_path in folder['scripts']:
+                visible_items.append(("script", script_path))
+
+    # Calculate pagination
+    total_pages = max(1, (len(visible_items) + MAX_VISIBLE_ROWS - 1) // MAX_VISIBLE_ROWS)
+
+    # Clamp current page
+    if current_page >= total_pages:
+        current_page = total_pages - 1
+    if current_page < 0:
+        current_page = 0
+
+    debug_msg("Visible items: " + str(len(visible_items)) + ", Pages: " + str(total_pages))
+
+def get_visible_page_items():
+    """Get items for current page"""
+    start_idx = current_page * MAX_VISIBLE_ROWS
+    end_idx = start_idx + MAX_VISIBLE_ROWS
+    return visible_items[start_idx:end_idx]
+
+def next_page():
+    """Go to next page"""
+    global current_page
+    if current_page < total_pages - 1:
+        current_page += 1
+        render_visible_rows()
+        debug_msg("Page: " + str(current_page + 1) + "/" + str(total_pages))
+
+def prev_page():
+    """Go to previous page"""
+    global current_page
+    if current_page > 0:
+        current_page -= 1
+        render_visible_rows()
+        debug_msg("Page: " + str(current_page + 1) + "/" + str(total_pages))
+
+# ============ ROW RENDERING ============
+def render_visible_rows():
+    """Update GUI rows with current visible items"""
+    page_items = get_visible_page_items()
+
+    for i in range(MAX_VISIBLE_ROWS):
+        row = script_rows[i]
+        checkbox_btn = row['checkbox_btn']
+        content_btn = row['content_btn']
+
+        if i < len(page_items):
+            # Show this row
+            item_type, item_data = page_items[i]
+
+            if item_type == "folder":
+                # Render folder row
+                folder_name = item_data
+                folder = folder_data[folder_name]
+
+                # Determine folder display name
+                display_name = folder_name
+                if folder_name == "_root":
+                    display_name = "Other"
+
+                # Checkbox: Show selection state
+                sel_state = get_folder_selection_state(folder_name)
+                if sel_state == 'all':
+                    checkbox_text = "[X]"
+                elif sel_state == 'partial':
+                    checkbox_text = "[-]"
+                else:
+                    checkbox_text = "[ ]"
+
+                # Content: Show expand icon and folder name with count
+                expand_icon = "[-]" if folder['expanded'] else "[+]"
+                update_info = ""
+                if folder['update_count'] > 0:
+                    update_info = "  (" + str(folder['update_count']) + " update" + ("s" if folder['update_count'] > 1 else "") + ")"
+
+                content_text = expand_icon + " " + display_name + update_info
+
+                # Determine folder color
+                if folder['update_count'] > 0:
+                    folder_color = HUE_YELLOW
+                elif any(script_data[path]['status'] != STATUS_NA for path in folder['scripts']):
+                    folder_color = HUE_GREEN
+                else:
+                    folder_color = HUE_GRAY
+
+                # Update buttons
+                checkbox_btn.SetBackgroundHue(folder_color)
+                checkbox_btn.SetText(checkbox_text)
+                content_btn.SetBackgroundHue(folder_color)
+                content_btn.SetText(content_text)
+
+            else:  # item_type == "script"
+                # Render script row
+                script_path = item_data
+                data = script_data[script_path]
+
+                # Checkbox
+                checkbox_text = "[X]" if data['selected'] else "[ ]"
+
+                # Content: "  Filename.py | v1.0 | v1.1 | STATUS"
+                filename = os.path.basename(script_path)
+                local_ver = data['local_version'] or "---"
+                remote_ver = data['remote_version'] or "---"
+                status = data['status']
+
+                # Build content text with proper spacing
+                content_text = "  " + filename[:24].ljust(24) + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
+
+                # Determine color
+                if status == STATUS_OK:
+                    color = HUE_GREEN
+                elif status == STATUS_UPDATE:
+                    color = HUE_YELLOW
+                elif status == STATUS_NEW:
+                    color = HUE_BLUE
+                elif status == STATUS_ERROR:
+                    color = HUE_RED
+                else:  # N-A
+                    color = HUE_GRAY
+
+                # Update buttons
+                checkbox_btn.SetBackgroundHue(color)
+                checkbox_btn.SetText(checkbox_text)
+                content_btn.SetBackgroundHue(color)
+                content_btn.SetText(content_text)
+
+        else:
+            # Hide this row (no item)
+            checkbox_btn.SetText("")
+            checkbox_btn.SetBackgroundHue(HUE_GRAY)
+            content_btn.SetText("")
+            content_btn.SetBackgroundHue(HUE_GRAY)
+
+    # Update page label
+    if pageLabel:
+        pageLabel.SetText("Page " + str(current_page + 1) + " / " + str(total_pages))
+
+# ============ CALLBACK FACTORIES ============
+def make_checkbox_callback(row_index):
+    """Create callback for checkbox button"""
+    def callback():
+        page_items = get_visible_page_items()
+        if row_index < len(page_items):
+            item_type, item_data = page_items[row_index]
+            if item_type == "folder":
+                toggle_folder_selection(item_data)
+            else:  # script
+                script_data[item_data]['selected'] = not script_data[item_data]['selected']
+                render_visible_rows()
+    return callback
+
+def make_content_callback(row_index):
+    """Create callback for content button"""
+    def callback():
+        page_items = get_visible_page_items()
+        if row_index < len(page_items):
+            item_type, item_data = page_items[row_index]
+            if item_type == "folder":
+                toggle_folder_expand(item_data)
+            # For scripts, clicking content does nothing (only checkbox selects)
+    return callback
 
 # ============ INITIALIZATION ============
 def init_script_data():
     """Initialize script data structure"""
     global script_data, MANAGED_SCRIPTS
-
-    # Try one-time migration of old scripts
-    migrate_old_scripts()
 
     # Fetch script list from GitHub
     API.SysMsg("Fetching script list from GitHub...", HUE_BLUE)
@@ -490,6 +753,12 @@ def init_script_data():
         script_data[relative_path]['local_version'] = local_ver
         if local_ver:
             script_data[relative_path]['status'] = STATUS_OK
+
+    # Group scripts into folders
+    group_scripts_by_folder()
+
+    # Build initial visible items
+    rebuild_visible_items()
 
 # ============ STATE MACHINE ACTIONS ============
 def start_check_updates(selected_only=False):
@@ -529,7 +798,20 @@ def process_checking():
         STATE = "IDLE"
         status_message = "Check complete"
         update_status_display()
-        update_script_list()
+
+        # Auto-select ONLY scripts with updates available
+        for path, data in script_data.items():
+            if data['status'] == STATUS_UPDATE:
+                data['selected'] = True
+            else:
+                data['selected'] = False  # Ensure others are deselected
+
+        # Update folder counts
+        update_folder_counts()
+
+        # Rebuild visible items and render
+        rebuild_visible_items()
+        render_visible_rows()
 
         # Count updates available
         update_count = sum(1 for data in script_data.values() if data['status'] == STATUS_UPDATE)
@@ -541,7 +823,7 @@ def process_checking():
 
     # Check next script
     relative_path = scripts_to_update[current_script_index]
-    status_message = "Checking " + relative_path + "..."
+    status_message = "Checking " + os.path.basename(relative_path) + "..."
     update_status_display()
 
     # Download and check version
@@ -565,16 +847,10 @@ def process_checking():
             cmp = compare_versions(local_ver, remote_ver)
             if cmp == -1:
                 script_data[relative_path]['status'] = STATUS_UPDATE
-                # Auto-select scripts that are installed and have updates
-                script_data[relative_path]['selected'] = True
             elif cmp == 0:
                 script_data[relative_path]['status'] = STATUS_OK
-                # Auto-select scripts that are already installed
-                script_data[relative_path]['selected'] = True
             else:
                 script_data[relative_path]['status'] = STATUS_OK  # Local is newer
-                # Auto-select scripts that are already installed
-                script_data[relative_path]['selected'] = True
 
         script_data[relative_path]['error'] = None
     else:
@@ -583,8 +859,6 @@ def process_checking():
         script_data[relative_path]['error'] = content  # Error message
 
     current_script_index += 1
-    # Don't update GUI every script - wait until all checking is done
-    # update_script_list()
 
 def start_update_selected():
     """Start updating selected scripts"""
@@ -610,30 +884,6 @@ def start_update_selected():
     update_status_display()
     API.SysMsg("Updating " + str(len(scripts_to_update)) + " scripts...", HUE_BLUE)
 
-def start_update_all():
-    """Start updating all scripts that have updates available"""
-    global STATE, scripts_to_update, current_script_index, status_message
-
-    if STATE != "IDLE":
-        API.SysMsg("Already busy!", HUE_RED)
-        return
-
-    # Build list of scripts with updates
-    scripts_to_update = []
-    for relative_path in MANAGED_SCRIPTS:
-        if script_data[relative_path]['status'] in [STATUS_UPDATE, STATUS_NEW]:
-            scripts_to_update.append(relative_path)
-
-    if not scripts_to_update:
-        API.SysMsg("No updates available!", HUE_YELLOW)
-        return
-
-    current_script_index = 0
-    STATE = "BACKING_UP"
-    status_message = "Starting update..."
-    update_status_display()
-    API.SysMsg("Updating " + str(len(scripts_to_update)) + " scripts...", HUE_BLUE)
-
 def process_backing_up():
     """Process BACKING_UP state - backup one script"""
     global STATE, current_script, backup_path, status_message, updater_was_updated
@@ -645,6 +895,11 @@ def process_backing_up():
         update_status_display()
         API.SysMsg("Update complete! " + str(len(scripts_to_update)) + " scripts updated", HUE_GREEN)
 
+        # Update folder counts
+        update_folder_counts()
+        rebuild_visible_items()
+        render_visible_rows()
+
         # Remind user if updater was updated
         if updater_was_updated:
             API.SysMsg("", HUE_GREEN)
@@ -655,7 +910,7 @@ def process_backing_up():
     # Backup next script
     relative_path = scripts_to_update[current_script_index]
     current_script = relative_path
-    status_message = "Backing up " + relative_path + "..."
+    status_message = "Backing up " + os.path.basename(relative_path) + "..."
     update_status_display()
 
     # Only backup if file exists locally
@@ -673,7 +928,7 @@ def process_downloading():
     global STATE, download_data, status_message
 
     relative_path = current_script
-    status_message = "Downloading " + relative_path + "..."
+    status_message = "Downloading " + os.path.basename(relative_path) + "..."
     update_status_display()
 
     success, content = download_script(relative_path)
@@ -691,14 +946,14 @@ def process_downloading():
         global current_script_index
         current_script_index += 1
         STATE = "BACKING_UP"
-        update_script_list()
+        render_visible_rows()
 
 def process_writing():
     """Process WRITING state - write downloaded content to file"""
     global STATE, current_script_index, status_message, updater_was_updated
 
     relative_path = current_script
-    status_message = "Writing " + relative_path + "..."
+    status_message = "Writing " + os.path.basename(relative_path) + "..."
     update_status_display()
 
     success, error = write_script(relative_path, download_data)
@@ -711,7 +966,7 @@ def process_writing():
         script_data[relative_path]['error'] = None
         script_data[relative_path]['selected'] = False  # Deselect after update
 
-        API.SysMsg("Updated: " + relative_path + " -> v" + (new_version or "?"), HUE_GREEN)
+        API.SysMsg("Updated: " + os.path.basename(relative_path) + " -> v" + (new_version or "?"), HUE_GREEN)
 
         # Special handling for self-update
         if relative_path == "Script_Updater.py":
@@ -729,7 +984,7 @@ def process_writing():
     # Move to next script
     current_script_index += 1
     STATE = "BACKING_UP"
-    update_script_list()
+    render_visible_rows()
 
 def process_state_machine():
     """Main state machine processor - call frequently"""
@@ -753,10 +1008,6 @@ def on_update_selected():
     """Update selected scripts"""
     start_update_selected()
 
-def on_update_all():
-    """Update all scripts with updates available"""
-    start_update_all()
-
 def on_restore_backup():
     """Restore a script from backup"""
     global STATE
@@ -765,68 +1016,12 @@ def on_restore_backup():
         API.SysMsg("Please wait until current operation finishes", HUE_YELLOW)
         return
 
-    API.SysMsg("Select a script to restore (target it)...", HUE_BLUE)
-    # Note: Restore functionality would require a file picker dialog
-    # For now, just show message
     API.SysMsg("Restore feature: Use file manager to copy from _backups/", HUE_YELLOW)
-
-def toggle_script_selection(index):
-    """Toggle selection checkbox for a script"""
-    if index < 0 or index >= len(MANAGED_SCRIPTS):
-        return
-
-    relative_path = MANAGED_SCRIPTS[index]
-    script_data[relative_path]['selected'] = not script_data[relative_path]['selected']
-    update_script_list()
-
-def make_toggle_callback(index):
-    """Create callback for toggling script selection"""
-    def callback():
-        toggle_script_selection(index)
-    return callback
 
 # ============ DISPLAY UPDATES ============
 def update_status_display():
     """Update status bar"""
     statusLabel.SetText(status_message)
-
-def update_script_list():
-    """Update the script list display"""
-    for i, relative_path in enumerate(MANAGED_SCRIPTS):
-        if i >= len(script_rows):
-            continue
-
-        data = script_data[relative_path]
-        local_ver = data['local_version'] or "---"
-        remote_ver = data['remote_version'] or "---"
-        status = data['status']
-        selected = data['selected']
-
-        # Determine color first
-        if status == STATUS_OK:
-            color = HUE_GREEN
-        elif status == STATUS_UPDATE:
-            color = HUE_YELLOW
-        elif status == STATUS_NEW:
-            color = HUE_BLUE
-        elif status == STATUS_ERROR:
-            color = HUE_RED
-        else:  # N-A
-            color = HUE_GRAY
-
-        # Build display text: [X] Folder/Script.py | v1.0 | v1.1 | UPDATE
-        checkbox = "[X]" if selected else "[ ]"
-        # Shorten path for display if too long
-        display_path = relative_path
-        if len(display_path) > 28:
-            display_path = "..." + display_path[-25:]
-
-        text = checkbox + " " + display_path[:28].ljust(28) + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
-
-        # Update button - set color first, then text to force redraw
-        btn = script_rows[i]['label']
-        btn.SetBackgroundHue(color)
-        btn.SetText(text)
 
 # ============ CLEANUP ============
 def cleanup():
@@ -856,9 +1051,9 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
-# Window size - wider to accommodate folder paths
-win_width = 660
-win_height = 450
+# Window size
+win_width = 580
+win_height = 480
 gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
@@ -872,65 +1067,84 @@ title.SetPos(0, 5)
 gump.Add(title)
 
 # Instructions
-instructions = API.Gumps.CreateGumpTTFLabel("Check scripts for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
+instructions = API.Gumps.CreateGumpTTFLabel("Collapsible folders | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
 instructions.SetPos(0, 28)
 gump.Add(instructions)
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] Script Path              | Local  | Remote | Status", 9, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("[ ]  Filename/Folder          | Local  | Remote | Status", 9, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
-# Script list (scrollable area)
+# Script list area - Fixed pool of MAX_VISIBLE_ROWS
 y = 68
-script_rows = []
 row_height = 22
-
-debug_msg("Building GUI with " + str(len(MANAGED_SCRIPTS)) + " scripts")
+checkbox_width = 35
+content_width = win_width - checkbox_width - 25
 
 if not MANAGED_SCRIPTS:
     # Show error message if no scripts loaded
-    errorLabel = API.Gumps.CreateGumpTTFLabel("ERROR: No scripts loaded! Check network and Script_Updater.py", 11, "#ff0000", aligned="center", maxWidth=win_width)
+    errorLabel = API.Gumps.CreateGumpTTFLabel("ERROR: No scripts loaded! Check network.", 11, "#ff0000", aligned="center", maxWidth=win_width)
     errorLabel.SetPos(0, y + 100)
     gump.Add(errorLabel)
 else:
-    for i, relative_path in enumerate(MANAGED_SCRIPTS):
-        # Clickable row
-        btn = API.Gumps.CreateSimpleButton("[ ] " + relative_path, 640, row_height - 2)
-        btn.SetPos(10, y + (i * row_height))
-        btn.SetBackgroundHue(HUE_GRAY)
-        API.Gumps.AddControlOnClick(btn, make_toggle_callback(i))
-        gump.Add(btn)
+    for i in range(MAX_VISIBLE_ROWS):
+        # Checkbox button (small, 30px wide)
+        checkbox_btn = API.Gumps.CreateSimpleButton("[ ]", checkbox_width, row_height - 2)
+        checkbox_btn.SetPos(10, y + (i * row_height))
+        checkbox_btn.SetBackgroundHue(HUE_GRAY)
+        API.Gumps.AddControlOnClick(checkbox_btn, make_checkbox_callback(i))
+        gump.Add(checkbox_btn)
+
+        # Content button (rest of width)
+        content_btn = API.Gumps.CreateSimpleButton("", content_width, row_height - 2)
+        content_btn.SetPos(10 + checkbox_width + 5, y + (i * row_height))
+        content_btn.SetBackgroundHue(HUE_GRAY)
+        API.Gumps.AddControlOnClick(content_btn, make_content_callback(i))
+        gump.Add(content_btn)
 
         script_rows.append({
-            'label': btn,
-            'path': relative_path
+            'checkbox_btn': checkbox_btn,
+            'content_btn': content_btn
         })
 
-# Bottom buttons
-y = 68 + (len(MANAGED_SCRIPTS) * row_height) + 10
+# Pagination controls
+y = 68 + (MAX_VISIBLE_ROWS * row_height) + 5
 
-checkBtn = API.Gumps.CreateSimpleButton("[Check Updates]", 155, 25)
+prevPageBtn = API.Gumps.CreateSimpleButton("[<]", 40, 22)
+prevPageBtn.SetPos(10, y)
+prevPageBtn.SetBackgroundHue(HUE_BLUE)
+API.Gumps.AddControlOnClick(prevPageBtn, prev_page)
+gump.Add(prevPageBtn)
+
+pageLabel = API.Gumps.CreateGumpTTFLabel("Page 1 / 1", 9, "#ffffff")
+pageLabel.SetPos(60, y + 3)
+gump.Add(pageLabel)
+
+nextPageBtn = API.Gumps.CreateSimpleButton("[>]", 40, 22)
+nextPageBtn.SetPos(180, y)
+nextPageBtn.SetBackgroundHue(HUE_BLUE)
+API.Gumps.AddControlOnClick(nextPageBtn, next_page)
+gump.Add(nextPageBtn)
+
+# Bottom buttons
+y += 32
+
+checkBtn = API.Gumps.CreateSimpleButton("[Check Updates]", 180, 25)
 checkBtn.SetPos(10, y)
 checkBtn.SetBackgroundHue(HUE_BLUE)
 API.Gumps.AddControlOnClick(checkBtn, on_check_updates)
 gump.Add(checkBtn)
 
-updateSelectedBtn = API.Gumps.CreateSimpleButton("[Update Selected]", 155, 25)
-updateSelectedBtn.SetPos(170, y)
+updateSelectedBtn = API.Gumps.CreateSimpleButton("[Update Selected]", 180, 25)
+updateSelectedBtn.SetPos(200, y)
 updateSelectedBtn.SetBackgroundHue(HUE_YELLOW)
 API.Gumps.AddControlOnClick(updateSelectedBtn, on_update_selected)
 gump.Add(updateSelectedBtn)
 
-updateAllBtn = API.Gumps.CreateSimpleButton("[Update All]", 155, 25)
-updateAllBtn.SetPos(330, y)
-updateAllBtn.SetBackgroundHue(HUE_GREEN)
-API.Gumps.AddControlOnClick(updateAllBtn, on_update_all)
-gump.Add(updateAllBtn)
-
-restoreBtn = API.Gumps.CreateSimpleButton("[Restore Backup]", 155, 25)
-restoreBtn.SetPos(490, y)
+restoreBtn = API.Gumps.CreateSimpleButton("[Restore Backup]", 170, 25)
+restoreBtn.SetPos(390, y)
 restoreBtn.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(restoreBtn, on_restore_backup)
 gump.Add(restoreBtn)
@@ -948,7 +1162,7 @@ gump.Add(statusLabel)
 API.Gumps.AddGump(gump)
 
 # Initial display update
-update_script_list()
+render_visible_rows()
 API.SysMsg("Script Updater v" + __version__ + " loaded! Click [Check Updates] to start", HUE_GREEN)
 
 # ============ MAIN LOOP (NON-BLOCKING) ============
