@@ -1,5 +1,5 @@
 # ============================================================
-# Pet Healer v7.0
+# Pet Healer v7.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import API
 import time
 from collections import namedtuple
 
-__version__ = "7.0"
+__version__ = "7.1"
 
 # ============ USER SETTINGS ============
 # Item graphic
@@ -124,6 +124,11 @@ pet_labels = []
 last_vetkit_use = 0  # Timestamp of last vet kit use
 last_no_bandage_warning = 0  # Timestamp of last "no bandages" warning
 NO_BANDAGE_COOLDOWN = 10.0  # Seconds to wait before warning again about no bandages
+
+# Window position tracking
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # Friend Rez state
 rez_friend_target = 0       # Serial of friend to resurrect
@@ -404,6 +409,19 @@ def save_journal_setting():
 
 def save_skipoor_setting():
     API.SavePersistentVar(SKIPOOR_KEY, "True" if SKIP_OUT_OF_RANGE else "False", API.PersistentVar.Char)
+
+def save_window_position():
+    """Save current window position robustly"""
+    global last_known_x, last_known_y
+    try:
+        x = gump.GetX()
+        y = gump.GetY()
+        if x is not None and y is not None and x >= 0 and y >= 0:
+            last_known_x = x
+            last_known_y = y
+            API.SavePersistentVar(SETTINGS_KEY, str(x) + "," + str(y), API.PersistentVar.Char)
+    except:
+        pass
 
 # ============ JOURNAL TRACKING ============
 def check_journal_for_message(msg):
@@ -1355,7 +1373,7 @@ def toggle_skipoor():
 def onClosed():
     cancel_all_targets()
     cancel_friend_rez()  # Clean up any active friend rez
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     API.Stop()
 
 # ============ DISPLAY UPDATES ============
@@ -1430,6 +1448,10 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
+# Initialize position tracking
+last_known_x = lastX
+last_known_y = lastY
+
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 gump.SetRect(lastX, lastY, 300, 470)
@@ -1438,7 +1460,7 @@ bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, 300, 470)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Pet Healer v7.0", 18, "#FF8800", aligned="center", maxWidth=300)
+title = API.Gumps.CreateGumpTTFLabel("Pet Healer v7.1", 16, "#FF8800", aligned="center", maxWidth=300)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -1603,7 +1625,7 @@ update_tank_display()
 update_vetkit_display()
 update_rez_friend_display()
 
-API.SysMsg("Pet Healer v7.0 loaded!", 68)
+API.SysMsg("Pet Healer v7.1 loaded!", 68)
 API.SysMsg("NEW: [REZ FRIEND] button for player resurrection!", 38)
 API.SysMsg("Journal: " + ("ON" if USE_JOURNAL_TRACKING else "OFF") + " | Skip OOR: " + ("ON" if SKIP_OUT_OF_RANGE else "OFF"), 66)
 
@@ -1614,11 +1636,10 @@ next_display_update = time.time() + DISPLAY_UPDATE_INTERVAL
 while not API.StopRequested:
     try:
         API.ProcessCallbacks()
-        
+
         # Save window position periodically
         if time.time() > next_save:
-            lastX = gump.GetX()
-            lastY = gump.GetY()
+            save_window_position()
             next_save = time.time() + SETTINGS_SAVE_INTERVAL
         
         # Update displays more frequently for responsive HP tracking

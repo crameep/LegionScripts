@@ -1,5 +1,5 @@
 # ============================================================
-# Gump Inspector v2.0
+# Gump Inspector v2.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "GumpInspector_XY"
@@ -36,6 +36,11 @@ last_gump_snapshot = {}  # {gump_id: timestamp}
 activity_log = []        # [(timestamp, type, message)]
 events_registered = False
 discovered_events = []   # List of discovered event names
+
+# Window position tracking
+last_known_x = 0
+last_known_y = 0
+last_position_check = 0
 
 # ============ LOGGING ============
 def log_activity(activity_type, message):
@@ -481,14 +486,29 @@ def show_help():
     API.SysMsg("5. [SCAN] tests buttons 0-20 rapidly", 53)
     API.SysMsg("6. Watch for gump CLOSE = button worked!", 43)
 
+# ============ PERSISTENCE ============
+def save_window_position():
+    """Save window position using last known coordinates"""
+    global last_known_x, last_known_y
+    try:
+        x = gump.GetX()
+        y = gump.GetY()
+        if x > 0 and y > 0:
+            last_known_x = x
+            last_known_y = y
+            API.SavePersistentVar(SETTINGS_KEY, str(x) + "," + str(y), API.PersistentVar.Char)
+    except:
+        if last_known_x > 0 and last_known_y > 0:
+            API.SavePersistentVar(SETTINGS_KEY, str(last_known_x) + "," + str(last_known_y), API.PersistentVar.Char)
+
 # ============ CLEANUP ============
 def stop_script():
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     gump.Dispose()
     API.Stop()
 
 def onClosed():
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     API.Stop()
 
 # ============ BUILD GUI ============
@@ -497,7 +517,9 @@ API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
-gump.SetRect(int(posXY[0]), int(posXY[1]), 380, 520)
+last_known_x = int(posXY[0])
+last_known_y = int(posXY[1])
+gump.SetRect(last_known_x, last_known_y, 380, 520)
 
 # Background
 bg = API.Gumps.CreateGumpColorBox(0.92, "#1a1a2e")
@@ -505,7 +527,7 @@ bg.SetRect(0, 0, 380, 520)
 gump.Add(bg)
 
 # Title
-title = API.Gumps.CreateGumpTTFLabel("Gump Inspector v2.0", 14, "#00d4ff", aligned="center", maxWidth=380)
+title = API.Gumps.CreateGumpTTFLabel("Gump Inspector v2.1", 16, "#00d4ff", aligned="center", maxWidth=380)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -700,7 +722,7 @@ gump.Add(closeScriptBtn)
 API.Gumps.AddGump(gump)
 
 # ============ INITIALIZATION ============
-log_activity("INFO", "Gump Inspector v2.0 started")
+log_activity("INFO", "Gump Inspector v2.1 started")
 log_activity("INFO", "Monitoring for gump activity...")
 
 # Try to discover and register events
@@ -718,16 +740,29 @@ if last_gump_snapshot:
 
 # ============ MAIN LOOP ============
 last_check = time.time()
+last_position_check = time.time()
 
 while not API.StopRequested:
     try:
         API.ProcessCallbacks()
-        
+
         # Periodic gump monitoring
         if monitoring_enabled and time.time() - last_check > MONITOR_INTERVAL:
             check_for_gump_changes()
             last_check = time.time()
-        
+
+        # Capture window position periodically
+        if time.time() - last_position_check > 2.0:
+            try:
+                x = gump.GetX()
+                y = gump.GetY()
+                if x > 0 and y > 0:
+                    last_known_x = x
+                    last_known_y = y
+            except:
+                pass
+            last_position_check = time.time()
+
         API.Pause(0.1)
     except Exception as e:
         API.SysMsg("Error: " + str(e), 32)

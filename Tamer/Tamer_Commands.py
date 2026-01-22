@@ -1,5 +1,5 @@
 # ============================================================
-# Pet Commands v3.0
+# Pet Commands v3.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -19,7 +19,7 @@
 import API
 import time
 
-__version__ = "3.0"
+__version__ = "3.1"
 
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 10             # Max distance to search for hostiles
@@ -55,6 +55,11 @@ ATTACK_PETS = []
 # GUI elements for pet list (will be populated later)
 pet_rows = []  # List of {label, toggleBtn, index}
 selected_pet_index = -1
+
+# Window position tracking
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # ============ UTILITY FUNCTIONS ============
 def safe_get_name(mobile):
@@ -509,14 +514,25 @@ def cleanup():
         API.OnHotKey(STAY_HOTKEY)
     API.DisplayRange(0)
 
+def save_window_position():
+    """Save window position using cached coordinates"""
+    global last_known_x, last_known_y
+
+    # Validate coordinates
+    if last_known_x < 0 or last_known_y < 0:
+        return
+
+    pos = str(last_known_x) + "," + str(last_known_y)
+    API.SavePersistentVar(SETTINGS_KEY, pos, API.PersistentVar.Char)
+
 def onClosed():
     cleanup()
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     API.Stop()
 
 def stop_script():
     cleanup()
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     gump.Dispose()
     API.Stop()
 
@@ -550,7 +566,14 @@ API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
-gump.SetRect(int(posXY[0]), int(posXY[1]), 200, 380)
+x = int(posXY[0])
+y = int(posXY[1])
+
+# Initialize last known position
+last_known_x = x
+last_known_y = y
+
+gump.SetRect(x, y, 200, 380)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, 200, 380)
@@ -709,25 +732,33 @@ if ALL_KILL_HOTKEY:
     API.SysMsg("Kill hotkey: " + ALL_KILL_HOTKEY, 53)
 
 # ============ MAIN LOOP ============
-next_save = time.time() + 10
 next_display = time.time() + 1.0
 
 while not API.StopRequested:
     try:
         API.ProcessCallbacks()
-        
-        if time.time() > next_save:
-            API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
-            next_save = time.time() + 10
-        
+
+        # Periodically update last known position (every 2 seconds)
+        if not API.StopRequested:
+            current_time = time.time()
+            if current_time - last_position_check > 2.0:
+                last_position_check = current_time
+                try:
+                    last_known_x = gump.GetX()
+                    last_known_y = gump.GetY()
+                except:
+                    pass  # Silently ignore if gump is disposed
+
         # Refresh pet display periodically (check if pets still exist)
         if time.time() > next_display:
             update_pet_display()
             next_display = time.time() + 2.0
-        
+
         API.Pause(0.1)
     except Exception as e:
-        API.SysMsg("Error: " + str(e), 32)
+        # Don't show "operation canceled" errors during shutdown
+        if "operation canceled" not in str(e).lower() and not API.StopRequested:
+            API.SysMsg("Error: " + str(e), 32)
         API.Pause(1)
 
 cleanup()
