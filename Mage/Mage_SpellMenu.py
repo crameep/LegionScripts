@@ -1,5 +1,5 @@
 # ============================================================
-# Mage Spell Menu v1.0
+# Mage Spell Menu v1.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -17,8 +17,9 @@
 #
 # ============================================================
 import API
+import time
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 12
@@ -33,6 +34,11 @@ COMBO_SETTING = "mage_combat_combo"
 # Current combo selection
 current_combo = "explo_ebolt"
 lastTarget = 0
+
+# GUI position tracking (for improved position saving)
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # ============ SPELL DEFINITIONS ============
 # Format: (spell_name, delay_after_cast, needs_target)
@@ -307,7 +313,10 @@ def make_combo_selector(combo_key):
 # ============ SCRIPT CONTROL ============
 def stop_script():
     """Clean up and stop"""
-    API.SavePersistentVar(SETTINGS_KEY, f"{gump.GetX()},{gump.GetY()}", API.PersistentVar.Char)
+    global last_known_x, last_known_y
+    # Save last known good position (validated as non-negative)
+    if last_known_x >= 0 and last_known_y >= 0:
+        API.SavePersistentVar(SETTINGS_KEY, f"{last_known_x},{last_known_y}", API.PersistentVar.Char)
     API.OnHotKey(CAST_HOTKEY)       # Unregister
     API.OnHotKey(TARGET_HOTKEY)     # Unregister
     API.OnHotKey(INTERRUPT_HOTKEY)  # Unregister
@@ -329,37 +338,39 @@ gump = API.Gumps.CreateGump()
 
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
-gump.SetRect(int(posXY[0]), int(posXY[1]), 340, 400)
+last_known_x = int(posXY[0])
+last_known_y = int(posXY[1])
+gump.SetRect(last_known_x, last_known_y, 280, 400)
 
 # Background
-bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e").SetRect(0, 0, 340, 400)
+bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e").SetRect(0, 0, 280, 400)
 gump.Add(bg)
 
 # Title
-title = API.Gumps.CreateGumpTTFLabel("⚡ Mage Combat", 20, "#ff4444", aligned="center", maxWidth=340)
+title = API.Gumps.CreateGumpTTFLabel("⚡ Mage Combat", 16, "#ff4444", aligned="center", maxWidth=280)
 title.SetPos(0, 5)
 gump.Add(title)
 
 # Hotkey info
-hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 10, "#666666", aligned="center", maxWidth=340)
+hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 9, "#666666", aligned="center", maxWidth=280)
 hotkeyInfo.SetPos(0, 28)
 gump.Add(hotkeyInfo)
 
 # Current combo display
-comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 14, "#00ff00", aligned="center", maxWidth=340)
+comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 13, "#00ff00", aligned="center", maxWidth=280)
 comboLabel.SetPos(0, 45)
 gump.Add(comboLabel)
 
 # Layout constants
-btnWidth = 100
+btnWidth = 88
 btnHeight = 22
 col1X = 5
-col2X = 115
-col3X = 225
+col2X = 96
+col3X = 187
 startY = 70
 
 # === PVP SECTION ===
-pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 12, "#ff6666", aligned="center", maxWidth=340)
+pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 11, "#ff6666", aligned="center", maxWidth=280)
 pvpLabel.SetPos(0, startY)
 gump.Add(pvpLabel)
 
@@ -368,7 +379,7 @@ pvp_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "pvp"]
 for i, (key, combo) in enumerate(pvp_combos):
     col = i % 3
     row = i // 3
-    x = col1X + (col * 110)
+    x = col1X + (col * 91)
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y + (row * 25))
     btn.SetBackgroundHue(combo["hue"])
@@ -377,7 +388,7 @@ for i, (key, combo) in enumerate(pvp_combos):
 
 # === PVE SECTION ===
 pveY = startY + 75
-pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 12, "#66ff66", aligned="center", maxWidth=340)
+pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 11, "#66ff66", aligned="center", maxWidth=280)
 pveLabel.SetPos(0, pveY)
 gump.Add(pveLabel)
 
@@ -386,7 +397,7 @@ pve_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "pve"]
 for i, (key, combo) in enumerate(pve_combos):
     col = i % 3
     row = i // 3
-    x = col1X + (col * 110)
+    x = col1X + (col * 91)
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y + (row * 25))
     btn.SetBackgroundHue(combo["hue"])
@@ -395,7 +406,7 @@ for i, (key, combo) in enumerate(pve_combos):
 
 # === SINGLE SPELLS SECTION ===
 singleY = pveY + 80
-singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 12, "#6666ff", aligned="center", maxWidth=340)
+singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 11, "#6666ff", aligned="center", maxWidth=280)
 singleLabel.SetPos(0, singleY)
 gump.Add(singleLabel)
 
@@ -403,7 +414,7 @@ y = singleY + 18
 single_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "single"]
 for i, (key, combo) in enumerate(single_combos):
     col = i % 3
-    x = col1X + (col * 110)
+    x = col1X + (col * 91)
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y)
     btn.SetBackgroundHue(combo["hue"])
@@ -412,7 +423,7 @@ for i, (key, combo) in enumerate(single_combos):
 
 # === UTILITY SECTION ===
 utilY = singleY + 50
-utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 12, "#ffff66", aligned="center", maxWidth=340)
+utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 11, "#ffff66", aligned="center", maxWidth=280)
 utilLabel.SetPos(0, utilY)
 gump.Add(utilLabel)
 
@@ -479,5 +490,26 @@ API.SysMsg(f"Hotkeys: {CAST_HOTKEY} = Cast | {TARGET_HOTKEY} = Last Target | {IN
 
 # Main loop
 while True:
-    API.ProcessCallbacks()
-    API.Pause(0.1)
+    try:
+        API.ProcessCallbacks()
+
+        # Periodically capture window position (every 2 seconds)
+        current_time = time.time()
+        if current_time - last_position_check > 2.0:
+            if not API.StopRequested:
+                try:
+                    x = gump.GetX()
+                    y = gump.GetY()
+                    if x >= 0 and y >= 0:
+                        last_known_x = x
+                        last_known_y = y
+                except:
+                    pass
+            last_position_check = current_time
+
+        API.Pause(0.1)
+    except Exception as e:
+        # Suppress "operation canceled" during shutdown
+        if "canceled" not in str(e).lower():
+            API.SysMsg(f"Error: {e}", 32)
+        API.Pause(0.1)
