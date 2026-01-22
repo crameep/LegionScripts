@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.5.1
+# Script Updater v1.5.2
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,11 +27,11 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.5.1"
+__version__ = "1.5.2"
 
 # ============ USER SETTINGS ============
-GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
-GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/CoryCustom/"
+GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
+GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/"
 BACKUP_DIR = "_backups"
 DOWNLOAD_TIMEOUT = 5  # seconds
 
