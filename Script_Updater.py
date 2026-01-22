@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v3.0
+# Script Updater v3.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -13,7 +13,7 @@
 #   - Backup scripts before updating (_backups directory)
 #   - Restore previous versions from backup
 #   - Pagination for large script lists (14 rows per page)
-#   - Dual-button rows (checkbox + content) for clean interaction
+#   - Single-button-per-row design (click to select/expand)
 #   - Status indicators: NEW, OK, UPDATE, N-A, ERROR
 #   - Network error handling with timeouts
 #   - Auto-select scripts with updates after version check
@@ -29,7 +29,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "3.0"
+__version__ = "3.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
@@ -88,7 +88,7 @@ backup_path = ""
 updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
 
 # GUI References
-script_rows = []  # List of {checkbox_btn, content_btn}
+row_pool = []  # List of {"button": btn, "index": i}
 pageLabel = None
 prevPageBtn = None
 nextPageBtn = None
@@ -474,36 +474,6 @@ def toggle_folder_expand(folder_name):
         render_visible_rows()
         debug_msg("Toggled folder: " + folder_name + " -> " + str(folder_data[folder_name]['expanded']))
 
-def toggle_folder_selection(folder_name):
-    """Select/deselect all scripts in a folder"""
-    if folder_name not in folder_data:
-        return
-
-    # Determine target state: if any script is unselected, select all; otherwise deselect all
-    scripts = folder_data[folder_name]['scripts']
-    any_unselected = any(not script_data[path]['selected'] for path in scripts)
-    target_state = any_unselected
-
-    for script_path in scripts:
-        script_data[script_path]['selected'] = target_state
-
-    debug_msg("Set folder " + folder_name + " selection to: " + str(target_state))
-    render_visible_rows()
-
-def get_folder_selection_state(folder_name):
-    """Get selection state for folder: 'all', 'none', or 'partial'"""
-    if folder_name not in folder_data:
-        return 'none'
-
-    scripts = folder_data[folder_name]['scripts']
-    selected_count = sum(1 for path in scripts if script_data[path]['selected'])
-
-    if selected_count == 0:
-        return 'none'
-    elif selected_count == len(scripts):
-        return 'all'
-    else:
-        return 'partial'
 
 def save_folder_state():
     """Save folder expand/collapse state to persistence"""
@@ -591,130 +561,128 @@ def prev_page():
         debug_msg("Page: " + str(current_page + 1) + "/" + str(total_pages))
 
 # ============ ROW RENDERING ============
+def render_folder_row(row, item):
+    """Render a folder row"""
+    folder_name = item[1]
+    folder = folder_data[folder_name]
+
+    # Expand icon
+    expand_icon = u"\u25BC" if folder['expanded'] else u"\u25B6"  # ▼ or ▶
+
+    # Display name
+    display_name = "Other" if folder_name == "_root" else folder_name
+
+    # Update info
+    update_text = ""
+    if folder['update_count'] > 0:
+        update_text = " - " + str(folder['update_count']) + " update"
+        if folder['update_count'] > 1:
+            update_text += "s"
+
+    # Build text
+    text = expand_icon + " " + display_name + " (" + str(folder['total_count']) + " scripts)" + update_text
+
+    # Set button
+    row["button"].SetText(text)
+
+    # Color: Yellow if has updates, Blue otherwise
+    if folder['update_count'] > 0:
+        row["button"].SetBackgroundHue(HUE_YELLOW)
+    else:
+        row["button"].SetBackgroundHue(HUE_BLUE)
+
+def render_script_row(row, item):
+    """Render a script row"""
+    path = item[1]
+    data = script_data[path]
+    filename = os.path.basename(path)
+
+    local_ver = data['local_version'] or "---"
+    remote_ver = data['remote_version'] or "---"
+    status = data['status']
+
+    # Build text with indent - simplified format
+    text = "    " + filename + "  v" + local_ver + " -> v" + remote_ver + "  [" + status + "]"
+
+    row["button"].SetText(text)
+
+    # Color based on SELECTION, then STATUS
+    if data['selected']:
+        row["button"].SetBackgroundHue(HUE_GREEN)  # Selected = green
+    else:
+        # Not selected - show status color
+        if status == STATUS_UPDATE:
+            row["button"].SetBackgroundHue(HUE_YELLOW)
+        elif status == STATUS_NEW:
+            row["button"].SetBackgroundHue(HUE_BLUE)
+        elif status == STATUS_ERROR:
+            row["button"].SetBackgroundHue(HUE_RED)
+        else:  # OK or N-A
+            row["button"].SetBackgroundHue(HUE_GRAY)
+
 def render_visible_rows():
     """Update GUI rows with current visible items"""
     page_items = get_visible_page_items()
 
     for i in range(MAX_VISIBLE_ROWS):
-        row = script_rows[i]
-        checkbox_btn = row['checkbox_btn']
-        content_btn = row['content_btn']
+        row = row_pool[i]
 
         if i < len(page_items):
             # Show this row
-            item_type, item_data = page_items[i]
+            item = page_items[i]
+            item_type = item[0]
 
             if item_type == "folder":
-                # Render folder row
-                folder_name = item_data
-                folder = folder_data[folder_name]
+                render_folder_row(row, item)
+            else:  # "script"
+                render_script_row(row, item)
 
-                # Determine folder display name
-                display_name = folder_name
-                if folder_name == "_root":
-                    display_name = "Other"
-
-                # Checkbox: Show selection state
-                sel_state = get_folder_selection_state(folder_name)
-                if sel_state == 'all':
-                    checkbox_text = "[X]"
-                elif sel_state == 'partial':
-                    checkbox_text = "[-]"
-                else:
-                    checkbox_text = "[ ]"
-
-                # Content: Show expand icon and folder name with count
-                expand_icon = "[-]" if folder['expanded'] else "[+]"
-                update_info = ""
-                if folder['update_count'] > 0:
-                    update_info = "  (" + str(folder['update_count']) + " update" + ("s" if folder['update_count'] > 1 else "") + ")"
-
-                content_text = expand_icon + " " + display_name + update_info
-
-                # Determine folder color
-                if folder['update_count'] > 0:
-                    folder_color = HUE_YELLOW
-                elif any(script_data[path]['status'] != STATUS_NA for path in folder['scripts']):
-                    folder_color = HUE_GREEN
-                else:
-                    folder_color = HUE_GRAY
-
-                # Update buttons
-                checkbox_btn.SetBackgroundHue(folder_color)
-                checkbox_btn.SetText(checkbox_text)
-                content_btn.SetBackgroundHue(folder_color)
-                content_btn.SetText(content_text)
-
-            else:  # item_type == "script"
-                # Render script row
-                script_path = item_data
-                data = script_data[script_path]
-
-                # Checkbox
-                checkbox_text = "[X]" if data['selected'] else "[ ]"
-
-                # Content: "  Filename.py | v1.0 | v1.1 | STATUS"
-                filename = os.path.basename(script_path)
-                local_ver = data['local_version'] or "---"
-                remote_ver = data['remote_version'] or "---"
-                status = data['status']
-
-                # Build content text with proper spacing
-                content_text = "  " + filename[:24].ljust(24) + " | " + local_ver[:6].ljust(6) + " | " + remote_ver[:6].ljust(6) + " | " + status
-
-                # Determine color
-                if status == STATUS_OK:
-                    color = HUE_GREEN
-                elif status == STATUS_UPDATE:
-                    color = HUE_YELLOW
-                elif status == STATUS_NEW:
-                    color = HUE_BLUE
-                elif status == STATUS_ERROR:
-                    color = HUE_RED
-                else:  # N-A
-                    color = HUE_GRAY
-
-                # Update buttons
-                checkbox_btn.SetBackgroundHue(color)
-                checkbox_btn.SetText(checkbox_text)
-                content_btn.SetBackgroundHue(color)
-                content_btn.SetText(content_text)
-
+            # Bind callback for this row
+            bind_row_callbacks(i)
         else:
             # Hide this row (no item)
-            checkbox_btn.SetText("")
-            checkbox_btn.SetBackgroundHue(HUE_GRAY)
-            content_btn.SetText("")
-            content_btn.SetBackgroundHue(HUE_GRAY)
+            row["button"].SetText("")
+            row["button"].SetBackgroundHue(HUE_GRAY)
+            API.Gumps.AddControlOnClick(row["button"], lambda: None)
 
     # Update page label
     if pageLabel:
         pageLabel.SetText("Page " + str(current_page + 1) + " / " + str(total_pages))
 
 # ============ CALLBACK FACTORIES ============
-def make_checkbox_callback(row_index):
-    """Create callback for checkbox button"""
+def make_folder_expand_callback(folder_name):
+    """Create callback to expand/collapse folder"""
     def callback():
-        page_items = get_visible_page_items()
-        if row_index < len(page_items):
-            item_type, item_data = page_items[row_index]
-            if item_type == "folder":
-                toggle_folder_selection(item_data)
-            else:  # script
-                script_data[item_data]['selected'] = not script_data[item_data]['selected']
-                render_visible_rows()
+        toggle_folder_expand(folder_name)
     return callback
 
-def make_content_callback(row_index):
-    """Create callback for content button"""
+def make_script_toggle_callback(script_path):
+    """Create callback to toggle script selection"""
     def callback():
-        page_items = get_visible_page_items()
-        if row_index < len(page_items):
-            item_type, item_data = page_items[row_index]
-            if item_type == "folder":
-                toggle_folder_expand(item_data)
-            # For scripts, clicking content does nothing (only checkbox selects)
+        script_data[script_path]['selected'] = not script_data[script_path]['selected']
+        render_visible_rows()
     return callback
+
+def bind_row_callbacks(row_idx):
+    """Bind callbacks for a specific row based on current page items"""
+    row = row_pool[row_idx]
+    page_items = get_visible_page_items()
+
+    if row_idx >= len(page_items):
+        # Empty row - no callback needed
+        API.Gumps.AddControlOnClick(row["button"], lambda: None)
+        return
+
+    item = page_items[row_idx]
+    item_type = item[0]
+    item_data = item[1]
+
+    if item_type == 'folder':
+        # Folder - click to expand/collapse
+        API.Gumps.AddControlOnClick(row["button"], make_folder_expand_callback(item_data))
+    else:
+        # Script - click to toggle selection
+        API.Gumps.AddControlOnClick(row["button"], make_script_toggle_callback(item_data))
 
 # ============ INITIALIZATION ============
 def init_script_data():
@@ -1073,44 +1041,35 @@ gump.Add(instructions)
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ]  Filename/Folder          | Local  | Remote | Status", 9, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("Script Name -> Version -> Status  (click to select/expand)", 9, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
 # Script list area - Fixed pool of MAX_VISIBLE_ROWS
-y = 68
+y_start = 68
 row_height = 22
-checkbox_width = 35
-content_width = win_width - checkbox_width - 25
+row_width = win_width - 25
 
 if not MANAGED_SCRIPTS:
     # Show error message if no scripts loaded
     errorLabel = API.Gumps.CreateGumpTTFLabel("ERROR: No scripts loaded! Check network.", 11, "#ff0000", aligned="center", maxWidth=win_width)
-    errorLabel.SetPos(0, y + 100)
+    errorLabel.SetPos(0, y_start + 100)
     gump.Add(errorLabel)
 else:
     for i in range(MAX_VISIBLE_ROWS):
-        # Checkbox button (small, 30px wide)
-        checkbox_btn = API.Gumps.CreateSimpleButton("[ ]", checkbox_width, row_height - 2)
-        checkbox_btn.SetPos(10, y + (i * row_height))
-        checkbox_btn.SetBackgroundHue(HUE_GRAY)
-        API.Gumps.AddControlOnClick(checkbox_btn, make_checkbox_callback(i))
-        gump.Add(checkbox_btn)
+        y = y_start + (i * row_height)
+        btn = API.Gumps.CreateSimpleButton("", row_width, row_height - 2)
+        btn.SetPos(10, y)
+        btn.SetBackgroundHue(HUE_GRAY)
+        gump.Add(btn)
 
-        # Content button (rest of width)
-        content_btn = API.Gumps.CreateSimpleButton("", content_width, row_height - 2)
-        content_btn.SetPos(10 + checkbox_width + 5, y + (i * row_height))
-        content_btn.SetBackgroundHue(HUE_GRAY)
-        API.Gumps.AddControlOnClick(content_btn, make_content_callback(i))
-        gump.Add(content_btn)
-
-        script_rows.append({
-            'checkbox_btn': checkbox_btn,
-            'content_btn': content_btn
+        row_pool.append({
+            "button": btn,
+            "index": i
         })
 
 # Pagination controls
-y = 68 + (MAX_VISIBLE_ROWS * row_height) + 5
+y = y_start + (MAX_VISIBLE_ROWS * row_height) + 5
 
 prevPageBtn = API.Gumps.CreateSimpleButton("[<]", 40, 22)
 prevPageBtn.SetPos(10, y)
