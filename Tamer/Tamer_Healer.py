@@ -1,5 +1,5 @@
 # ============================================================
-# Pet Healer v7.1
+# Pet Healer v7.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -17,6 +17,7 @@
 #   7. Vet kit (when tank + N other pets are hurt)
 #
 # Features:
+#   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - Range checking with auto-follow
 #   - Journal tracking for heal confirmations
 #   - Vet kit support for multi-pet healing
@@ -27,12 +28,17 @@ import API
 import time
 from collections import namedtuple
 
-__version__ = "7.1"
+__version__ = "7.2"
 
 # ============ USER SETTINGS ============
 # Item graphic
 BANDAGE = 3617                # Bandage item ID
 DEBUG = False
+
+# ============ GUI DIMENSIONS ============
+WINDOW_WIDTH = 300
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 470
 
 # General options
 FOLLOW_PET = True             # Auto-follow pets to heal them
@@ -113,6 +119,7 @@ HEALSELF_KEY = "PetHealer_HealSelf"
 VETKIT_KEY = "PetHealer_VetKitID"
 JOURNAL_KEY = "PetHealer_UseJournal"
 SKIPOOR_KEY = "PetHealer_SkipOOR"
+EXPANDED_KEY = "PetHealer_Expanded"
 
 # Runtime state
 USE_MAGERY = False
@@ -124,6 +131,7 @@ pet_labels = []
 last_vetkit_use = 0  # Timestamp of last vet kit use
 last_no_bandage_warning = 0  # Timestamp of last "no bandages" warning
 NO_BANDAGE_COOLDOWN = 10.0  # Seconds to wait before warning again about no bandages
+is_expanded = True  # Window expand/collapse state
 
 # Window position tracking
 last_known_x = 100
@@ -356,43 +364,53 @@ def clear_stray_cursor():
 # ============ PERSISTENCE ============
 def load_settings():
     global USE_MAGERY, USE_REZ, FOLLOW_PET, PETS, TANK_PET, HEAL_SELF, VET_KIT_ID, USE_JOURNAL_TRACKING, SKIP_OUT_OF_RANGE
-    
+
     usemag = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char)
     USE_MAGERY = (usemag == "True")
-    
+
     userez = API.GetPersistentVar(REZ_KEY, "False", API.PersistentVar.Char)
     USE_REZ = (userez == "True")
-    
+
     follow = API.GetPersistentVar(FOLLOW_KEY, "True", API.PersistentVar.Char)
     FOLLOW_PET = (follow == "True")
-    
+
     healself = API.GetPersistentVar(HEALSELF_KEY, "True", API.PersistentVar.Char)
     HEAL_SELF = (healself == "True")
-    
+
     usejournal = API.GetPersistentVar(JOURNAL_KEY, "False", API.PersistentVar.Char)
     USE_JOURNAL_TRACKING = (usejournal == "True")
-    
+
     skipoor = API.GetPersistentVar(SKIPOOR_KEY, "True", API.PersistentVar.Char)
     SKIP_OUT_OF_RANGE = (skipoor == "True")
-    
+
     tank_str = API.GetPersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
     try:
         TANK_PET = int(tank_str)
     except:
         TANK_PET = 0
-    
+
     vetkit_str = API.GetPersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
     try:
         VET_KIT_ID = int(vetkit_str)
     except:
         VET_KIT_ID = 0
-    
+
     pets_str = API.GetPersistentVar(PETS_KEY, "", API.PersistentVar.Char)
     if pets_str:
         try:
             PETS = [int(p) for p in pets_str.split(',') if p.strip()]
         except:
             PETS = []
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
 
 def save_pets():
     pets_str = ','.join(str(p) for p in PETS)
@@ -1318,6 +1336,101 @@ def get_priority_heal_target():
     
     return HealAction(None, False, None, 'none')
 
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls
+    priorityLabel.IsVisible = True
+    timingLabel.IsVisible = True
+    rangeLabel.IsVisible = True
+    methodLabel.IsVisible = True
+    mageryBtn.IsVisible = True
+    bandiesBtn.IsVisible = True
+    selfBtn.IsVisible = True
+    followBtn.IsVisible = True
+    rezBtn.IsVisible = True
+    journalBtn.IsVisible = True
+    skipoorBtn.IsVisible = True
+    rezFriendSection.IsVisible = True
+    rezFriendLabel.IsVisible = True
+    rezFriendBtn.IsVisible = True
+    tankSection.IsVisible = True
+    tankLabel.IsVisible = True
+    setTankBtn.IsVisible = True
+    clearTankBtn.IsVisible = True
+    vetkitSection.IsVisible = True
+    vetkitLabel.IsVisible = True
+    setVetkitBtn.IsVisible = True
+    clearVetkitBtn.IsVisible = True
+    petSection.IsVisible = True
+    for lbl in pet_labels:
+        lbl.IsVisible = True
+    addBtn.IsVisible = True
+    removeBtn.IsVisible = True
+    clearBtn.IsVisible = True
+    statusLabel.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls
+    priorityLabel.IsVisible = False
+    timingLabel.IsVisible = False
+    rangeLabel.IsVisible = False
+    methodLabel.IsVisible = False
+    mageryBtn.IsVisible = False
+    bandiesBtn.IsVisible = False
+    selfBtn.IsVisible = False
+    followBtn.IsVisible = False
+    rezBtn.IsVisible = False
+    journalBtn.IsVisible = False
+    skipoorBtn.IsVisible = False
+    rezFriendSection.IsVisible = False
+    rezFriendLabel.IsVisible = False
+    rezFriendBtn.IsVisible = False
+    tankSection.IsVisible = False
+    tankLabel.IsVisible = False
+    setTankBtn.IsVisible = False
+    clearTankBtn.IsVisible = False
+    vetkitSection.IsVisible = False
+    vetkitLabel.IsVisible = False
+    setVetkitBtn.IsVisible = False
+    clearVetkitBtn.IsVisible = False
+    petSection.IsVisible = False
+    for lbl in pet_labels:
+        lbl.IsVisible = False
+    addBtn.IsVisible = False
+    removeBtn.IsVisible = False
+    clearBtn.IsVisible = False
+    statusLabel.IsVisible = False
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
 # ============ GUI CALLBACKS ============
 def enableMagery():
     global USE_MAGERY
@@ -1441,6 +1554,7 @@ validate_settings()
 
 # Load persistent settings
 load_settings()
+load_expanded_state()
 
 # Build GUI
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
@@ -1452,43 +1566,59 @@ lastY = int(posXY[1])
 last_known_x = lastX
 last_known_y = lastY
 
+# Determine initial height
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
-gump.SetRect(lastX, lastY, 300, 470)
+gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, 300, 470)
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Pet Healer v7.1", 16, "#FF8800", aligned="center", maxWidth=300)
+title = API.Gumps.CreateGumpTTFLabel("Pet Healer v7.2", 16, "#FF8800", aligned="center", maxWidth=300)
 title.SetPos(0, 5)
 gump.Add(title)
 
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(275, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
 priorityLabel = API.Gumps.CreateGumpTTFLabel("Rez > SelfPoison > VetKit(2+) > Tank > Pets", 8, "#888888", aligned="center", maxWidth=300)
 priorityLabel.SetPos(0, 25)
+priorityLabel.IsVisible = is_expanded
 gump.Add(priorityLabel)
 
 timingLabel = API.Gumps.CreateGumpTTFLabel("Self:" + str(SELF_DELAY) + "s | Vet:" + str(VET_DELAY) + "s | Rez:" + str(REZ_DELAY) + "s", 9, "#AAFFAA", aligned="center", maxWidth=300)
 timingLabel.SetPos(0, 40)
+timingLabel.IsVisible = is_expanded
 gump.Add(timingLabel)
 
 rangeLabel = API.Gumps.CreateGumpTTFLabel("Range: Bandage=" + str(BANDAGE_RANGE) + " | Spell=" + str(SPELL_RANGE) + " tiles", 8, "#FFAAFF", aligned="center", maxWidth=300)
 rangeLabel.SetPos(0, 52)
+rangeLabel.IsVisible = is_expanded
 gump.Add(rangeLabel)
 
 methodLabel = API.Gumps.CreateGumpTTFLabel("Heal:", 11, "#AAAAAA", aligned="left", maxWidth=50)
 methodLabel.SetPos(10, 65)
+methodLabel.IsVisible = is_expanded
 gump.Add(methodLabel)
 
 mageryBtn = API.Gumps.CreateGumpRadioButton("Magery", 0)
 mageryBtn.IsChecked = USE_MAGERY
 mageryBtn.SetRect(45, 63, 70, 22)
+mageryBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(mageryBtn, enableMagery)
 gump.Add(mageryBtn)
 
 bandiesBtn = API.Gumps.CreateGumpRadioButton("Bandages", 0)
 bandiesBtn.IsChecked = not USE_MAGERY
 bandiesBtn.SetRect(115, 63, 80, 22)
+bandiesBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bandiesBtn, enableBandies)
 gump.Add(bandiesBtn)
 
@@ -1496,18 +1626,21 @@ gump.Add(bandiesBtn)
 selfBtn = API.Gumps.CreateSimpleButton("[SELF:" + ("ON" if HEAL_SELF else "OFF") + "]", 90, 20)
 selfBtn.SetPos(5, 88)
 selfBtn.SetBackgroundHue(68 if HEAL_SELF else 32)
+selfBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(selfBtn, toggle_heal_self)
 gump.Add(selfBtn)
 
 followBtn = API.Gumps.CreateSimpleButton("[FOLLOW:" + ("ON" if FOLLOW_PET else "OFF") + "]", 90, 20)
 followBtn.SetPos(100, 88)
 followBtn.SetBackgroundHue(68 if FOLLOW_PET else 32)
+followBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(followBtn, toggle_follow)
 gump.Add(followBtn)
 
 rezBtn = API.Gumps.CreateSimpleButton("[REZ:" + ("ON" if USE_REZ else "OFF") + "]", 90, 20)
 rezBtn.SetPos(195, 88)
 rezBtn.SetBackgroundHue(38 if USE_REZ else 32)
+rezBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(rezBtn, toggle_rez)
 gump.Add(rezBtn)
 
@@ -1515,81 +1648,96 @@ gump.Add(rezBtn)
 journalBtn = API.Gumps.CreateSimpleButton("[JOURNAL:" + ("ON" if USE_JOURNAL_TRACKING else "OFF") + "]", 140, 20)
 journalBtn.SetPos(5, 111)
 journalBtn.SetBackgroundHue(66 if USE_JOURNAL_TRACKING else 32)
+journalBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(journalBtn, toggle_journal)
 gump.Add(journalBtn)
 
 skipoorBtn = API.Gumps.CreateSimpleButton("[SKIP OOR:" + ("ON" if SKIP_OUT_OF_RANGE else "OFF") + "]", 140, 20)
 skipoorBtn.SetPos(150, 111)
 skipoorBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 32)
+skipoorBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(skipoorBtn, toggle_skipoor)
 gump.Add(skipoorBtn)
 
 # === FRIEND REZ SECTION ===
 rezFriendSection = API.Gumps.CreateGumpTTFLabel("=== FRIEND REZ ===", 10, "#ff66ff", aligned="center", maxWidth=300)
 rezFriendSection.SetPos(0, 136)
+rezFriendSection.IsVisible = is_expanded
 gump.Add(rezFriendSection)
 
 rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 10, "#FFAAFF", aligned="center", maxWidth=300)
 rezFriendLabel.SetPos(0, 152)
+rezFriendLabel.IsVisible = is_expanded
 gump.Add(rezFriendLabel)
 
 rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 285, 22)
 rezFriendBtn.SetPos(5, 168)
 rezFriendBtn.SetBackgroundHue(38)
+rezFriendBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
 gump.Add(rezFriendBtn)
 
 # Tank section
 tankSection = API.Gumps.CreateGumpTTFLabel("=== TANK PET ===", 10, "#ff6666", aligned="center", maxWidth=300)
 tankSection.SetPos(0, 196)
+tankSection.IsVisible = is_expanded
 gump.Add(tankSection)
 
 tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None Set]", 11, "#FFAAAA", aligned="center", maxWidth=300)
 tankLabel.SetPos(0, 212)
+tankLabel.IsVisible = is_expanded
 gump.Add(tankLabel)
 
 setTankBtn = API.Gumps.CreateSimpleButton("[SET TANK]", 140, 20)
 setTankBtn.SetPos(5, 230)
 setTankBtn.SetBackgroundHue(38)
+setTankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(setTankBtn, set_tank)
 gump.Add(setTankBtn)
 
 clearTankBtn = API.Gumps.CreateSimpleButton("[CLEAR TANK]", 140, 20)
 clearTankBtn.SetPos(150, 230)
 clearTankBtn.SetBackgroundHue(32)
+clearTankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearTankBtn, clear_tank)
 gump.Add(clearTankBtn)
 
 # Vet Kit section
 vetkitSection = API.Gumps.CreateGumpTTFLabel("=== VET KIT ===", 10, "#66ff66", aligned="center", maxWidth=300)
 vetkitSection.SetPos(0, 256)
+vetkitSection.IsVisible = is_expanded
 gump.Add(vetkitSection)
 
 vetkitLabel = API.Gumps.CreateGumpTTFLabel("Vet Kit: [Not Set]", 11, "#AAFFAA", aligned="center", maxWidth=300)
 vetkitLabel.SetPos(0, 272)
+vetkitLabel.IsVisible = is_expanded
 gump.Add(vetkitLabel)
 
 setVetkitBtn = API.Gumps.CreateSimpleButton("[SET VET KIT]", 140, 20)
 setVetkitBtn.SetPos(5, 290)
 setVetkitBtn.SetBackgroundHue(68)
+setVetkitBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(setVetkitBtn, set_vetkit)
 gump.Add(setVetkitBtn)
 
 clearVetkitBtn = API.Gumps.CreateSimpleButton("[CLEAR]", 140, 20)
 clearVetkitBtn.SetPos(150, 290)
 clearVetkitBtn.SetBackgroundHue(32)
+clearVetkitBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearVetkitBtn, clear_vetkit)
 gump.Add(clearVetkitBtn)
 
 # Pet section
 petSection = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 10, "#00d4ff", aligned="center", maxWidth=300)
 petSection.SetPos(0, 316)
+petSection.IsVisible = is_expanded
 gump.Add(petSection)
 
 petListY = 332
 for i in range(MAX_PETS):
     lbl = API.Gumps.CreateGumpTTFLabel(str(i+1) + ". ---", 11, "#CCCCCC", aligned="left", maxWidth=280)
     lbl.SetPos(15, petListY + (i * 16))
+    lbl.IsVisible = is_expanded
     gump.Add(lbl)
     pet_labels.append(lbl)
 
@@ -1598,26 +1746,34 @@ btnY = petListY + (MAX_PETS * 16) + 5
 addBtn = API.Gumps.CreateSimpleButton("[ADD PET]", 90, 22)
 addBtn.SetPos(5, btnY)
 addBtn.SetBackgroundHue(68)
+addBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(addBtn, add_pet)
 gump.Add(addBtn)
 
 removeBtn = API.Gumps.CreateSimpleButton("[REMOVE]", 90, 22)
 removeBtn.SetPos(100, btnY)
 removeBtn.SetBackgroundHue(53)
+removeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(removeBtn, remove_pet)
 gump.Add(removeBtn)
 
 clearBtn = API.Gumps.CreateSimpleButton("[CLEAR ALL]", 90, 22)
 clearBtn.SetPos(195, btnY)
 clearBtn.SetBackgroundHue(32)
+clearBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearBtn, clear_all_pets)
 gump.Add(clearBtn)
 
 statusLabel = API.Gumps.CreateGumpTTFLabel("Status: Running", 10, "#00ff00", aligned="center", maxWidth=300)
 statusLabel.SetPos(0, btnY + 28)
+statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
 API.Gumps.AddGump(gump)
+
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
 
 # Initial display update
 update_pet_display()
@@ -1625,8 +1781,8 @@ update_tank_display()
 update_vetkit_display()
 update_rez_friend_display()
 
-API.SysMsg("Pet Healer v7.1 loaded!", 68)
-API.SysMsg("NEW: [REZ FRIEND] button for player resurrection!", 38)
+API.SysMsg("Pet Healer v7.2 loaded!", 68)
+API.SysMsg("NEW: Collapsible interface - click [-] to minimize", 66)
 API.SysMsg("Journal: " + ("ON" if USE_JOURNAL_TRACKING else "OFF") + " | Skip OOR: " + ("ON" if SKIP_OUT_OF_RANGE else "OFF"), 66)
 
 # ============ MAIN LOOP ============

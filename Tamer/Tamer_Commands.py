@@ -1,5 +1,5 @@
 # ============================================================
-# Pet Commands v3.1
+# Pet Commands v3.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -12,6 +12,7 @@
 #   - Target type toggles (reds, grays, blues)
 #   - Visual range indicator around player
 #   - Shared pet list syncs with other tamer scripts
+#   - Expand/collapse to save screen space
 #
 # Hotkeys: TAB (All Kill), 1 (Guard), 2 (Follow)
 #
@@ -19,7 +20,7 @@
 import API
 import time
 
-__version__ = "3.1"
+__version__ = "3.2"
 
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 10             # Max distance to search for hostiles
@@ -41,6 +42,12 @@ REDS_KEY = "TamerCmd_Reds"
 GRAYS_KEY = "TamerCmd_Grays"
 MODE_KEY = "TamerCmd_Mode"
 PETS_KEY = "TamerCmd_Pets"      # Format: "name:serial:active,name:serial:active,..."
+EXPANDED_KEY = "TamerCmd_Expanded"
+
+# GUI dimensions
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 380
+WINDOW_WIDTH = 200
 
 # Runtime state - target toggles
 TARGET_REDS = False           # Target murderers (red)
@@ -60,6 +67,9 @@ selected_pet_index = -1
 last_known_x = 100
 last_known_y = 100
 last_position_check = 0
+
+# Expand/collapse state
+is_expanded = True
 
 # ============ UTILITY FUNCTIONS ============
 def safe_get_name(mobile):
@@ -122,6 +132,16 @@ def load_mode():
     ATTACK_MODE = API.GetPersistentVar(MODE_KEY, "ALL", API.PersistentVar.Char)
     if ATTACK_MODE not in ["ALL", "ORDER"]:
         ATTACK_MODE = "ALL"
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
 
 # ============ PET LIST MANAGEMENT ============
 def add_attack_pet():
@@ -472,6 +492,87 @@ def update_mode_display():
         modeBtn.SetText("[MODE: ORDER]")
         modeBtn.SetBackgroundHue(38)
 
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls (everything except title/hotkey display)
+    targetLabel.IsVisible = True
+    redsBtn.IsVisible = True
+    graysBtn.IsVisible = True
+    orderLabel.IsVisible = True
+    modeBtn.IsVisible = True
+
+    for row in pet_rows:
+        row["label"].IsVisible = True
+        row["toggleBtn"].IsVisible = True
+
+    addPetBtn.IsVisible = True
+    removePetBtn.IsVisible = True
+    upBtn.IsVisible = True
+    downBtn.IsVisible = True
+    cmdLabel.IsVisible = True
+    killBtn.IsVisible = True
+    guardBtn.IsVisible = True
+    followBtn.IsVisible = True
+    stayBtn.IsVisible = True
+    stableBtn.IsVisible = True
+    claimBtn.IsVisible = True
+    closeBtn.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls (everything except title/hotkey display)
+    targetLabel.IsVisible = False
+    redsBtn.IsVisible = False
+    graysBtn.IsVisible = False
+    orderLabel.IsVisible = False
+    modeBtn.IsVisible = False
+
+    for row in pet_rows:
+        row["label"].IsVisible = False
+        row["toggleBtn"].IsVisible = False
+
+    addPetBtn.IsVisible = False
+    removePetBtn.IsVisible = False
+    upBtn.IsVisible = False
+    downBtn.IsVisible = False
+    cmdLabel.IsVisible = False
+    killBtn.IsVisible = False
+    guardBtn.IsVisible = False
+    followBtn.IsVisible = False
+    stayBtn.IsVisible = False
+    stableBtn.IsVisible = False
+    claimBtn.IsVisible = False
+    closeBtn.IsVisible = False
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
 # ============ DISPLAY UPDATES ============
 def update_pet_display():
     """Update the pet list display"""
@@ -539,16 +640,17 @@ def stop_script():
 # ============ LOAD SETTINGS ============
 def load_settings():
     global TARGET_REDS, TARGET_GRAYS
-    
+
     reds = API.GetPersistentVar(REDS_KEY, "False", API.PersistentVar.Char)
     TARGET_REDS = (reds == "True")
-    
+
     grays = API.GetPersistentVar(GRAYS_KEY, "False", API.PersistentVar.Char)
     TARGET_GRAYS = (grays == "True")
 
 load_settings()
 load_mode()
 load_pets()
+load_expanded_state()
 
 # ============ REGISTER HOTKEYS ============
 if ALL_KILL_HOTKEY:
@@ -573,26 +675,36 @@ y = int(posXY[1])
 last_known_x = x
 last_known_y = y
 
-gump.SetRect(x, y, 200, 380)
+# Set initial height based on expanded state
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(x, y, WINDOW_WIDTH, initial_height)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, 200, 380)
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Pet Commands v3", 16, "#00d4ff", aligned="center", maxWidth=200)
+title = API.Gumps.CreateGumpTTFLabel("Pet Commands v3.2", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH)
 title.SetPos(0, 5)
 gump.Add(title)
+
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(175, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
 
 hotkeyText = "Kill:" + (ALL_KILL_HOTKEY if ALL_KILL_HOTKEY else "-")
 hotkeyText += " | Guard:" + (GUARD_HOTKEY if GUARD_HOTKEY else "-")
 hotkeyText += " | Follow:" + (FOLLOW_HOTKEY if FOLLOW_HOTKEY else "-")
-hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 9, "#888888", aligned="center", maxWidth=200)
-hotkeyLabel.SetPos(0, 24)
+hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 8, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
+hotkeyLabel.SetPos(0, 23)
 gump.Add(hotkeyLabel)
 
 # Target type section
-targetLabel = API.Gumps.CreateGumpTTFLabel("=== TARGET TYPES ===", 9, "#ff8800", aligned="center", maxWidth=200)
+targetLabel = API.Gumps.CreateGumpTTFLabel("=== TARGET TYPES ===", 9, "#ff8800", aligned="center", maxWidth=WINDOW_WIDTH)
 targetLabel.SetPos(0, 42)
+targetLabel.IsVisible = is_expanded
 gump.Add(targetLabel)
 
 buttonWidth = 90
@@ -604,24 +716,28 @@ startY = 58
 redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", buttonWidth, buttonHeight)
 redsBtn.SetPos(col1X, startY)
 redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
+redsBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(redsBtn, toggle_reds)
 gump.Add(redsBtn)
 
 graysBtn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if TARGET_GRAYS else "OFF") + "]", buttonWidth, buttonHeight)
 graysBtn.SetPos(col2X, startY)
 graysBtn.SetBackgroundHue(53 if TARGET_GRAYS else 90)
+graysBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(graysBtn, toggle_grays)
 gump.Add(graysBtn)
 
 # === ATTACK ORDER SECTION ===
-orderLabel = API.Gumps.CreateGumpTTFLabel("=== ATTACK ORDER ===", 9, "#ff6666", aligned="center", maxWidth=200)
+orderLabel = API.Gumps.CreateGumpTTFLabel("=== ATTACK ORDER ===", 9, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
 orderLabel.SetPos(0, startY + 27)
+orderLabel.IsVisible = is_expanded
 gump.Add(orderLabel)
 
 # Mode toggle button
 modeBtn = API.Gumps.CreateSimpleButton("[MODE: " + ATTACK_MODE + "]", 190, buttonHeight)
 modeBtn.SetPos(col1X, startY + 43)
 modeBtn.SetBackgroundHue(68 if ATTACK_MODE == "ALL" else 38)
+modeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(modeBtn, toggle_attack_mode)
 gump.Add(modeBtn)
 
@@ -632,16 +748,18 @@ for i in range(MAX_ATTACK_PETS):
     lbl = API.Gumps.CreateSimpleButton("  " + str(i + 1) + ". ---", 145, 18)
     lbl.SetPos(col1X, petListY + (i * 20))
     lbl.SetBackgroundHue(90)
+    lbl.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(lbl, make_select_callback(i))
     gump.Add(lbl)
-    
+
     # Toggle button
     toggleBtn = API.Gumps.CreateSimpleButton("[--]", 40, 18)
     toggleBtn.SetPos(155, petListY + (i * 20))
     toggleBtn.SetBackgroundHue(90)
+    toggleBtn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(toggleBtn, make_toggle_callback(i))
     gump.Add(toggleBtn)
-    
+
     pet_rows.append({"label": lbl, "toggleBtn": toggleBtn})
 
 # Pet management buttons
@@ -650,30 +768,35 @@ petBtnY = petListY + (MAX_ATTACK_PETS * 20) + 3
 addPetBtn = API.Gumps.CreateSimpleButton("[ADD]", 45, 20)
 addPetBtn.SetPos(col1X, petBtnY)
 addPetBtn.SetBackgroundHue(68)
+addPetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(addPetBtn, add_attack_pet)
 gump.Add(addPetBtn)
 
 removePetBtn = API.Gumps.CreateSimpleButton("[DEL]", 45, 20)
 removePetBtn.SetPos(55, petBtnY)
 removePetBtn.SetBackgroundHue(32)
+removePetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(removePetBtn, remove_attack_pet)
 gump.Add(removePetBtn)
 
 upBtn = API.Gumps.CreateSimpleButton("[UP]", 40, 20)
 upBtn.SetPos(105, petBtnY)
 upBtn.SetBackgroundHue(53)
+upBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(upBtn, move_pet_up)
 gump.Add(upBtn)
 
 downBtn = API.Gumps.CreateSimpleButton("[DN]", 40, 20)
 downBtn.SetPos(150, petBtnY)
 downBtn.SetBackgroundHue(53)
+downBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(downBtn, move_pet_down)
 gump.Add(downBtn)
 
 # Commands section
-cmdLabel = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#00ff00", aligned="center", maxWidth=200)
+cmdLabel = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
 cmdLabel.SetPos(0, petBtnY + 27)
+cmdLabel.IsVisible = is_expanded
 gump.Add(cmdLabel)
 
 cmdStartY = petBtnY + 43
@@ -681,52 +804,63 @@ cmdStartY = petBtnY + 43
 killBtn = API.Gumps.CreateSimpleButton("[ALL KILL]", buttonWidth, buttonHeight)
 killBtn.SetPos(col1X, cmdStartY)
 killBtn.SetBackgroundHue(32)
+killBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(killBtn, all_kill)
 gump.Add(killBtn)
 
 guardBtn = API.Gumps.CreateSimpleButton("[GUARD]", buttonWidth, buttonHeight)
 guardBtn.SetPos(col2X, cmdStartY)
 guardBtn.SetBackgroundHue(63)
+guardBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(guardBtn, all_guard)
 gump.Add(guardBtn)
 
 followBtn = API.Gumps.CreateSimpleButton("[FOLLOW]", buttonWidth, buttonHeight)
 followBtn.SetPos(col1X, cmdStartY + 25)
 followBtn.SetBackgroundHue(88)
+followBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(followBtn, all_follow)
 gump.Add(followBtn)
 
 stayBtn = API.Gumps.CreateSimpleButton("[STAY]", buttonWidth, buttonHeight)
 stayBtn.SetPos(col2X, cmdStartY + 25)
 stayBtn.SetBackgroundHue(43)
+stayBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(stayBtn, all_stay)
 gump.Add(stayBtn)
 
 stableBtn = API.Gumps.CreateSimpleButton("[STABLE]", buttonWidth, buttonHeight)
 stableBtn.SetPos(col1X, cmdStartY + 50)
 stableBtn.SetBackgroundHue(66)
+stableBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(stableBtn, stable_pets)
 gump.Add(stableBtn)
 
 claimBtn = API.Gumps.CreateSimpleButton("[CLAIM]", buttonWidth, buttonHeight)
 claimBtn.SetPos(col2X, cmdStartY + 50)
 claimBtn.SetBackgroundHue(66)
+claimBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(claimBtn, claim_pets)
 gump.Add(claimBtn)
 
 closeBtn = API.Gumps.CreateSimpleButton("[CLOSE SCRIPT]", 190, buttonHeight)
 closeBtn.SetPos(col1X, cmdStartY + 80)
 closeBtn.SetBackgroundHue(32)
+closeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(closeBtn, stop_script)
 gump.Add(closeBtn)
 
 API.Gumps.AddGump(gump)
 
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
+
 # Initial display update
 update_pet_display()
 update_mode_display()
 
-API.SysMsg("Tamer Commands v3 loaded!", 68)
+API.SysMsg("Tamer Commands v3.2 loaded!", 68)
 API.SysMsg("Mode: " + ATTACK_MODE + " | Pets in order: " + str(len(ATTACK_PETS)), 53)
 if ALL_KILL_HOTKEY:
     API.SysMsg("Kill hotkey: " + ALL_KILL_HOTKEY, 53)

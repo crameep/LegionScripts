@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.6.1
+# Script Updater v1.6.0
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.6.1"
+__version__ = "1.6.0"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -75,6 +75,9 @@ script_data = {}  # Dict: {relative_path: {local_version, remote_version, status
 checking_all = False
 backup_path = ""
 updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -225,11 +228,7 @@ def backup_script(relative_path):
         script_dir = get_script_dir()
         source_path = os.path.join(script_dir, relative_path)
 
-        API.SysMsg("DEBUG BACKUP: Backing up " + relative_path, 88)
-        API.SysMsg("DEBUG BACKUP: Source path = " + source_path, 88)
-
         if not os.path.exists(source_path):
-            API.SysMsg("DEBUG BACKUP: File not found!", HUE_RED)
             return (False, "File not found: " + relative_path)
 
         backup_dir = ensure_backup_dir()
@@ -243,19 +242,15 @@ def backup_script(relative_path):
         backup_filename = base_name + "_" + timestamp + ".py"
         backup_path = os.path.join(backup_dir, backup_filename)
 
-        API.SysMsg("DEBUG BACKUP: Backup path = " + backup_path, 88)
-
-        # Copy file with explicit UTF-8 encoding
-        with open(source_path, 'r', encoding='utf-8') as src:
+        # Copy file
+        with open(source_path, 'r') as src:
             content = src.read()
-        with open(backup_path, 'w', encoding='utf-8', newline='\n') as dst:
+        with open(backup_path, 'w') as dst:
             dst.write(content)
 
-        API.SysMsg("DEBUG BACKUP: Success - " + str(len(content)) + " bytes", HUE_GREEN)
         debug_msg("Backed up to: " + backup_path)
         return (True, backup_path)
     except Exception as e:
-        API.SysMsg("DEBUG BACKUP: Exception - " + str(e), HUE_RED)
         return (False, str(e))
 
 def write_script(relative_path, content):
@@ -820,9 +815,12 @@ def cleanup():
 def onClosed():
     """GUI closed callback"""
     cleanup()
-    # Save window position
+    # Save window position using last known position
     try:
-        API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+        # Validate coordinates
+        if last_known_x >= 0 and last_known_y >= 0:
+            pos = str(last_known_x) + "," + str(last_known_y)
+            API.SavePersistentVar(SETTINGS_KEY, pos, API.PersistentVar.Char)
     except:
         pass
     API.Stop()
@@ -839,6 +837,10 @@ savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
+
+# Initialize last known position with loaded values
+last_known_x = lastX
+last_known_y = lastY
 
 # Window size
 win_width = 580
@@ -945,14 +947,28 @@ while not API.StopRequested:
             update_status_display()
             next_display = time.time() + DISPLAY_INTERVAL
 
+        # Periodically update last known position (every 2 seconds)
+        # Skip if stop is requested to avoid "operation canceled" errors
+        if not API.StopRequested:
+            current_time = time.time()
+            if current_time - last_position_check > 2.0:
+                last_position_check = current_time
+                try:
+                    last_known_x = gump.GetX()
+                    last_known_y = gump.GetY()
+                except:
+                    pass  # Silently ignore if gump is disposed
+
         # Short pause - loop runs ~10x/second
         API.Pause(0.1)
 
     except Exception as e:
-        API.SysMsg("Error: " + str(e), HUE_RED)
-        STATE = "IDLE"
-        status_message = "Error: " + str(e)
-        update_status_display()
+        # Don't show "operation canceled" errors during shutdown
+        if "operation canceled" not in str(e).lower() and not API.StopRequested:
+            API.SysMsg("Error: " + str(e), HUE_RED)
+            STATE = "IDLE"
+            status_message = "Error: " + str(e)
+            update_status_display()
         API.Pause(1)
 
 cleanup()

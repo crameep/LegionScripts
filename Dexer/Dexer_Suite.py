@@ -1,6 +1,6 @@
 # ============================================================
 
-# Dexer Suite v1.1
+# Dexer Suite v1.2
 
 # by Coryigon for UO Unchained
 
@@ -30,6 +30,8 @@
 
 #   - Modern GUI with status bars and cooldown timers
 
+#   - Collapsible interface to save screen space
+
 #   - Default thresholds: Bandage <100% HP, Potions <50% HP
 
 #
@@ -46,7 +48,7 @@ import time
 
 
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 
 
@@ -71,6 +73,11 @@ GREATER_BUFF_AMOUNT = 20      # Greater potions give +20 to stat
 DISPLAY_UPDATE_INTERVAL = 0.3
 
 MAX_DISTANCE = 12             # Max distance for target search
+
+# === GUI DIMENSIONS ===
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 610
+WINDOW_WIDTH = 280
 
 AUTO_TARGET_RANGE = 3         # Range for auto-targeting next enemy when current dies
 
@@ -144,6 +151,8 @@ TRAPPED_POUCH_SERIAL_KEY = "DexerSuite_TrappedPouch"
 
 USE_TRAPPED_POUCH_KEY = "DexerSuite_UseTrappedPouch"
 
+EXPANDED_KEY = "DexerSuite_Expanded"
+
 
 
 # Hotkey keys
@@ -163,6 +172,9 @@ HOTKEY_ATTACK_KEY = "DexerSuite_HK_Attack"
 
 
 # ============ RUNTIME STATE ============
+
+# GUI State
+is_expanded = True
 
 # State machine
 
@@ -1355,6 +1367,128 @@ def execute_action(action):
 
 # ============ GUI CALLBACKS ============
 
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls (everything except title and expand button)
+    resourceTitle.IsVisible = True
+    hpLabel.IsVisible = True
+    hpBar.IsVisible = True
+    stamLabel.IsVisible = True
+    stamBar.IsVisible = True
+    manaLabel.IsVisible = True
+    manaBar.IsVisible = True
+    poisonTitleLabel.IsVisible = True
+    poisonLabel.IsVisible = True
+    middleTitle.IsVisible = True
+    healPotionLabel.IsVisible = True
+    drinkHealBtn.IsVisible = True
+    curePotionLabel.IsVisible = True
+    drinkCureBtn.IsVisible = True
+    refreshPotionLabel.IsVisible = True
+    drinkRefreshBtn.IsVisible = True
+    strPotionLabel.IsVisible = True
+    agiPotionLabel.IsVisible = True
+    strBuffBar.IsVisible = True
+    agiBuffBar.IsVisible = True
+    healingTitle.IsVisible = True
+    bandageLabel.IsVisible = True
+    bandageBtn.IsVisible = True
+    autoHealBtn.IsVisible = True
+    healStateLabel.IsVisible = True
+    healThresholdLabel.IsVisible = True
+    criticalThresholdLabel.IsVisible = True
+    stamThresholdLabel.IsVisible = True
+    targetingTitle.IsVisible = True
+    redsBtn.IsVisible = True
+    graysBtn.IsVisible = True
+    autoTargetBtn.IsVisible = True
+    utilTitle.IsVisible = True
+    autoBuffBtn.IsVisible = True
+    setPouchBtn.IsVisible = True
+    usePouchBtn.IsVisible = True
+    footerTitle.IsVisible = True
+    pauseBtn.IsVisible = True
+    statusLabel.IsVisible = True
+    cooldownLabel.IsVisible = True
+    hotkeyTitle.IsVisible = True
+    hotkeyRow1.IsVisible = True
+    hotkeyRow2.IsVisible = True
+
+    # Resize gump
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls (everything except title and expand button)
+    resourceTitle.IsVisible = False
+    hpLabel.IsVisible = False
+    hpBar.IsVisible = False
+    stamLabel.IsVisible = False
+    stamBar.IsVisible = False
+    manaLabel.IsVisible = False
+    manaBar.IsVisible = False
+    poisonTitleLabel.IsVisible = False
+    poisonLabel.IsVisible = False
+    middleTitle.IsVisible = False
+    healPotionLabel.IsVisible = False
+    drinkHealBtn.IsVisible = False
+    curePotionLabel.IsVisible = False
+    drinkCureBtn.IsVisible = False
+    refreshPotionLabel.IsVisible = False
+    drinkRefreshBtn.IsVisible = False
+    strPotionLabel.IsVisible = False
+    agiPotionLabel.IsVisible = False
+    strBuffBar.IsVisible = False
+    agiBuffBar.IsVisible = False
+    healingTitle.IsVisible = False
+    bandageLabel.IsVisible = False
+    bandageBtn.IsVisible = False
+    autoHealBtn.IsVisible = False
+    healStateLabel.IsVisible = False
+    healThresholdLabel.IsVisible = False
+    criticalThresholdLabel.IsVisible = False
+    stamThresholdLabel.IsVisible = False
+    targetingTitle.IsVisible = False
+    redsBtn.IsVisible = False
+    graysBtn.IsVisible = False
+    autoTargetBtn.IsVisible = False
+    utilTitle.IsVisible = False
+    autoBuffBtn.IsVisible = False
+    setPouchBtn.IsVisible = False
+    usePouchBtn.IsVisible = False
+    footerTitle.IsVisible = False
+    pauseBtn.IsVisible = False
+    statusLabel.IsVisible = False
+    cooldownLabel.IsVisible = False
+    hotkeyTitle.IsVisible = False
+    hotkeyRow1.IsVisible = False
+    hotkeyRow2.IsVisible = False
+
+    # Resize gump
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
 def toggle_pause():
 
     global PAUSED
@@ -1700,6 +1834,16 @@ def on_attack_hotkey():
 
 
 # ============ PERSISTENCE ============
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
 
 def load_settings():
 
@@ -2226,6 +2370,7 @@ def onClosed():
 
 # ============ INITIALIZATION ============
 
+load_expanded_state()
 load_settings()
 
 
@@ -2250,23 +2395,31 @@ lastY = int(posXY[1])
 last_known_x = lastX
 last_known_y = lastY
 
-gump.SetRect(lastX, lastY, 280, 610)
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
 
 
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 
-bg.SetRect(0, 0, 280, 610)
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 
 gump.Add(bg)
 
 
 
-title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.1", 16, "#ff8800", aligned="center", maxWidth=280)
+title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.2", 16, "#ff8800", aligned="center", maxWidth=280)
 
 title.SetPos(0, 5)
 
 gump.Add(title)
+
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(255, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
 
 
 
@@ -2279,6 +2432,8 @@ y = 30
 resourceTitle = API.Gumps.CreateGumpTTFLabel("=== STATUS ===", 9, "#00ffaa", aligned="center", maxWidth=280)
 
 resourceTitle.SetPos(0, y)
+
+resourceTitle.IsVisible = is_expanded
 
 gump.Add(resourceTitle)
 
@@ -2294,6 +2449,8 @@ hpLabel = API.Gumps.CreateGumpTTFLabel("HP: 0/0 (0%)", 9, "#00ff00")
 
 hpLabel.SetPos(10, y)
 
+hpLabel.IsVisible = is_expanded
+
 gump.Add(hpLabel)
 
 
@@ -2301,6 +2458,8 @@ gump.Add(hpLabel)
 hpBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#00ff00")
 
 hpBar.SetPos(170, y)
+
+hpBar.IsVisible = is_expanded
 
 gump.Add(hpBar)
 
@@ -2316,6 +2475,8 @@ stamLabel = API.Gumps.CreateGumpTTFLabel("Stam: 0/0 (0%)", 9, "#00ffff")
 
 stamLabel.SetPos(10, y)
 
+stamLabel.IsVisible = is_expanded
+
 gump.Add(stamLabel)
 
 
@@ -2323,6 +2484,8 @@ gump.Add(stamLabel)
 stamBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#00ffff")
 
 stamBar.SetPos(170, y)
+
+stamBar.IsVisible = is_expanded
 
 gump.Add(stamBar)
 
@@ -2338,6 +2501,8 @@ manaLabel = API.Gumps.CreateGumpTTFLabel("Mana: 0/0 (0%)", 9, "#8888ff")
 
 manaLabel.SetPos(10, y)
 
+manaLabel.IsVisible = is_expanded
+
 gump.Add(manaLabel)
 
 
@@ -2345,6 +2510,8 @@ gump.Add(manaLabel)
 manaBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#8888ff")
 
 manaBar.SetPos(170, y)
+
+manaBar.IsVisible = is_expanded
 
 gump.Add(manaBar)
 
@@ -2360,6 +2527,8 @@ poisonTitleLabel = API.Gumps.CreateGumpTTFLabel("Poison:", 9, "#ffffff")
 
 poisonTitleLabel.SetPos(10, y)
 
+poisonTitleLabel.IsVisible = is_expanded
+
 gump.Add(poisonTitleLabel)
 
 
@@ -2367,6 +2536,8 @@ gump.Add(poisonTitleLabel)
 poisonLabel = API.Gumps.CreateGumpTTFLabel("Clear", 9, "#00ff00")
 
 poisonLabel.SetPos(60, y)
+
+poisonLabel.IsVisible = is_expanded
 
 gump.Add(poisonLabel)
 
@@ -2381,6 +2552,8 @@ y += 20
 middleTitle = API.Gumps.CreateGumpTTFLabel("=== POTIONS ===", 9, "#ff8800", aligned="center", maxWidth=280)
 
 middleTitle.SetPos(0, y)
+
+middleTitle.IsVisible = is_expanded
 
 gump.Add(middleTitle)
 
@@ -2398,6 +2571,8 @@ healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal: 0", 9, "#ffaa00")
 
 healPotionLabel.SetPos(leftX, y)
 
+healPotionLabel.IsVisible = is_expanded
+
 gump.Add(healPotionLabel)
 
 
@@ -2407,6 +2582,8 @@ drinkHealBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
 drinkHealBtn.SetPos(leftX + 90, y - 2)
 
 drinkHealBtn.SetBackgroundHue(68)
+
+drinkHealBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(drinkHealBtn, on_drink_heal)
 
@@ -2424,6 +2601,8 @@ curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure: 0", 9, "#ffff00")
 
 curePotionLabel.SetPos(leftX, y)
 
+curePotionLabel.IsVisible = is_expanded
+
 gump.Add(curePotionLabel)
 
 
@@ -2433,6 +2612,8 @@ drinkCureBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
 drinkCureBtn.SetPos(leftX + 90, y - 2)
 
 drinkCureBtn.SetBackgroundHue(68)
+
+drinkCureBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(drinkCureBtn, on_drink_cure)
 
@@ -2450,6 +2631,8 @@ refreshPotionLabel = API.Gumps.CreateGumpTTFLabel("Refresh: 0", 9, "#ff0000")
 
 refreshPotionLabel.SetPos(leftX, y)
 
+refreshPotionLabel.IsVisible = is_expanded
+
 gump.Add(refreshPotionLabel)
 
 
@@ -2459,6 +2642,8 @@ drinkRefreshBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
 drinkRefreshBtn.SetPos(leftX + 90, y - 2)
 
 drinkRefreshBtn.SetBackgroundHue(68)
+
+drinkRefreshBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(drinkRefreshBtn, on_drink_refresh)
 
@@ -2476,6 +2661,8 @@ strPotionLabel = API.Gumps.CreateGumpTTFLabel("Str: 0", 9, "#aaaaaa")
 
 strPotionLabel.SetPos(leftX, y)
 
+strPotionLabel.IsVisible = is_expanded
+
 gump.Add(strPotionLabel)
 
 
@@ -2485,6 +2672,8 @@ gump.Add(strPotionLabel)
 agiPotionLabel = API.Gumps.CreateGumpTTFLabel("Agi: 0", 9, "#aaaaaa")
 
 agiPotionLabel.SetPos(leftX + 90, y)
+
+agiPotionLabel.IsVisible = is_expanded
 
 gump.Add(agiPotionLabel)
 
@@ -2500,6 +2689,8 @@ strBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 9, "#555555")
 
 strBuffBar.SetPos(leftX, y)
 
+strBuffBar.IsVisible = is_expanded
+
 gump.Add(strBuffBar)
 
 
@@ -2509,6 +2700,8 @@ gump.Add(strBuffBar)
 agiBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 9, "#555555")
 
 agiBuffBar.SetPos(leftX + 90, y)
+
+agiBuffBar.IsVisible = is_expanded
 
 gump.Add(agiBuffBar)
 
@@ -2524,6 +2717,8 @@ healingTitle = API.Gumps.CreateGumpTTFLabel("=== HEALING ===", 9, "#00ff00", ali
 
 healingTitle.SetPos(0, y)
 
+healingTitle.IsVisible = is_expanded
+
 gump.Add(healingTitle)
 
 
@@ -2538,6 +2733,8 @@ bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: 0", 9, "#ffffff")
 
 bandageLabel.SetPos(leftX, y)
 
+bandageLabel.IsVisible = is_expanded
+
 gump.Add(bandageLabel)
 
 
@@ -2547,6 +2744,8 @@ bandageBtn = API.Gumps.CreateSimpleButton("[BANDAGE]", 70, 18)
 bandageBtn.SetPos(leftX + 80, y - 2)
 
 bandageBtn.SetBackgroundHue(68)
+
+bandageBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(bandageBtn, on_bandage_button)
 
@@ -2559,6 +2758,8 @@ autoHealBtn = API.Gumps.CreateSimpleButton("[AUTO-BAND:" + ("ON" if auto_heal el
 autoHealBtn.SetPos(leftX + 155, y - 2)
 
 autoHealBtn.SetBackgroundHue(68 if auto_heal else 90)
+
+autoHealBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(autoHealBtn, toggle_auto_heal)
 
@@ -2576,6 +2777,8 @@ healStateLabel = API.Gumps.CreateGumpTTFLabel("Idle", 9, "#00ff00")
 
 healStateLabel.SetPos(leftX, y)
 
+healStateLabel.IsVisible = is_expanded
+
 gump.Add(healStateLabel)
 
 
@@ -2590,6 +2793,8 @@ healThresholdLabel = API.Gumps.CreateGumpTTFLabel("Heal: " + str(heal_threshold)
 
 healThresholdLabel.SetPos(leftX, y)
 
+healThresholdLabel.IsVisible = is_expanded
+
 gump.Add(healThresholdLabel)
 
 
@@ -2597,6 +2802,8 @@ gump.Add(healThresholdLabel)
 criticalThresholdLabel = API.Gumps.CreateGumpTTFLabel("Critical: " + str(critical_threshold) + "%", 9, "#ff0000")
 
 criticalThresholdLabel.SetPos(leftX + 100, y)
+
+criticalThresholdLabel.IsVisible = is_expanded
 
 gump.Add(criticalThresholdLabel)
 
@@ -2609,6 +2816,8 @@ y += 14
 stamThresholdLabel = API.Gumps.CreateGumpTTFLabel("Stam: " + str(stamina_threshold) + "%", 9, "#00ffff")
 
 stamThresholdLabel.SetPos(leftX, y)
+
+stamThresholdLabel.IsVisible = is_expanded
 
 gump.Add(stamThresholdLabel)
 
@@ -2624,6 +2833,8 @@ targetingTitle = API.Gumps.CreateGumpTTFLabel("=== TARGETING ===", 9, "#ff6666",
 
 targetingTitle.SetPos(0, y)
 
+targetingTitle.IsVisible = is_expanded
+
 gump.Add(targetingTitle)
 
 
@@ -2638,6 +2849,8 @@ redsBtn.SetPos(leftX, y)
 
 redsBtn.SetBackgroundHue(68 if target_reds else 90)
 
+redsBtn.IsVisible = is_expanded
+
 API.Gumps.AddControlOnClick(redsBtn, toggle_target_reds)
 
 gump.Add(redsBtn)
@@ -2649,6 +2862,8 @@ graysBtn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if target_grays else "
 graysBtn.SetPos(leftX + 90, y)
 
 graysBtn.SetBackgroundHue(68 if target_grays else 90)
+
+graysBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(graysBtn, toggle_target_grays)
 
@@ -2668,6 +2883,8 @@ autoTargetBtn.SetPos(leftX, y)
 
 autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
 
+autoTargetBtn.IsVisible = is_expanded
+
 API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
 
 gump.Add(autoTargetBtn)
@@ -2684,6 +2901,8 @@ utilTitle = API.Gumps.CreateGumpTTFLabel("=== UTILITIES ===", 9, "#00aaff", alig
 
 utilTitle.SetPos(0, y)
 
+utilTitle.IsVisible = is_expanded
+
 gump.Add(utilTitle)
 
 
@@ -2699,6 +2918,8 @@ autoBuffBtn = API.Gumps.CreateSimpleButton("[AUTO-BUFF:" + ("ON" if auto_buff el
 autoBuffBtn.SetPos(leftX, y)
 
 autoBuffBtn.SetBackgroundHue(68 if auto_buff else 90)
+
+autoBuffBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(autoBuffBtn, toggle_auto_buff)
 
@@ -2718,6 +2939,8 @@ setPouchBtn.SetPos(leftX, y)
 
 setPouchBtn.SetBackgroundHue(43)
 
+setPouchBtn.IsVisible = is_expanded
+
 API.Gumps.AddControlOnClick(setPouchBtn, on_set_trapped_pouch)
 
 gump.Add(setPouchBtn)
@@ -2729,6 +2952,8 @@ usePouchBtn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_
 usePouchBtn.SetPos(leftX + 95, y)
 
 usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
+
+usePouchBtn.IsVisible = is_expanded
 
 API.Gumps.AddControlOnClick(usePouchBtn, toggle_use_trapped_pouch)
 
@@ -2746,6 +2971,8 @@ footerTitle = API.Gumps.CreateGumpTTFLabel("=== CONTROL ===", 9, "#ff6666", alig
 
 footerTitle.SetPos(0, y)
 
+footerTitle.IsVisible = is_expanded
+
 gump.Add(footerTitle)
 
 
@@ -2760,6 +2987,8 @@ pauseBtn.SetPos(10, y)
 
 pauseBtn.SetBackgroundHue(90)
 
+pauseBtn.IsVisible = is_expanded
+
 API.Gumps.AddControlOnClick(pauseBtn, toggle_pause)
 
 gump.Add(pauseBtn)
@@ -2770,6 +2999,8 @@ statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
 
 statusLabel.SetPos(110, y + 4)
 
+statusLabel.IsVisible = is_expanded
+
 gump.Add(statusLabel)
 
 
@@ -2777,6 +3008,8 @@ gump.Add(statusLabel)
 cooldownLabel = API.Gumps.CreateGumpTTFLabel("Ready", 9, "#00ff00")
 
 cooldownLabel.SetPos(250, y + 4)
+
+cooldownLabel.IsVisible = is_expanded
 
 gump.Add(cooldownLabel)
 
@@ -2792,6 +3025,8 @@ hotkeyTitle = API.Gumps.CreateGumpTTFLabel("=== HOTKEYS ===", 9, "#ffff00", alig
 
 hotkeyTitle.SetPos(0, y)
 
+hotkeyTitle.IsVisible = is_expanded
+
 gump.Add(hotkeyTitle)
 
 
@@ -2805,6 +3040,8 @@ y += 16
 hotkeyRow1 = API.Gumps.CreateGumpTTFLabel("Heal:" + HOTKEY_HEAL_POTION + " | Cure:" + HOTKEY_CURE_POTION + " | Refresh:" + HOTKEY_REFRESH_POTION, 9, "#aaaaaa")
 
 hotkeyRow1.SetPos(leftX, y)
+
+hotkeyRow1.IsVisible = is_expanded
 
 gump.Add(hotkeyRow1)
 
@@ -2820,13 +3057,17 @@ hotkeyRow2 = API.Gumps.CreateGumpTTFLabel("Bandage:" + HOTKEY_BANDAGE + " | Atta
 
 hotkeyRow2.SetPos(leftX, y)
 
+hotkeyRow2.IsVisible = is_expanded
+
 gump.Add(hotkeyRow2)
 
 
 
 API.Gumps.AddGump(gump)
 
-
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
 
 # ============ REGISTER HOTKEYS ============
 
@@ -2876,7 +3117,7 @@ update_display()
 
 
 
-API.SysMsg("Dexer Suite v1.1 loaded!", 68)
+API.SysMsg("Dexer Suite v1.2 loaded!", 68)
 
 API.SysMsg("Base Stats: STR=" + str(base_str) + " DEX=" + str(base_dex), 53)
 

@@ -1,5 +1,5 @@
 # ============================================================
-# Tamer Suite v2.0
+# Tamer Suite v2.4
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -8,6 +8,7 @@
 # stay responsive even during long actions like resurrections.
 #
 # Features:
+#   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - Smart healing priority (self > tank > poisoned > lowest HP)
 #   - Potion support (heal/cure) with 10s cooldown tracking
 #   - Trapped pouch to break paralyze (auto-use if safe HP)
@@ -24,7 +25,7 @@
 import API
 import time
 
-__version__ = "2.3"
+__version__ = "2.4"
 
 # ============ USER SETTINGS ============
 # Item graphics
@@ -77,6 +78,11 @@ PET_SYNC_INTERVAL = 2.0
 LOW_BANDAGE_WARNING = 10
 MAX_PETS = 5
 
+# === GUI DIMENSIONS ===
+WINDOW_WIDTH = 400
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 430
+
 # === POTIONS ===
 POTION_HEAL = 0x0F0C          # Greater Heal
 POTION_CURE = 0x0F07          # Greater Cure
@@ -104,6 +110,7 @@ POTION_KEY = "TamerSuite_UsePotions"
 TRAPPED_POUCH_SERIAL_KEY = "TamerSuite_TrappedPouch"
 USE_TRAPPED_POUCH_KEY = "TamerSuite_UseTrappedPouch"
 AUTO_TARGET_KEY = "TamerSuite_AutoTarget"
+EXPANDED_KEY = "TamerSuite_Expanded"
 
 # ============ HEALER STATE MACHINE ============
 # States: idle, healing, following, rezzing, vetkit
@@ -127,6 +134,9 @@ last_vetkit_use = 0
 last_no_bandage_warning = 0
 NO_BANDAGE_COOLDOWN = 10.0
 manual_heal_target = 0
+
+# GUI
+is_expanded = True
 
 # Commands
 TARGET_REDS = False
@@ -155,6 +165,11 @@ last_known_pets_str = ""
 last_critical_alert = 0
 last_pet_death_alerts = {}
 ALERT_COOLDOWN = 5.0
+
+# Position tracking
+last_known_x = 100
+last_known_y = 100
+last_position_check = 0
 
 # Friend rez
 rez_friend_target = 0
@@ -1259,6 +1274,141 @@ def pet_follow_by_name(serial):
     API.SysMsg(name + " follow!", 68)
     API.HeadMsg("Follow!", serial, 68)
 
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls - LEFT PANEL (HEALER)
+    healerTitle.IsVisible = True
+    mageryBtn.IsVisible = True
+    selfBtn.IsVisible = True
+    rezBtn.IsVisible = True
+    skipBtn.IsVisible = True
+    tankLabel.IsVisible = True
+    setTankBtn.IsVisible = True
+    clrTankBtn.IsVisible = True
+    vetkitLabel.IsVisible = True
+    setVetBtn.IsVisible = True
+    clrVetBtn.IsVisible = True
+    pauseBtn.IsVisible = True
+    statusLabel.IsVisible = True
+
+    # Show all controls - RIGHT PANEL (COMMANDS)
+    cmdTitle.IsVisible = True
+    rezFriendLabel.IsVisible = True
+    rezFriendBtn.IsVisible = True
+    redsBtn.IsVisible = True
+    graysBtn.IsVisible = True
+    modeBtn.IsVisible = True
+    hotkeyLabel.IsVisible = True
+    bankBtn.IsVisible = True
+    balanceBtn.IsVisible = True
+    allKillBtn.IsVisible = True
+    followAllBtn.IsVisible = True
+    guardAllBtn.IsVisible = True
+    stayAllBtn.IsVisible = True
+    potionsBtn.IsVisible = True
+    autoTargetBtn.IsVisible = True
+    setPouchBtn.IsVisible = True
+    usePouchBtn.IsVisible = True
+    healPotionLabel.IsVisible = True
+    curePotionLabel.IsVisible = True
+
+    # Show all controls - BOTTOM PANEL (PETS)
+    petsTitle.IsVisible = True
+    for lbl in pet_labels:
+        lbl.IsVisible = True
+    for toggle in pet_toggles:
+        toggle.IsVisible = True
+    addBtn.IsVisible = True
+    removeBtn.IsVisible = True
+    clearBtn.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls - LEFT PANEL (HEALER)
+    healerTitle.IsVisible = False
+    mageryBtn.IsVisible = False
+    selfBtn.IsVisible = False
+    rezBtn.IsVisible = False
+    skipBtn.IsVisible = False
+    tankLabel.IsVisible = False
+    setTankBtn.IsVisible = False
+    clrTankBtn.IsVisible = False
+    vetkitLabel.IsVisible = False
+    setVetBtn.IsVisible = False
+    clrVetBtn.IsVisible = False
+    pauseBtn.IsVisible = False
+    statusLabel.IsVisible = False
+
+    # Hide all controls - RIGHT PANEL (COMMANDS)
+    cmdTitle.IsVisible = False
+    rezFriendLabel.IsVisible = False
+    rezFriendBtn.IsVisible = False
+    redsBtn.IsVisible = False
+    graysBtn.IsVisible = False
+    modeBtn.IsVisible = False
+    hotkeyLabel.IsVisible = False
+    bankBtn.IsVisible = False
+    balanceBtn.IsVisible = False
+    allKillBtn.IsVisible = False
+    followAllBtn.IsVisible = False
+    guardAllBtn.IsVisible = False
+    stayAllBtn.IsVisible = False
+    potionsBtn.IsVisible = False
+    autoTargetBtn.IsVisible = False
+    setPouchBtn.IsVisible = False
+    usePouchBtn.IsVisible = False
+    healPotionLabel.IsVisible = False
+    curePotionLabel.IsVisible = False
+
+    # Hide all controls - BOTTOM PANEL (PETS)
+    petsTitle.IsVisible = False
+    for lbl in pet_labels:
+        lbl.IsVisible = False
+    for toggle in pet_toggles:
+        toggle.IsVisible = False
+    addBtn.IsVisible = False
+    removeBtn.IsVisible = False
+    clearBtn.IsVisible = False
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
+
 # ============ GUI CALLBACKS ============
 def toggle_pause():
     global PAUSED
@@ -1627,15 +1777,26 @@ def cleanup():
         except:
             pass
 
+def save_window_position():
+    """Save window position using last known position"""
+    global last_known_x, last_known_y
+
+    # Validate coordinates
+    if last_known_x < 0 or last_known_y < 0:
+        return
+
+    API.SavePersistentVar(SETTINGS_KEY, str(last_known_x) + "," + str(last_known_y), API.PersistentVar.Char)
+
 def onClosed():
     cleanup()
     cancel_heal()
     cancel_friend_rez()
-    API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
+    save_window_position()
     API.Stop()
 
 # ============ LOAD AND INIT ============
 load_settings()
+load_expanded_state()
 
 # ============ BUILD GUI ============
 gump = API.Gumps.CreateGump()
@@ -1645,18 +1806,33 @@ savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
-gump.SetRect(lastX, lastY, 400, 430)
+
+# Initialize last known position with loaded values
+last_known_x = lastX
+last_known_y = lastY
+
+# Determine initial height
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+
+gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, 400, 430)
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.3", 16, "#00d4ff", aligned="center", maxWidth=400)
+title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.4", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH)
 title.SetPos(0, 5)
 gump.Add(title)
 
-# Bandage count (top center)
-bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 9, "#AAFFAA", aligned="center", maxWidth=400)
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(375, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
+# Bandage count (top center) - ALWAYS VISIBLE
+bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 9, "#AAFFAA", aligned="center", maxWidth=WINDOW_WIDTH)
 bandageLabel.SetPos(0, 24)
 gump.Add(bandageLabel)
 
@@ -1666,6 +1842,7 @@ y = 42
 
 healerTitle = API.Gumps.CreateGumpTTFLabel("=== HEALER ===", 9, "#ff8800", aligned="center", maxWidth=195)
 healerTitle.SetPos(leftX, y)
+healerTitle.IsVisible = is_expanded
 gump.Add(healerTitle)
 
 y += 16
@@ -1675,12 +1852,14 @@ btnH = 20
 mageryBtn = API.Gumps.CreateSimpleButton("[BAND]" if not USE_MAGERY else "[MAGE]", btnW, btnH)
 mageryBtn.SetPos(leftX, y)
 mageryBtn.SetBackgroundHue(68 if not USE_MAGERY else 66)
+mageryBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(mageryBtn, toggle_magery)
 gump.Add(mageryBtn)
 
 selfBtn = API.Gumps.CreateSimpleButton("[SELF:" + ("ON" if HEAL_SELF else "OFF") + "]", btnW, btnH)
 selfBtn.SetPos(leftX + 95, y)
 selfBtn.SetBackgroundHue(68 if HEAL_SELF else 90)
+selfBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(selfBtn, toggle_self)
 gump.Add(selfBtn)
 
@@ -1688,48 +1867,56 @@ y += 22
 rezBtn = API.Gumps.CreateSimpleButton("[REZ:" + ("ON" if USE_REZ else "OFF") + "]", btnW, btnH)
 rezBtn.SetPos(leftX, y)
 rezBtn.SetBackgroundHue(38 if USE_REZ else 90)
+rezBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(rezBtn, toggle_rez)
 gump.Add(rezBtn)
 
 skipBtn = API.Gumps.CreateSimpleButton("[SKIP:" + ("ON" if SKIP_OUT_OF_RANGE else "OFF") + "]", btnW, btnH)
 skipBtn.SetPos(leftX + 95, y)
 skipBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 90)
+skipBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(skipBtn, toggle_skip)
 gump.Add(skipBtn)
 
 y += 24
 tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None]", 9, "#FFAAAA")
 tankLabel.SetPos(leftX, y)
+tankLabel.IsVisible = is_expanded
 gump.Add(tankLabel)
 
 y += 16
 setTankBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
 setTankBtn.SetPos(leftX, y)
 setTankBtn.SetBackgroundHue(38)
+setTankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(setTankBtn, set_tank)
 gump.Add(setTankBtn)
 
 clrTankBtn = API.Gumps.CreateSimpleButton("[CLR]", 45, 18)
 clrTankBtn.SetPos(leftX + 50, y)
 clrTankBtn.SetBackgroundHue(90)
+clrTankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clrTankBtn, clear_tank)
 gump.Add(clrTankBtn)
 
 y += 22
 vetkitLabel = API.Gumps.CreateGumpTTFLabel("VetKit: [None]", 9, "#AAAAFF")
 vetkitLabel.SetPos(leftX, y)
+vetkitLabel.IsVisible = is_expanded
 gump.Add(vetkitLabel)
 
 y += 16
 setVetBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
 setVetBtn.SetPos(leftX, y)
 setVetBtn.SetBackgroundHue(68)
+setVetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(setVetBtn, set_vetkit)
 gump.Add(setVetBtn)
 
 clrVetBtn = API.Gumps.CreateSimpleButton("[CLR]", 45, 18)
 clrVetBtn.SetPos(leftX + 50, y)
 clrVetBtn.SetBackgroundHue(90)
+clrVetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clrVetBtn, clear_vetkit)
 gump.Add(clrVetBtn)
 
@@ -1737,11 +1924,13 @@ y += 24
 pauseBtn = API.Gumps.CreateSimpleButton("[PAUSE]", 90, btnH)
 pauseBtn.SetPos(leftX, y)
 pauseBtn.SetBackgroundHue(90)
+pauseBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(pauseBtn, toggle_pause)
 gump.Add(pauseBtn)
 
 statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
 statusLabel.SetPos(leftX + 95, y + 3)
+statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
 # ========== RIGHT PANEL (COMMANDS) ==========
@@ -1750,6 +1939,7 @@ y = 42
 
 cmdTitle = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#ff6666", aligned="center", maxWidth=195)
 cmdTitle.SetPos(rightX, y)
+cmdTitle.IsVisible = is_expanded
 gump.Add(cmdTitle)
 
 y += 16
@@ -1757,12 +1947,14 @@ y += 16
 # Friend Rez (manual emergency action)
 rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
 rezFriendLabel.SetPos(rightX, y)
+rezFriendLabel.IsVisible = is_expanded
 gump.Add(rezFriendLabel)
 
 y += 16
 rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
 rezFriendBtn.SetPos(rightX, y)
 rezFriendBtn.SetBackgroundHue(38)
+rezFriendBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
 gump.Add(rezFriendBtn)
 
@@ -1770,12 +1962,14 @@ y += 22
 redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", btnW, btnH)
 redsBtn.SetPos(rightX, y)
 redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
+redsBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(redsBtn, toggle_reds)
 gump.Add(redsBtn)
 
 graysBtn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if TARGET_GRAYS else "OFF") + "]", btnW, btnH)
 graysBtn.SetPos(rightX + 95, y)
 graysBtn.SetBackgroundHue(53 if TARGET_GRAYS else 90)
+graysBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(graysBtn, toggle_grays)
 gump.Add(graysBtn)
 
@@ -1783,6 +1977,7 @@ y += 22
 modeBtn = API.Gumps.CreateSimpleButton("[" + ATTACK_MODE + "]", btnW, btnH)
 modeBtn.SetPos(rightX, y)
 modeBtn.SetBackgroundHue(66 if ATTACK_MODE == "ORDER" else 68)
+modeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(modeBtn, toggle_mode)
 gump.Add(modeBtn)
 
@@ -1790,6 +1985,7 @@ gump.Add(modeBtn)
 hotkeyText = "Kill:" + (ALL_KILL_HOTKEY or "-") + " G:" + (GUARD_HOTKEY or "-") + " F:" + (FOLLOW_HOTKEY or "-")
 hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 8, "#888888")
 hotkeyLabel.SetPos(rightX + 95, y + 4)
+hotkeyLabel.IsVisible = is_expanded
 gump.Add(hotkeyLabel)
 
 y += 22
@@ -1797,12 +1993,14 @@ y += 22
 bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 60, btnH)
 bankBtn.SetPos(rightX, y)
 bankBtn.SetBackgroundHue(68)
+bankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankBtn, say_bank)
 gump.Add(bankBtn)
 
 balanceBtn = API.Gumps.CreateSimpleButton("[BALANCE]", 70, btnH)
 balanceBtn.SetPos(rightX + 65, y)
 balanceBtn.SetBackgroundHue(66)
+balanceBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(balanceBtn, say_balance)
 gump.Add(balanceBtn)
 
@@ -1811,6 +2009,7 @@ y += 22
 allKillBtn = API.Gumps.CreateSimpleButton("[ALL KILL]", 90, btnH)
 allKillBtn.SetPos(rightX, y)
 allKillBtn.SetBackgroundHue(32)
+allKillBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(allKillBtn, all_kill_manual)
 gump.Add(allKillBtn)
 
@@ -1818,18 +2017,21 @@ y += 22
 followAllBtn = API.Gumps.CreateSimpleButton("[FOLLOW]", 60, btnH)
 followAllBtn.SetPos(rightX, y)
 followAllBtn.SetBackgroundHue(68)
+followAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(followAllBtn, all_follow)
 gump.Add(followAllBtn)
 
 guardAllBtn = API.Gumps.CreateSimpleButton("[GUARD]", 60, btnH)
 guardAllBtn.SetPos(rightX + 65, y)
 guardAllBtn.SetBackgroundHue(68)
+guardAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(guardAllBtn, all_guard)
 gump.Add(guardAllBtn)
 
 stayAllBtn = API.Gumps.CreateSimpleButton("[STAY]", 55, btnH)
 stayAllBtn.SetPos(rightX + 130, y)
 stayAllBtn.SetBackgroundHue(53)
+stayAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(stayAllBtn, all_stay)
 gump.Add(stayAllBtn)
 
@@ -1838,12 +2040,14 @@ y += 22
 potionsBtn = API.Gumps.CreateSimpleButton("[POTIONS:" + ("ON" if USE_POTIONS else "OFF") + "]", btnW, btnH)
 potionsBtn.SetPos(rightX, y)
 potionsBtn.SetBackgroundHue(68 if USE_POTIONS else 90)
+potionsBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(potionsBtn, toggle_potions)
 gump.Add(potionsBtn)
 
 autoTargetBtn = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", btnW, btnH)
 autoTargetBtn.SetPos(rightX + 95, y)
 autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
+autoTargetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
 gump.Add(autoTargetBtn)
 
@@ -1851,12 +2055,14 @@ y += 22
 setPouchBtn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, btnH)
 setPouchBtn.SetPos(rightX, y)
 setPouchBtn.SetBackgroundHue(43)
+setPouchBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(setPouchBtn, on_set_trapped_pouch)
 gump.Add(setPouchBtn)
 
 usePouchBtn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 95, btnH)
 usePouchBtn.SetPos(rightX + 95, y)
 usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
+usePouchBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(usePouchBtn, toggle_use_trapped_pouch)
 gump.Add(usePouchBtn)
 
@@ -1864,16 +2070,19 @@ gump.Add(usePouchBtn)
 y += 22
 healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal:0", 8, "#ffaa00")
 healPotionLabel.SetPos(rightX, y)
+healPotionLabel.IsVisible = is_expanded
 gump.Add(healPotionLabel)
 
 curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure:0", 8, "#ffff00")
 curePotionLabel.SetPos(rightX + 65, y)
+curePotionLabel.IsVisible = is_expanded
 gump.Add(curePotionLabel)
 
 # ========== BOTTOM PANEL (SHARED PETS) ==========
 y = 265
-petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS (click=follow/heal) ===", 9, "#00ffaa", aligned="center", maxWidth=400)
+petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS (click=follow/heal) ===", 9, "#00ffaa", aligned="center", maxWidth=WINDOW_WIDTH)
 petsTitle.SetPos(0, y)
+petsTitle.IsVisible = is_expanded
 gump.Add(petsTitle)
 
 y += 16
@@ -1883,6 +2092,7 @@ for i in range(MAX_PETS):
     lbl = API.Gumps.CreateSimpleButton(str(i+1) + ". ---", 340, 18)
     lbl.SetPos(5, y + (i * 20))
     lbl.SetBackgroundHue(90)
+    lbl.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(lbl, make_pet_click_callback(i))
     gump.Add(lbl)
     pet_labels.append(lbl)
@@ -1896,6 +2106,7 @@ for i in range(MAX_PETS):
     toggleBtn = API.Gumps.CreateSimpleButton("[ON]", 45, 18)
     toggleBtn.SetPos(350, y + (i * 20))
     toggleBtn.SetBackgroundHue(68)
+    toggleBtn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(toggleBtn, make_toggle_callback(i))
     gump.Add(toggleBtn)
     pet_toggles.append(toggleBtn)
@@ -1906,22 +2117,29 @@ y += (MAX_PETS * 20) + 4
 addBtn = API.Gumps.CreateSimpleButton("[ADD]", 60, 18)
 addBtn.SetPos(5, y)
 addBtn.SetBackgroundHue(68)
+addBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(addBtn, add_pet)
 gump.Add(addBtn)
 
 removeBtn = API.Gumps.CreateSimpleButton("[DEL]", 60, 18)
 removeBtn.SetPos(70, y)
 removeBtn.SetBackgroundHue(32)
+removeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(removeBtn, remove_pet)
 gump.Add(removeBtn)
 
 clearBtn = API.Gumps.CreateSimpleButton("[CLR ALL]", 70, 18)
 clearBtn.SetPos(135, y)
 clearBtn.SetBackgroundHue(90)
+clearBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearBtn, clear_all_pets)
 gump.Add(clearBtn)
 
 API.Gumps.AddGump(gump)
+
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
 
 # ============ REGISTER HOTKEYS ============
 if PAUSE_HOTKEY:
@@ -1943,36 +2161,41 @@ update_bandage_display()
 update_potion_display()
 update_rez_friend_display()
 
-API.SysMsg("Tamer Suite v2 loaded! NEW: Friend Rez, Potions, Trapped Pouch, Auto-Target", 68)
+API.SysMsg("Tamer Suite v2.4 loaded! NEW: Expand/Collapse (click [-]/[+] button)", 68)
 API.SysMsg("Kill:" + (ALL_KILL_HOTKEY or "-") + " Guard:" + (GUARD_HOTKEY or "-") + " Follow:" + (FOLLOW_HOTKEY or "-") + " Pause:" + (PAUSE_HOTKEY or "-"), 53)
 
 # ============ MAIN LOOP (NON-BLOCKING) ============
 DISPLAY_INTERVAL = 0.3
 SYNC_INTERVAL = 2.0
-SAVE_INTERVAL = 10.0
 
 next_display = time.time() + DISPLAY_INTERVAL
 next_sync = time.time() + SYNC_INTERVAL
-next_save = time.time() + SAVE_INTERVAL
 
 while not API.StopRequested:
     try:
         # Process GUI clicks and HOTKEYS - always instant!
         API.ProcessCallbacks()
-        
+
         # Check if current heal is done
         check_heal_complete()
-        
-        # Save position
-        if time.time() > next_save:
-            API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
-            next_save = time.time() + SAVE_INTERVAL
-        
+
+        # Periodically capture position (every 2 seconds)
+        # Skip if stop is requested to avoid "operation canceled" errors
+        if not API.StopRequested:
+            current_time = time.time()
+            if current_time - last_position_check > 2.0:
+                last_position_check = current_time
+                try:
+                    last_known_x = gump.GetX()
+                    last_known_y = gump.GetY()
+                except:
+                    pass  # Silently ignore if gump is disposed
+
         # Sync pets
         if time.time() > next_sync:
             sync_pets_from_storage()
             next_sync = time.time() + SYNC_INTERVAL
-        
+
         # Update displays
         if time.time() > next_display:
             update_pet_display()
@@ -1983,7 +2206,7 @@ while not API.StopRequested:
             if rez_friend_active:
                 update_rez_friend_display()
             next_display = time.time() + DISPLAY_INTERVAL
-        
+
         # Check alerts (even when paused)
         check_critical_alerts()
 
@@ -2007,9 +2230,11 @@ while not API.StopRequested:
 
         # Short pause - loop runs ~10x/second
         API.Pause(0.1)
-        
+
     except Exception as e:
-        API.SysMsg("Error: " + str(e), 32)
+        # Don't show "operation canceled" errors during shutdown
+        if "operation canceled" not in str(e).lower() and not API.StopRequested:
+            API.SysMsg("Error: " + str(e), 32)
         API.Pause(1)
 
 cleanup()

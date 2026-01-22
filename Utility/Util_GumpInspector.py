@@ -1,5 +1,5 @@
 # ============================================================
-# Gump Inspector v2.1
+# Gump Inspector v2.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -8,6 +8,7 @@
 # test interactions.
 #
 # Features:
+#   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - Auto-monitors gump opens and closes
 #   - Discovers gump IDs and button numbers
 #   - Event hooking for button press monitoring
@@ -21,17 +22,23 @@
 import API
 import time
 
-__version__ = "2.1"
+__version__ = "2.2"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "GumpInspector_XY"
 MONITOR_INTERVAL = 0.2   # How often to check for gump changes
 MAX_LOG_ENTRIES = 100    # Maximum log entries to keep
 
+# ============ GUI DIMENSIONS ============
+WINDOW_WIDTH = 380
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 520
+
 # ============ STATE ============
 selected_gump_id = 0
 custom_button_num = 0
 monitoring_enabled = True
+is_expanded = True
 last_gump_snapshot = {}  # {gump_id: timestamp}
 activity_log = []        # [(timestamp, type, message)]
 events_registered = False
@@ -486,6 +493,126 @@ def show_help():
     API.SysMsg("5. [SCAN] tests buttons 0-20 rapidly", 53)
     API.SysMsg("6. Watch for gump CLOSE = button worked!", 43)
 
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls
+    subtitle.IsVisible = True
+    targetBtn.IsVisible = True
+    refreshBtn.IsVisible = True
+    monitorBtn.IsVisible = True
+    checkBtn.IsVisible = True
+    contentsBtn.IsVisible = True
+    closeGumpBtn.IsVisible = True
+    eventsBtn.IsVisible = True
+    gumpCountLabel.IsVisible = True
+    gumpListBg.IsVisible = True
+    gumpListLabel.IsVisible = True
+    selectNextBtn.IsVisible = True
+    selectedLabel.IsVisible = True
+    sectionLabel2.IsVisible = True
+
+    # Show button testing grid (all individual test buttons)
+    for btn in test_buttons:
+        btn.IsVisible = True
+
+    customLabel.IsVisible = True
+    customInput.IsVisible = True
+    tryCustomBtn.IsVisible = True
+    decBtn.IsVisible = True
+    incBtn.IsVisible = True
+    scanBtn.IsVisible = True
+    lastClickLabel.IsVisible = True
+
+    # Show activity log section
+    divider.IsVisible = True
+    logTitle.IsVisible = True
+    clearLogBtn.IsVisible = True
+    logBg.IsVisible = True
+    logLabel.IsVisible = True
+
+    # Show bottom buttons
+    helpBtn.IsVisible = True
+    closeScriptBtn.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls
+    subtitle.IsVisible = False
+    targetBtn.IsVisible = False
+    refreshBtn.IsVisible = False
+    monitorBtn.IsVisible = False
+    checkBtn.IsVisible = False
+    contentsBtn.IsVisible = False
+    closeGumpBtn.IsVisible = False
+    eventsBtn.IsVisible = False
+    gumpCountLabel.IsVisible = False
+    gumpListBg.IsVisible = False
+    gumpListLabel.IsVisible = False
+    selectNextBtn.IsVisible = False
+    selectedLabel.IsVisible = False
+    sectionLabel2.IsVisible = False
+
+    # Hide button testing grid
+    for btn in test_buttons:
+        btn.IsVisible = False
+
+    customLabel.IsVisible = False
+    customInput.IsVisible = False
+    tryCustomBtn.IsVisible = False
+    decBtn.IsVisible = False
+    incBtn.IsVisible = False
+    scanBtn.IsVisible = False
+    lastClickLabel.IsVisible = False
+
+    # Hide activity log section
+    divider.IsVisible = False
+    logTitle.IsVisible = False
+    clearLogBtn.IsVisible = False
+    logBg.IsVisible = False
+    logLabel.IsVisible = False
+
+    # Hide bottom buttons
+    helpBtn.IsVisible = False
+    closeScriptBtn.IsVisible = False
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(SETTINGS_KEY + "_Expanded", str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(SETTINGS_KEY + "_Expanded", "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
+
 # ============ PERSISTENCE ============
 def save_window_position():
     """Save window position using last known coordinates"""
@@ -512,6 +639,9 @@ def onClosed():
     API.Stop()
 
 # ============ BUILD GUI ============
+# Load expanded state and position
+load_expanded_state()
+
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
@@ -519,20 +649,30 @@ savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
 last_known_x = int(posXY[0])
 last_known_y = int(posXY[1])
-gump.SetRect(last_known_x, last_known_y, 380, 520)
+
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(last_known_x, last_known_y, WINDOW_WIDTH, initial_height)
 
 # Background
 bg = API.Gumps.CreateGumpColorBox(0.92, "#1a1a2e")
-bg.SetRect(0, 0, 380, 520)
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
 # Title
-title = API.Gumps.CreateGumpTTFLabel("Gump Inspector v2.1", 16, "#00d4ff", aligned="center", maxWidth=380)
+title = API.Gumps.CreateGumpTTFLabel("Gump Inspector v2.2", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH)
 title.SetPos(0, 5)
 gump.Add(title)
 
-subtitle = API.Gumps.CreateGumpTTFLabel("Monitors gump opens/closes & button presses", 8, "#888888", aligned="center", maxWidth=380)
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(355, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
+subtitle = API.Gumps.CreateGumpTTFLabel("Monitors gump opens/closes & button presses", 8, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 subtitle.SetPos(0, 22)
+subtitle.IsVisible = is_expanded
 gump.Add(subtitle)
 
 # === TOP ROW - Detection Buttons ===
@@ -540,42 +680,49 @@ y = 38
 targetBtn = API.Gumps.CreateSimpleButton("[TARGET]", 58, 20)
 targetBtn.SetPos(5, y)
 targetBtn.SetBackgroundHue(68)
+targetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(targetBtn, target_item_for_gump)
 gump.Add(targetBtn)
 
 refreshBtn = API.Gumps.CreateSimpleButton("[REFRESH]", 58, 20)
 refreshBtn.SetPos(66, y)
 refreshBtn.SetBackgroundHue(53)
+refreshBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(refreshBtn, refresh_gumps)
 gump.Add(refreshBtn)
 
 monitorBtn = API.Gumps.CreateSimpleButton("[MON:ON]", 58, 20)
 monitorBtn.SetPos(127, y)
 monitorBtn.SetBackgroundHue(68)
+monitorBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(monitorBtn, toggle_monitoring)
 gump.Add(monitorBtn)
 
 checkBtn = API.Gumps.CreateSimpleButton("[CHECK]", 50, 20)
 checkBtn.SetPos(188, y)
 checkBtn.SetBackgroundHue(43)
+checkBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkBtn, check_gump)
 gump.Add(checkBtn)
 
 contentsBtn = API.Gumps.CreateSimpleButton("[TEXT]", 45, 20)
 contentsBtn.SetPos(241, y)
 contentsBtn.SetBackgroundHue(63)
+contentsBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(contentsBtn, show_gump_contents)
 gump.Add(contentsBtn)
 
 closeGumpBtn = API.Gumps.CreateSimpleButton("[CLOSE]", 45, 20)
 closeGumpBtn.SetPos(289, y)
 closeGumpBtn.SetBackgroundHue(32)
+closeGumpBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(closeGumpBtn, close_target_gump)
 gump.Add(closeGumpBtn)
 
 eventsBtn = API.Gumps.CreateSimpleButton("[EVT]", 38, 20)
 eventsBtn.SetPos(337, y)
 eventsBtn.SetBackgroundHue(88)
+eventsBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(eventsBtn, show_events)
 gump.Add(eventsBtn)
 
@@ -586,33 +733,39 @@ colRightX = 190
 
 gumpCountLabel = API.Gumps.CreateGumpTTFLabel("Open: 0", 10, "#00ff00")
 gumpCountLabel.SetPos(colLeftX, y)
+gumpCountLabel.IsVisible = is_expanded
 gump.Add(gumpCountLabel)
 
 y += 14
 gumpListBg = API.Gumps.CreateGumpColorBox(0.5, "#000000")
 gumpListBg.SetRect(colLeftX, y, 178, 95)
+gumpListBg.IsVisible = is_expanded
 gump.Add(gumpListBg)
 
 gumpListLabel = API.Gumps.CreateGumpTTFLabel("Monitoring...\n\nOpen a gump to\ninspect it", 9, "#aaaaaa")
 gumpListLabel.SetPos(colLeftX + 3, y + 2)
+gumpListLabel.IsVisible = is_expanded
 gump.Add(gumpListLabel)
 
 y += 97
 selectNextBtn = API.Gumps.CreateSimpleButton("[SELECT NEXT GUMP]", 178, 20)
 selectNextBtn.SetPos(colLeftX, y)
 selectNextBtn.SetBackgroundHue(88)
+selectNextBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(selectNextBtn, select_next_gump)
 gump.Add(selectNextBtn)
 
 y += 22
 selectedLabel = API.Gumps.CreateGumpTTFLabel("Sel: (none)", 9, "#00ff00")
 selectedLabel.SetPos(colLeftX, y)
+selectedLabel.IsVisible = is_expanded
 gump.Add(selectedLabel)
 
 # === RIGHT COLUMN - Button Testing ===
 y = 65
 sectionLabel2 = API.Gumps.CreateGumpTTFLabel("=== BUTTON TESTING ===", 9, "#ff8800")
 sectionLabel2.SetPos(colRightX, y)
+sectionLabel2.IsVisible = is_expanded
 gump.Add(sectionLabel2)
 
 # Button grid - 6 columns x 6 rows
@@ -631,40 +784,50 @@ button_funcs = [
     (102, btn_102), (200, btn_200),
 ]
 
+# Track button controls for visibility toggling
+test_buttons = []
+
 for i, (num, func) in enumerate(button_funcs):
     row = i // 6
     col = i % 6
     btn = API.Gumps.CreateSimpleButton(str(num), btnW, btnH)
     btn.SetPos(colRightX + (col * btnSpaceX), y + (row * btnSpaceY))
     btn.SetBackgroundHue(43)
+    btn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(btn, func)
     gump.Add(btn)
+    test_buttons.append(btn)
 
 # Custom button input
 y += (6 * btnSpaceY) + 2
 customLabel = API.Gumps.CreateGumpTTFLabel("Custom:", 9, "#aaaaaa")
 customLabel.SetPos(colRightX, y + 3)
+customLabel.IsVisible = is_expanded
 gump.Add(customLabel)
 
 customInput = API.Gumps.CreateGumpTextBox("0", 45, 20)
 customInput.SetPos(colRightX + 48, y)
+customInput.IsVisible = is_expanded
 gump.Add(customInput)
 
 tryCustomBtn = API.Gumps.CreateSimpleButton("TRY", 30, 20)
 tryCustomBtn.SetPos(colRightX + 96, y)
 tryCustomBtn.SetBackgroundHue(68)
+tryCustomBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(tryCustomBtn, try_custom_button)
 gump.Add(tryCustomBtn)
 
 decBtn = API.Gumps.CreateSimpleButton("-", 22, 20)
 decBtn.SetPos(colRightX + 128, y)
 decBtn.SetBackgroundHue(32)
+decBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(decBtn, decrement_and_try)
 gump.Add(decBtn)
 
 incBtn = API.Gumps.CreateSimpleButton("+", 22, 20)
 incBtn.SetPos(colRightX + 152, y)
 incBtn.SetBackgroundHue(68)
+incBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(incBtn, increment_and_try)
 gump.Add(incBtn)
 
@@ -672,37 +835,44 @@ y += 23
 scanBtn = API.Gumps.CreateSimpleButton("[SCAN 0-20]", 90, 20)
 scanBtn.SetPos(colRightX, y)
 scanBtn.SetBackgroundHue(88)
+scanBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(scanBtn, scan_buttons)
 gump.Add(scanBtn)
 
 lastClickLabel = API.Gumps.CreateGumpTTFLabel("Last: -", 9, "#ffff00")
 lastClickLabel.SetPos(colRightX + 95, y + 3)
+lastClickLabel.IsVisible = is_expanded
 gump.Add(lastClickLabel)
 
 # === ACTIVITY LOG SECTION ===
 y = 300
 divider = API.Gumps.CreateGumpColorBox(1.0, "#444444")
 divider.SetRect(5, y, 370, 1)
+divider.IsVisible = is_expanded
 gump.Add(divider)
 
 y += 5
 logTitle = API.Gumps.CreateGumpTTFLabel("=== ACTIVITY LOG (auto-monitors gumps) ===", 9, "#ff8800")
 logTitle.SetPos(5, y)
+logTitle.IsVisible = is_expanded
 gump.Add(logTitle)
 
 clearLogBtn = API.Gumps.CreateSimpleButton("[CLR]", 35, 18)
 clearLogBtn.SetPos(340, y - 2)
 clearLogBtn.SetBackgroundHue(32)
+clearLogBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearLogBtn, clear_log)
 gump.Add(clearLogBtn)
 
 y += 16
 logBg = API.Gumps.CreateGumpColorBox(0.6, "#000000")
 logBg.SetRect(5, y, 370, 150)
+logBg.IsVisible = is_expanded
 gump.Add(logBg)
 
 logLabel = API.Gumps.CreateGumpTTFLabel("Monitoring for gump activity...\n\nOPEN = Gump detected\nCLOSE = Gump closed (button pressed!)\nBTN = Button test result", 9, "#aaaaaa")
 logLabel.SetPos(8, y + 2)
+logLabel.IsVisible = is_expanded
 gump.Add(logLabel)
 
 # Bottom buttons
@@ -710,19 +880,25 @@ y = 490
 helpBtn = API.Gumps.CreateSimpleButton("[HELP]", 50, 22)
 helpBtn.SetPos(5, y)
 helpBtn.SetBackgroundHue(88)
+helpBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(helpBtn, show_help)
 gump.Add(helpBtn)
 
 closeScriptBtn = API.Gumps.CreateSimpleButton("[CLOSE INSPECTOR]", 110, 22)
 closeScriptBtn.SetPos(265, y)
 closeScriptBtn.SetBackgroundHue(32)
+closeScriptBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(closeScriptBtn, stop_script)
 gump.Add(closeScriptBtn)
 
 API.Gumps.AddGump(gump)
 
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
+
 # ============ INITIALIZATION ============
-log_activity("INFO", "Gump Inspector v2.1 started")
+log_activity("INFO", "Gump Inspector v2.2 started")
 log_activity("INFO", "Monitoring for gump activity...")
 
 # Try to discover and register events

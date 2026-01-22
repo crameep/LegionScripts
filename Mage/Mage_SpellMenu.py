@@ -1,5 +1,5 @@
 # ============================================================
-# Mage Spell Menu v1.2
+# Mage Spell Menu v1.3
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -11,6 +11,7 @@
 #   - One-key combo execution on nearest hostile
 #   - Last target support for chasing
 #   - Quick interrupt spell (Harm)
+#   - Expand/collapse to save screen space
 #
 # Hotkeys: CTRL+M (cast combo), CTRL+SHIFT+M (last target),
 #          CTRL+I (interrupt)
@@ -19,7 +20,7 @@
 import API
 import time
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 # ============ USER SETTINGS ============
 MAX_DISTANCE = 12
@@ -28,17 +29,26 @@ TARGET_HOTKEY = "CTRL+SHIFT+M"   # Execute selected combo on last target
 INTERRUPT_HOTKEY = "CTRL+I"      # Quick interrupt (Harm)
 # =======================================
 
+# ============ CONSTANTS ============
 SETTINGS_KEY = "mage_combat_xy"
 COMBO_SETTING = "mage_combat_combo"
 
-# Current combo selection
+# GUI dimensions
+COLLAPSED_HEIGHT = 24
+EXPANDED_HEIGHT = 400
+WINDOW_WIDTH = 280
+# ===================================
+
+# ============ RUNTIME STATE ============
 current_combo = "explo_ebolt"
 lastTarget = 0
+is_expanded = True
 
 # GUI position tracking (for improved position saving)
 last_known_x = 100
 last_known_y = 100
 last_position_check = 0
+# =======================================
 
 # ============ SPELL DEFINITIONS ============
 # Format: (spell_name, delay_after_cast, needs_target)
@@ -303,30 +313,129 @@ def update_combo_display():
     combo = COMBOS[current_combo]
     comboLabel.SetText(f"Active: {combo['name']}")
 
-# ============ GUI BUTTON FACTORIES ============
+# ============ GUI CALLBACKS ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all controls except title and expand button
+    hotkeyInfo.IsVisible = True
+    comboLabel.IsVisible = True
+    pvpLabel.IsVisible = True
+    pveLabel.IsVisible = True
+    singleLabel.IsVisible = True
+    utilLabel.IsVisible = True
+
+    for btn in pvp_buttons:
+        btn.IsVisible = True
+    for btn in pve_buttons:
+        btn.IsVisible = True
+    for btn in single_buttons:
+        btn.IsVisible = True
+    for btn in util_buttons:
+        btn.IsVisible = True
+    for btn in action_buttons:
+        btn.IsVisible = True
+
+    # Resize gump
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all controls except title and expand button
+    hotkeyInfo.IsVisible = False
+    comboLabel.IsVisible = False
+    pvpLabel.IsVisible = False
+    pveLabel.IsVisible = False
+    singleLabel.IsVisible = False
+    utilLabel.IsVisible = False
+
+    for btn in pvp_buttons:
+        btn.IsVisible = False
+    for btn in pve_buttons:
+        btn.IsVisible = False
+    for btn in single_buttons:
+        btn.IsVisible = False
+    for btn in util_buttons:
+        btn.IsVisible = False
+    for btn in action_buttons:
+        btn.IsVisible = False
+
+    # Resize gump
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
+# ============ BUTTON FACTORIES ============
 def make_combo_selector(combo_key):
     """Factory function to create combo selector callbacks"""
     def selector():
         select_combo(combo_key)
     return selector
 
-# ============ SCRIPT CONTROL ============
-def stop_script():
-    """Clean up and stop"""
+# ============ PERSISTENCE ============
+def save_window_position():
+    """Save window position to persistence using last known position"""
     global last_known_x, last_known_y
-    # Save last known good position (validated as non-negative)
     if last_known_x >= 0 and last_known_y >= 0:
         API.SavePersistentVar(SETTINGS_KEY, f"{last_known_x},{last_known_y}", API.PersistentVar.Char)
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(SETTINGS_KEY + "_Expanded", str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(SETTINGS_KEY + "_Expanded", "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
+
+# ============ CLEANUP ============
+def cleanup():
+    """Unregister hotkeys"""
     API.OnHotKey(CAST_HOTKEY)       # Unregister
     API.OnHotKey(TARGET_HOTKEY)     # Unregister
     API.OnHotKey(INTERRUPT_HOTKEY)  # Unregister
+
+def on_closed():
+    """Handle window close event"""
+    save_window_position()
+    cleanup()
+    API.Stop()
+
+def stop_script():
+    """Manual stop via button"""
+    save_window_position()
+    cleanup()
     gump.Dispose()
     API.Stop()
 
-# ============ LOAD SETTINGS ============
+# ============ INITIALIZATION ============
+# Load saved combo
 saved_combo = API.GetPersistentVar(COMBO_SETTING, "explo_ebolt", API.PersistentVar.Char)
 if saved_combo in COMBOS:
     current_combo = saved_combo
+
+# Load expanded state BEFORE building GUI
+load_expanded_state()
 
 # ============ REGISTER HOTKEYS ============
 API.OnHotKey(CAST_HOTKEY, find_and_attack)
@@ -335,30 +444,45 @@ API.OnHotKey(INTERRUPT_HOTKEY, quick_interrupt)
 
 # ============ BUILD GUI ============
 gump = API.Gumps.CreateGump()
+API.Gumps.AddControlOnDisposed(gump, on_closed)
 
+# Load saved position
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
 last_known_x = int(posXY[0])
 last_known_y = int(posXY[1])
-gump.SetRect(last_known_x, last_known_y, 280, 400)
+
+# Set initial size based on expanded state
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(last_known_x, last_known_y, WINDOW_WIDTH, initial_height)
 
 # Background
-bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e").SetRect(0, 0, 280, 400)
+bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e")
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-# Title
-title = API.Gumps.CreateGumpTTFLabel("⚡ Mage Combat", 16, "#ff4444", aligned="center", maxWidth=280)
+# Title (always visible)
+title = API.Gumps.CreateGumpTTFLabel("⚡ Mage Combat", 16, "#ff4444", aligned="center", maxWidth=WINDOW_WIDTH)
 title.SetPos(0, 5)
 gump.Add(title)
 
-# Hotkey info
-hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 9, "#666666", aligned="center", maxWidth=280)
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(255, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
+# Hotkey info (hidden when collapsed)
+hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 9, "#666666", aligned="center", maxWidth=WINDOW_WIDTH)
 hotkeyInfo.SetPos(0, 28)
+hotkeyInfo.IsVisible = is_expanded
 gump.Add(hotkeyInfo)
 
-# Current combo display
-comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 13, "#00ff00", aligned="center", maxWidth=280)
+# Current combo display (hidden when collapsed)
+comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 13, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
 comboLabel.SetPos(0, 45)
+comboLabel.IsVisible = is_expanded
 gump.Add(comboLabel)
 
 # Layout constants
@@ -370,10 +494,13 @@ col3X = 187
 startY = 70
 
 # === PVP SECTION ===
-pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 11, "#ff6666", aligned="center", maxWidth=280)
+pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 11, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
 pvpLabel.SetPos(0, startY)
+pvpLabel.IsVisible = is_expanded
 gump.Add(pvpLabel)
 
+# Track buttons for visibility control
+pvp_buttons = []
 y = startY + 18
 pvp_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "pvp"]
 for i, (key, combo) in enumerate(pvp_combos):
@@ -383,15 +510,19 @@ for i, (key, combo) in enumerate(pvp_combos):
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y + (row * 25))
     btn.SetBackgroundHue(combo["hue"])
+    btn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(btn, make_combo_selector(key))
     gump.Add(btn)
+    pvp_buttons.append(btn)
 
 # === PVE SECTION ===
 pveY = startY + 75
-pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 11, "#66ff66", aligned="center", maxWidth=280)
+pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 11, "#66ff66", aligned="center", maxWidth=WINDOW_WIDTH)
 pveLabel.SetPos(0, pveY)
+pveLabel.IsVisible = is_expanded
 gump.Add(pveLabel)
 
+pve_buttons = []
 y = pveY + 18
 pve_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "pve"]
 for i, (key, combo) in enumerate(pve_combos):
@@ -401,15 +532,19 @@ for i, (key, combo) in enumerate(pve_combos):
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y + (row * 25))
     btn.SetBackgroundHue(combo["hue"])
+    btn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(btn, make_combo_selector(key))
     gump.Add(btn)
+    pve_buttons.append(btn)
 
 # === SINGLE SPELLS SECTION ===
 singleY = pveY + 80
-singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 11, "#6666ff", aligned="center", maxWidth=280)
+singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 11, "#6666ff", aligned="center", maxWidth=WINDOW_WIDTH)
 singleLabel.SetPos(0, singleY)
+singleLabel.IsVisible = is_expanded
 gump.Add(singleLabel)
 
+single_buttons = []
 y = singleY + 18
 single_combos = [(k, v) for k, v in COMBOS.items() if v["type"] == "single"]
 for i, (key, combo) in enumerate(single_combos):
@@ -418,65 +553,88 @@ for i, (key, combo) in enumerate(single_combos):
     btn = API.Gumps.CreateSimpleButton(f"[{combo['name'][:10]}]", btnWidth, btnHeight)
     btn.SetPos(x, y)
     btn.SetBackgroundHue(combo["hue"])
+    btn.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(btn, make_combo_selector(key))
     gump.Add(btn)
+    single_buttons.append(btn)
 
 # === UTILITY SECTION ===
 utilY = singleY + 50
-utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 11, "#ffff66", aligned="center", maxWidth=280)
+utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 11, "#ffff66", aligned="center", maxWidth=WINDOW_WIDTH)
 utilLabel.SetPos(0, utilY)
+utilLabel.IsVisible = is_expanded
 gump.Add(utilLabel)
 
+util_buttons = []
 y = utilY + 18
 
 healBtn = API.Gumps.CreateSimpleButton("[HEAL SELF]", btnWidth, btnHeight)
 healBtn.SetPos(col1X, y)
 healBtn.SetBackgroundHue(68)
+healBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(healBtn, self_heal)
 gump.Add(healBtn)
+util_buttons.append(healBtn)
 
 cureBtn = API.Gumps.CreateSimpleButton("[CURE SELF]", btnWidth, btnHeight)
 cureBtn.SetPos(col2X, y)
 cureBtn.SetBackgroundHue(63)
+cureBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(cureBtn, self_cure)
 gump.Add(cureBtn)
+util_buttons.append(cureBtn)
 
 reflectBtn = API.Gumps.CreateSimpleButton("[REFLECT]", btnWidth, btnHeight)
 reflectBtn.SetPos(col3X, y)
 reflectBtn.SetBackgroundHue(88)
+reflectBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(reflectBtn, cast_reflect)
 gump.Add(reflectBtn)
+util_buttons.append(reflectBtn)
 
 y += 25
 
 protectBtn = API.Gumps.CreateSimpleButton("[PROTECT]", btnWidth, btnHeight)
 protectBtn.SetPos(col1X, y)
 protectBtn.SetBackgroundHue(53)
+protectBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(protectBtn, cast_protection)
 gump.Add(protectBtn)
+util_buttons.append(protectBtn)
 
 interruptBtn = API.Gumps.CreateSimpleButton("[INTERRUPT]", btnWidth, btnHeight)
 interruptBtn.SetPos(col2X, y)
 interruptBtn.SetBackgroundHue(32)
+interruptBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(interruptBtn, quick_interrupt)
 gump.Add(interruptBtn)
+util_buttons.append(interruptBtn)
 
 # === ACTION BUTTONS ===
+action_buttons = []
 actionY = y + 35
 
 castBtn = API.Gumps.CreateSimpleButton("[CAST NEAREST]", 133, 25)
 castBtn.SetPos(col1X, actionY)
 castBtn.SetBackgroundHue(32)
+castBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(castBtn, find_and_attack)
 gump.Add(castBtn)
+action_buttons.append(castBtn)
 
 lastBtn = API.Gumps.CreateSimpleButton("[CAST LAST]", 133, 25)
 lastBtn.SetPos(142, actionY)
 lastBtn.SetBackgroundHue(53)
+lastBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(lastBtn, attack_last_target)
 gump.Add(lastBtn)
+action_buttons.append(lastBtn)
 
 API.Gumps.AddGump(gump)
+
+# Apply initial expanded/collapsed state
+if not is_expanded:
+    collapse_window()
 
 API.SysMsg(f"Mage Combat loaded! Combo: {COMBOS[current_combo]['name']}", 68)
 API.SysMsg(f"Hotkeys: {CAST_HOTKEY} = Cast | {TARGET_HOTKEY} = Last Target | {INTERRUPT_HOTKEY} = Interrupt", 88)
