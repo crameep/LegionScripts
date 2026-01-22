@@ -631,7 +631,13 @@ if not is_expanded:
 
 # ============ MAIN LOOP ============
 API.SysMsg("=== Debug Console v2.1 Started - Now with scrollable log! ===", 68)
-API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
+
+# Clear old queue on startup to prevent stale messages
+API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+API.SysMsg("Debug queue cleared - ready for new messages", 53)
+
+# Initial display update
+update_message_display()
 
 next_poll = time.time()
 next_display_update = time.time()
