@@ -24,7 +24,7 @@
 import API
 import time
 
-__version__ = "2.2"
+__version__ = "2.3"
 
 # ============ USER SETTINGS ============
 # Item graphics
@@ -1651,7 +1651,7 @@ bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, 400, 430)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.2", 16, "#00d4ff", aligned="center", maxWidth=400)
+title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.3", 16, "#00d4ff", aligned="center", maxWidth=400)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -1697,7 +1697,7 @@ skipBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 90)
 API.Gumps.AddControlOnClick(skipBtn, toggle_skip)
 gump.Add(skipBtn)
 
-y += 28
+y += 24
 tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None]", 9, "#FFAAAA")
 tankLabel.SetPos(leftX, y)
 gump.Add(tankLabel)
@@ -1715,7 +1715,7 @@ clrTankBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(clrTankBtn, clear_tank)
 gump.Add(clrTankBtn)
 
-y += 24
+y += 22
 vetkitLabel = API.Gumps.CreateGumpTTFLabel("VetKit: [None]", 9, "#AAAAFF")
 vetkitLabel.SetPos(leftX, y)
 gump.Add(vetkitLabel)
@@ -1733,7 +1733,7 @@ clrVetBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(clrVetBtn, clear_vetkit)
 gump.Add(clrVetBtn)
 
-y += 28
+y += 24
 pauseBtn = API.Gumps.CreateSimpleButton("[PAUSE]", 90, btnH)
 pauseBtn.SetPos(leftX, y)
 pauseBtn.SetBackgroundHue(90)
@@ -1752,7 +1752,7 @@ cmdTitle = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#ff6666", aligne
 cmdTitle.SetPos(rightX, y)
 gump.Add(cmdTitle)
 
-y += 18
+y += 16
 
 # Friend Rez (manual emergency action)
 rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
@@ -1766,7 +1766,7 @@ rezFriendBtn.SetBackgroundHue(38)
 API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
 gump.Add(rezFriendBtn)
 
-y += 28
+y += 22
 redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", btnW, btnH)
 redsBtn.SetPos(rightX, y)
 redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
@@ -1779,7 +1779,7 @@ graysBtn.SetBackgroundHue(53 if TARGET_GRAYS else 90)
 API.Gumps.AddControlOnClick(graysBtn, toggle_grays)
 gump.Add(graysBtn)
 
-y += 24
+y += 22
 modeBtn = API.Gumps.CreateSimpleButton("[" + ATTACK_MODE + "]", btnW, btnH)
 modeBtn.SetPos(rightX, y)
 modeBtn.SetBackgroundHue(66 if ATTACK_MODE == "ORDER" else 68)
@@ -1792,7 +1792,7 @@ hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 8, "#888888")
 hotkeyLabel.SetPos(rightX + 95, y + 4)
 gump.Add(hotkeyLabel)
 
-y += 28
+y += 22
 # Bank buttons
 bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 60, btnH)
 bankBtn.SetPos(rightX, y)
@@ -1807,14 +1807,14 @@ API.Gumps.AddControlOnClick(balanceBtn, say_balance)
 gump.Add(balanceBtn)
 
 # Manual command buttons
-y += 26
+y += 22
 allKillBtn = API.Gumps.CreateSimpleButton("[ALL KILL]", 90, btnH)
 allKillBtn.SetPos(rightX, y)
 allKillBtn.SetBackgroundHue(32)
 API.Gumps.AddControlOnClick(allKillBtn, all_kill_manual)
 gump.Add(allKillBtn)
 
-y += 26
+y += 22
 followAllBtn = API.Gumps.CreateSimpleButton("[FOLLOW]", 60, btnH)
 followAllBtn.SetPos(rightX, y)
 followAllBtn.SetBackgroundHue(68)
@@ -1834,7 +1834,7 @@ API.Gumps.AddControlOnClick(stayAllBtn, all_stay)
 gump.Add(stayAllBtn)
 
 # New features
-y += 28
+y += 22
 potionsBtn = API.Gumps.CreateSimpleButton("[POTIONS:" + ("ON" if USE_POTIONS else "OFF") + "]", btnW, btnH)
 potionsBtn.SetPos(rightX, y)
 potionsBtn.SetBackgroundHue(68 if USE_POTIONS else 90)
@@ -1847,7 +1847,7 @@ autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
 API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
 gump.Add(autoTargetBtn)
 
-y += 26
+y += 22
 setPouchBtn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, btnH)
 setPouchBtn.SetPos(rightX, y)
 setPouchBtn.SetBackgroundHue(43)
@@ -1861,7 +1861,7 @@ API.Gumps.AddControlOnClick(usePouchBtn, toggle_use_trapped_pouch)
 gump.Add(usePouchBtn)
 
 # Potion counts
-y += 26
+y += 22
 healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal:0", 8, "#ffaa00")
 healPotionLabel.SetPos(rightX, y)
 gump.Add(healPotionLabel)
