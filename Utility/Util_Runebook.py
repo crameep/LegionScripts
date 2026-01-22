@@ -1,5 +1,5 @@
 # ============================================================
-# Runebook Recaller v1.0
+# Runebook Recaller v1.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -12,15 +12,17 @@
 #   3. Pick the rune slot (1-16)
 #
 # Features:
+#   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - 4 quick-access destination slots
 #   - Works with any runebook
 #   - Remembers settings between sessions
+#   - Unified UI design matching other utility scripts
 #
 # ============================================================
 import API
 import time
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
@@ -30,6 +32,12 @@ RUNEBOOK_GRAPHIC = 0x22C5  # Standard runebook graphic
 USE_OBJECT_DELAY = 0.5     # Delay after using runebook before waiting for gump
 GUMP_READY_DELAY = 0.3     # Delay after gump appears before clicking button
 
+# ============ GUI DIMENSIONS ============
+WINDOW_WIDTH = 140
+COLLAPSED_HEIGHT = 24
+NORMAL_HEIGHT = 145
+SETUP_HEIGHT = 215
+
 # ============ BUTTON FORMULA ============
 # Your server: Button ID = 49 + slot number
 # Slot 1 = Button 50, Slot 2 = Button 51, etc.
@@ -38,6 +46,8 @@ def slot_to_button(slot):
 
 # ============ STATE ============
 last_recall_time = 0
+is_expanded = True
+current_setup_key = None
 destinations = {
     "Home": {"runebook": 0, "slot": 0, "name": "Home"},
     "Bank": {"runebook": 0, "slot": 0, "name": "Bank"},
@@ -80,15 +90,81 @@ def update_button_labels():
             label = dest["name"] + " [" + str(dest["slot"]) + "]"
         else:
             label = key + " [---]"
-        
+
         if key == "Home":
-            homeBtn.SetText(label[:12])
+            homeBtn.SetText(label[:11])
         elif key == "Bank":
-            bankBtn.SetText(label[:12])
+            bankBtn.SetText(label[:11])
         elif key == "Custom1":
-            custom1Btn.SetText(label[:12])
+            custom1Btn.SetText(label[:11])
         elif key == "Custom2":
-            custom2Btn.SetText(label[:12])
+            custom2Btn.SetText(label[:11])
+
+# ============ EXPAND/COLLAPSE ============
+def toggle_expand():
+    """Toggle between collapsed and expanded states"""
+    global is_expanded
+
+    is_expanded = not is_expanded
+    save_expanded_state()
+
+    if is_expanded:
+        expand_window()
+    else:
+        collapse_window()
+
+def expand_window():
+    """Show all controls and resize window"""
+    expandBtn.SetText("[-]")
+
+    # Show all destination buttons
+    homeBtn.IsVisible = True
+    homeSetBtn.IsVisible = True
+    bankBtn.IsVisible = True
+    bankSetBtn.IsVisible = True
+    custom1Btn.IsVisible = True
+    custom1SetBtn.IsVisible = True
+    custom2Btn.IsVisible = True
+    custom2SetBtn.IsVisible = True
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, NORMAL_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, NORMAL_HEIGHT)
+
+def collapse_window():
+    """Hide all controls and shrink window"""
+    expandBtn.SetText("[+]")
+
+    # Hide all destination buttons
+    homeBtn.IsVisible = False
+    homeSetBtn.IsVisible = False
+    bankBtn.IsVisible = False
+    bankSetBtn.IsVisible = False
+    custom1Btn.IsVisible = False
+    custom1SetBtn.IsVisible = False
+    custom2Btn.IsVisible = False
+    custom2SetBtn.IsVisible = False
+
+    # Also hide setup panel if it's showing
+    hide_setup_panel()
+
+    # Resize gump and background
+    x = gump.GetX()
+    y = gump.GetY()
+    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+
+def save_expanded_state():
+    """Save expanded state to persistence"""
+    API.SavePersistentVar(SETTINGS_KEY + "_Expanded", str(is_expanded), API.PersistentVar.Char)
+
+def load_expanded_state():
+    """Load expanded state from persistence"""
+    global is_expanded
+    saved = API.GetPersistentVar(SETTINGS_KEY + "_Expanded", "True", API.PersistentVar.Char)
+    is_expanded = (saved == "True")
 
 # ============ RECALL FUNCTION ============
 def do_recall(dest_key):
@@ -226,9 +302,6 @@ def confirm_setup(dest_key):
     current_setup_key = None
     hide_setup_panel()
 
-# Current setup target
-current_setup_key = None
-
 def show_setup_panel():
     """Show the setup controls and expand gump"""
     setupBg.IsVisible = True
@@ -240,8 +313,8 @@ def show_setup_panel():
     cancelBtn.IsVisible = True
     statusLabel.IsVisible = True
     # Expand gump
-    gump.SetRect(gump.GetX(), gump.GetY(), 160, 215)
-    bg.SetRect(0, 0, 160, 215)
+    gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, SETUP_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH, SETUP_HEIGHT)
 
 def hide_setup_panel():
     """Hide the setup controls and shrink gump"""
@@ -253,9 +326,10 @@ def hide_setup_panel():
     confirmBtn.IsVisible = False
     cancelBtn.IsVisible = False
     statusLabel.IsVisible = False
-    # Shrink gump
-    gump.SetRect(gump.GetX(), gump.GetY(), 160, 145)
-    bg.SetRect(0, 0, 160, 145)
+    # Shrink gump back to normal (only if expanded)
+    if is_expanded:
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, NORMAL_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH, NORMAL_HEIGHT)
 
 def cancel_setup():
     """Cancel current setup"""
@@ -317,38 +391,51 @@ def onClosed():
     API.Stop()
 
 # ============ BUILD GUI ============
+# Load expanded state first
+load_expanded_state()
+
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 savedPos = API.GetPersistentVar(SETTINGS_KEY + "_XY", "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
-gump.SetRect(int(posXY[0]), int(posXY[1]), 160, 145)
+initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(int(posXY[0]), int(posXY[1]), WINDOW_WIDTH, initial_height)
 
 # Background
-bg = API.Gumps.CreateGumpColorBox(0.92, "#1e1e2e")
-bg.SetRect(0, 0, 160, 145)
+bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-# Title
-title = API.Gumps.CreateGumpTTFLabel("Runebook Recall", 11, "#00d4ff", aligned="center", maxWidth=160)
-title.SetPos(0, 5)
+# Title bar
+title = API.Gumps.CreateGumpTTFLabel("Runebook", 10, "#00d4ff")
+title.SetPos(5, 4)
 gump.Add(title)
 
+# Expand/collapse button
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(115, 3)
+expandBtn.SetBackgroundHue(90)
+API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
+gump.Add(expandBtn)
+
 # === DESTINATION BUTTONS ===
-y = 25
-btnW = 105
-setW = 38
+y = 26
+btnW = 90
+setW = 35
 
 # Home
 homeBtn = API.Gumps.CreateSimpleButton("Home [---]", btnW, 22)
 homeBtn.SetPos(5, y)
 homeBtn.SetBackgroundHue(68)
+homeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(homeBtn, recall_home)
 gump.Add(homeBtn)
 
 homeSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-homeSetBtn.SetPos(113, y)
+homeSetBtn.SetPos(100, y)
 homeSetBtn.SetBackgroundHue(53)
+homeSetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(homeSetBtn, setup_home)
 gump.Add(homeSetBtn)
 
@@ -357,12 +444,14 @@ y += 26
 bankBtn = API.Gumps.CreateSimpleButton("Bank [---]", btnW, 22)
 bankBtn.SetPos(5, y)
 bankBtn.SetBackgroundHue(88)
+bankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankBtn, recall_bank)
 gump.Add(bankBtn)
 
 bankSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-bankSetBtn.SetPos(113, y)
+bankSetBtn.SetPos(100, y)
 bankSetBtn.SetBackgroundHue(53)
+bankSetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankSetBtn, setup_bank)
 gump.Add(bankSetBtn)
 
@@ -371,12 +460,14 @@ y += 26
 custom1Btn = API.Gumps.CreateSimpleButton("Custom1 [---]", btnW, 22)
 custom1Btn.SetPos(5, y)
 custom1Btn.SetBackgroundHue(43)
+custom1Btn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1Btn, recall_custom1)
 gump.Add(custom1Btn)
 
 custom1SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom1SetBtn.SetPos(113, y)
+custom1SetBtn.SetPos(100, y)
 custom1SetBtn.SetBackgroundHue(53)
+custom1SetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1SetBtn, setup_custom1)
 gump.Add(custom1SetBtn)
 
@@ -385,12 +476,14 @@ y += 26
 custom2Btn = API.Gumps.CreateSimpleButton("Custom2 [---]", btnW, 22)
 custom2Btn.SetPos(5, y)
 custom2Btn.SetBackgroundHue(63)
+custom2Btn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom2Btn, recall_custom2)
 gump.Add(custom2Btn)
 
 custom2SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom2SetBtn.SetPos(113, y)
+custom2SetBtn.SetPos(100, y)
 custom2SetBtn.SetBackgroundHue(53)
+custom2SetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom2SetBtn, setup_custom2)
 gump.Add(custom2SetBtn)
 
@@ -399,35 +492,35 @@ y += 30
 
 # Setup background
 setupBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
-setupBg.SetRect(0, y - 3, 160, 70)
+setupBg.SetRect(0, y - 3, WINDOW_WIDTH, 70)
 setupBg.IsVisible = False
 gump.Add(setupBg)
 
 # Slot input
-slotLabel = API.Gumps.CreateGumpTTFLabel("Slot:", 9, "#aaaaaa")
+slotLabel = API.Gumps.CreateGumpTTFLabel("Slot:", 8, "#aaaaaa")
 slotLabel.SetPos(5, y + 3)
 slotLabel.IsVisible = False
 gump.Add(slotLabel)
 
-slotInput = API.Gumps.CreateGumpTextBox("1", 30, 20)
-slotInput.SetPos(32, y)
+slotInput = API.Gumps.CreateGumpTextBox("1", 28, 20)
+slotInput.SetPos(30, y)
 slotInput.IsVisible = False
 gump.Add(slotInput)
 
 # Name input
-nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 9, "#aaaaaa")
-nameLabel.SetPos(68, y + 3)
+nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 8, "#aaaaaa")
+nameLabel.SetPos(63, y + 3)
 nameLabel.IsVisible = False
 gump.Add(nameLabel)
 
-nameInput = API.Gumps.CreateGumpTextBox("", 55, 20)
-nameInput.SetPos(100, y)
+nameInput = API.Gumps.CreateGumpTextBox("", 48, 20)
+nameInput.SetPos(87, y)
 nameInput.IsVisible = False
 gump.Add(nameInput)
 
 # Confirm button
 y += 24
-confirmBtn = API.Gumps.CreateSimpleButton("[CONFIRM]", 70, 20)
+confirmBtn = API.Gumps.CreateSimpleButton("[OK]", 62, 20)
 confirmBtn.SetPos(5, y)
 confirmBtn.SetBackgroundHue(68)
 confirmBtn.IsVisible = False
@@ -435,8 +528,8 @@ API.Gumps.AddControlOnClick(confirmBtn, confirm_current_setup)
 gump.Add(confirmBtn)
 
 # Cancel button
-cancelBtn = API.Gumps.CreateSimpleButton("[CANCEL]", 70, 20)
-cancelBtn.SetPos(80, y)
+cancelBtn = API.Gumps.CreateSimpleButton("[CANCEL]", 62, 20)
+cancelBtn.SetPos(73, y)
 cancelBtn.SetBackgroundHue(32)
 cancelBtn.IsVisible = False
 API.Gumps.AddControlOnClick(cancelBtn, cancel_setup)
@@ -444,7 +537,7 @@ gump.Add(cancelBtn)
 
 # Status label
 y += 22
-statusLabel = API.Gumps.CreateGumpTTFLabel("", 8, "#888888")
+statusLabel = API.Gumps.CreateGumpTTFLabel("", 7, "#888888")
 statusLabel.SetPos(5, y)
 statusLabel.IsVisible = False
 gump.Add(statusLabel)
@@ -453,7 +546,7 @@ API.Gumps.AddGump(gump)
 
 # ============ INITIALIZATION ============
 load_destinations()
-API.SysMsg("=== Runebook Recall v1.0 ===", 68)
+API.SysMsg("=== Runebook Recall v1.1 ===", 68)
 API.SysMsg("Click destination to recall, [SET] to configure", 53)
 
 # ============ MAIN LOOP ============
