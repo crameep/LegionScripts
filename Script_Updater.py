@@ -79,7 +79,7 @@ updater_was_updated = False  # Track if Script_Updater.py was updated (needs res
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
     """Debug logging"""
-    if False:  # Set to True for debugging
+    if True:  # Set to True for debugging
         API.SysMsg("DEBUG: " + text, 88)
 
 def get_script_dir():
@@ -394,7 +394,9 @@ def discover_local_scripts():
 
         debug_msg("Discovered " + str(len(script_list)) + " local scripts")
         return script_list
-    except:
+    except Exception as e:
+        debug_msg("Local discovery error: " + str(e))
+        API.SysMsg("Error discovering local scripts: " + str(e), HUE_RED)
         return []
 
 def migrate_old_scripts():
@@ -460,11 +462,20 @@ def init_script_data():
     API.SysMsg("Fetching script list from GitHub...", HUE_BLUE)
     MANAGED_SCRIPTS = fetch_github_script_list()
 
-    if not MANAGED_SCRIPTS:
-        API.SysMsg("No scripts found! Check network connection.", HUE_RED)
-        return
+    debug_msg("MANAGED_SCRIPTS after fetch: " + str(len(MANAGED_SCRIPTS)) + " items")
+    if MANAGED_SCRIPTS:
+        debug_msg("First few scripts: " + str(MANAGED_SCRIPTS[:3]))
 
-    API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts in repository", HUE_GREEN)
+    if not MANAGED_SCRIPTS:
+        API.SysMsg("GitHub fetch returned no scripts! Trying local discovery...", HUE_YELLOW)
+        MANAGED_SCRIPTS = discover_local_scripts()
+        if not MANAGED_SCRIPTS:
+            API.SysMsg("ERROR: No scripts found anywhere! Cannot continue.", HUE_RED)
+            return
+        else:
+            API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts locally", HUE_GREEN)
+    else:
+        API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts in repository", HUE_GREEN)
 
     for relative_path in MANAGED_SCRIPTS:
         script_data[relative_path] = {
@@ -876,18 +887,26 @@ y = 68
 script_rows = []
 row_height = 22
 
-for i, relative_path in enumerate(MANAGED_SCRIPTS):
-    # Clickable row
-    btn = API.Gumps.CreateSimpleButton("[ ] " + relative_path, 640, row_height - 2)
-    btn.SetPos(10, y + (i * row_height))
-    btn.SetBackgroundHue(HUE_GRAY)
-    API.Gumps.AddControlOnClick(btn, make_toggle_callback(i))
-    gump.Add(btn)
+debug_msg("Building GUI with " + str(len(MANAGED_SCRIPTS)) + " scripts")
 
-    script_rows.append({
-        'label': btn,
-        'path': relative_path
-    })
+if not MANAGED_SCRIPTS:
+    # Show error message if no scripts loaded
+    errorLabel = API.Gumps.CreateGumpTTFLabel("ERROR: No scripts loaded! Check network and Script_Updater.py", 11, "#ff0000", aligned="center", maxWidth=win_width)
+    errorLabel.SetPos(0, y + 100)
+    gump.Add(errorLabel)
+else:
+    for i, relative_path in enumerate(MANAGED_SCRIPTS):
+        # Clickable row
+        btn = API.Gumps.CreateSimpleButton("[ ] " + relative_path, 640, row_height - 2)
+        btn.SetPos(10, y + (i * row_height))
+        btn.SetBackgroundHue(HUE_GRAY)
+        API.Gumps.AddControlOnClick(btn, make_toggle_callback(i))
+        gump.Add(btn)
+
+        script_rows.append({
+            'label': btn,
+            'path': relative_path
+        })
 
 # Bottom buttons
 y = 68 + (len(MANAGED_SCRIPTS) * row_height) + 10
