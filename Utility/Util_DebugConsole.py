@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "3.0"
+__version__ = "3.1"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -124,6 +124,13 @@ def parse_queue():
     try:
         queue_data = API.GetPersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
 
+        # CRITICAL: Protect against queue overflow
+        if len(queue_data) > 50000:  # ~50KB limit
+            API.SysMsg("Queue overflow detected! Clearing...", 32)
+            API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+            last_queue_hash = ""
+            return
+
         # Hash-based change detection
         current_hash = hashlib.md5(queue_data.encode()).hexdigest()
         if current_hash == last_queue_hash:
@@ -148,6 +155,8 @@ def parse_queue():
                 source = parts[1]
                 level = parts[2]
                 message = "|".join(parts[3:])  # Rejoin in case message contains |
+                # Unescape record separator that was escaped in helper
+                message = message.replace("\\x1E", "\x1E")
 
                 # Extract raw time for sorting
                 try:
