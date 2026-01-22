@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v1.2
+# Debug Console v1.3
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "1.2"
+__version__ = "1.3"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -578,8 +578,9 @@ messageBg.SetRect(5, y, 390, 340)
 messageBg.IsVisible = is_expanded
 gump.Add(messageBg)
 
-# Message textbox (better for multi-line display with wrapping)
-messageTextBox = API.Gumps.CreateGumpTextBox(380, 335, "Waiting for messages...\n\nMonitoring queue every 200ms", "#aaaaaa")
+# Message display (TTFLabel with maxWidth for proper wrapping)
+# Note: CreateGumpTextBox is for INPUT fields, not display-only text
+messageTextBox = API.Gumps.CreateGumpTTFLabel("Waiting for messages...\n\nMonitoring queue every 200ms", 10, "#aaaaaa", maxWidth=375)
 messageTextBox.SetPos(8, y + 3)
 messageTextBox.IsVisible = is_expanded
 gump.Add(messageTextBox)
@@ -615,7 +616,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v1.2 Started ===", 68)
+API.SysMsg("=== Debug Console v1.3 Started ===", 68)
 API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
 
 next_poll = time.time()
