@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "3.1"
+__version__ = "3.2"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -257,25 +257,22 @@ def update_message_display():
             pass  # Ignore errors on removal
     message_labels.clear()
 
-    # If no messages, show helper text with LOTS of spacing
+    # If no messages, show simple helper text
     if visible_count == 0:
-        help_label = API.Gumps.CreateGumpTTFLabel(
-            "No messages yet\n\n\n\n\nLegend:\n\n[i] = INFO\n\n[!] = WARN\n\n[X] = ERROR\n\n[.] = DEBUG",
-            12, "#888888", maxWidth=360
-        )
+        help_label = API.Gumps.CreateGumpTTFLabel("No messages yet...", 12, "#666666")
         help_label.SetPos(10, 10)
         scrollArea.Add(help_label)
         message_labels.append(help_label)
         return
 
-    # Add message labels to scroll area with generous spacing
-    y_pos = 5
-    line_height = 24  # Increased from 22 to prevent overlap
+    # Add message labels to scroll area with top padding
+    y_pos = 10  # Start with padding from top
+    line_height = 28  # Generous spacing to allow for some wrapping
 
     for msg in visible:
         msg_text = format_message(msg)
-        # Larger font (12 instead of 11) and don't truncate
-        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 12, "#cccccc", maxWidth=360)
+        # Font size 11, with maxWidth for wrapping
+        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 11, "#cccccc", maxWidth=355)
         msg_label.SetPos(8, y_pos)
         scrollArea.Add(msg_label)
         message_labels.append(msg_label)
@@ -603,22 +600,35 @@ scrollBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(scrollBtn, toggle_scroll)
 gump.Add(scrollBtn)
 
-# === MESSAGE DISPLAY AREA ===
+# === LEGEND (Fixed position, horizontal) ===
 y += 25
+
+legendBg = API.Gumps.CreateGumpColorBox(1.0, "#222222")
+legendBg.SetRect(5, y, 390, 20)
+legendBg.IsVisible = is_expanded
+gump.Add(legendBg)
+
+legendLabel = API.Gumps.CreateGumpTTFLabel("[i]=INFO  [!]=WARN  [X]=ERROR  [.]=DEBUG", 10, "#888888")
+legendLabel.SetPos(10, y + 3)
+legendLabel.IsVisible = is_expanded
+gump.Add(legendLabel)
+
+# === MESSAGE DISPLAY AREA ===
+y += 23
 
 # Black background for messages
 messageBg = API.Gumps.CreateGumpColorBox(1.0, "#000000")
-messageBg.SetRect(5, y, 390, 340)
+messageBg.SetRect(5, y, 390, 317)  # Reduced height to make room for legend
 messageBg.IsVisible = is_expanded
 gump.Add(messageBg)
 
 # Scrollable message area - proper way to display many messages
-scrollArea = API.Gumps.CreateGumpScrollArea(8, y + 3, 375, 330)
+scrollArea = API.Gumps.CreateGumpScrollArea(8, y + 3, 375, 307)  # Reduced height
 scrollArea.IsVisible = is_expanded
 gump.Add(scrollArea)
 
 # Status line
-y += 343
+y += 320  # Adjusted for new layout
 statusLabel = API.Gumps.CreateGumpTTFLabel("Showing 0 of 0 messages", 9, "#888888")
 statusLabel.SetPos(5, y)
 statusLabel.IsVisible = is_expanded
