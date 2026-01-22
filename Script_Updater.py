@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v2.1
+# Script Updater v2.1.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "2.1"
+__version__ = "2.1.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/CoryCustom/"
@@ -749,9 +749,10 @@ def update_script_list():
     display_list = build_display_list()
 
     for i in range(len(script_rows)):
+        btn = script_rows[i]['btn']
+
         if i < len(display_list):
             item_type, item_value = display_list[i]
-            btn = script_rows[i]['btn']
 
             if item_type == 'folder':
                 # Render folder row
@@ -776,7 +777,6 @@ def update_script_list():
 
                 btn.SetBackgroundHue(color)
                 btn.SetText(text)
-                btn.SetVisible(True)
 
                 # Update callback
                 script_rows[i]['callback'] = make_folder_toggle_callback(folder_name)
@@ -811,13 +811,14 @@ def update_script_list():
                 # Update button - set color first, then text
                 btn.SetBackgroundHue(color)
                 btn.SetText(text)
-                btn.SetVisible(True)
 
                 # Update callback
                 script_rows[i]['callback'] = make_toggle_callback(relative_path)
         else:
-            # Hide unused rows
-            script_rows[i]['btn'].SetVisible(False)
+            # Clear unused rows - set to empty text with neutral gray background
+            btn.SetBackgroundHue(HUE_GRAY)
+            btn.SetText("")
+            script_rows[i]['callback'] = None
 
 # ============ CLEANUP ============
 def cleanup():
@@ -884,7 +885,6 @@ for i in range(max_rows):
     btn = API.Gumps.CreateSimpleButton("", 580, row_height - 2)
     btn.SetPos(10, y + (i * row_height))
     btn.SetBackgroundHue(HUE_GRAY)
-    btn.SetVisible(False)
     gump.Add(btn)
 
     script_rows.append({
