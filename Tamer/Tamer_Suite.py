@@ -24,7 +24,7 @@
 import API
 import time
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ============ USER SETTINGS ============
 # Item graphics
@@ -1645,13 +1645,13 @@ savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
-gump.SetRect(lastX, lastY, 400, 380)
+gump.SetRect(lastX, lastY, 400, 400)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, 400, 380)
+bg.SetRect(0, 0, 400, 400)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2", 16, "#00d4ff", aligned="center", maxWidth=400)
+title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.1", 16, "#00d4ff", aligned="center", maxWidth=400)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -1697,12 +1697,12 @@ skipBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 90)
 API.Gumps.AddControlOnClick(skipBtn, toggle_skip)
 gump.Add(skipBtn)
 
-y += 26
+y += 28
 tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None]", 9, "#FFAAAA")
 tankLabel.SetPos(leftX, y)
 gump.Add(tankLabel)
 
-y += 14
+y += 16
 setTankBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
 setTankBtn.SetPos(leftX, y)
 setTankBtn.SetBackgroundHue(38)
@@ -1715,12 +1715,12 @@ clrTankBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(clrTankBtn, clear_tank)
 gump.Add(clrTankBtn)
 
-y += 22
+y += 24
 vetkitLabel = API.Gumps.CreateGumpTTFLabel("VetKit: [None]", 9, "#AAAAFF")
 vetkitLabel.SetPos(leftX, y)
 gump.Add(vetkitLabel)
 
-y += 14
+y += 16
 setVetBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
 setVetBtn.SetPos(leftX, y)
 setVetBtn.SetBackgroundHue(68)
@@ -1733,7 +1733,7 @@ clrVetBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(clrVetBtn, clear_vetkit)
 gump.Add(clrVetBtn)
 
-y += 26
+y += 28
 pauseBtn = API.Gumps.CreateSimpleButton("[PAUSE]", 90, btnH)
 pauseBtn.SetPos(leftX, y)
 pauseBtn.SetBackgroundHue(90)
@@ -1752,21 +1752,21 @@ cmdTitle = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#ff6666", aligne
 cmdTitle.SetPos(rightX, y)
 gump.Add(cmdTitle)
 
-y += 16
+y += 18
 
 # Friend Rez (manual emergency action)
 rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
 rezFriendLabel.SetPos(rightX, y)
 gump.Add(rezFriendLabel)
 
-y += 14
+y += 16
 rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
 rezFriendBtn.SetPos(rightX, y)
 rezFriendBtn.SetBackgroundHue(38)
 API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
 gump.Add(rezFriendBtn)
 
-y += 24
+y += 26
 redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", btnW, btnH)
 redsBtn.SetPos(rightX, y)
 redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
@@ -1871,7 +1871,7 @@ curePotionLabel.SetPos(rightX + 65, y)
 gump.Add(curePotionLabel)
 
 # ========== BOTTOM PANEL (SHARED PETS) ==========
-y = 230
+y = 245
 petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS (click=follow/heal) ===", 9, "#00ffaa", aligned="center", maxWidth=400)
 petsTitle.SetPos(0, y)
 gump.Add(petsTitle)
