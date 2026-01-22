@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v1.1
+# Debug Console v1.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "1.1"
+__version__ = "1.2"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -245,7 +245,7 @@ def update_message_display():
     if not display_text:
         display_text = "No messages match current filters\n\nAdjust filters or wait for messages\n\nLegend: [i]=INFO [!]=WARN [X]=ERROR [.]=DEBUG"
 
-    messageLabel.SetText(display_text.strip())
+    messageTextBox.SetText(display_text.strip())
 
 def export_to_file():
     """Export visible messages to timestamped file"""
@@ -420,7 +420,7 @@ def expand_window():
 
     # Show message display
     messageBg.IsVisible = True
-    messageLabel.IsVisible = True
+    messageTextBox.IsVisible = True
     statusLabel.IsVisible = True
 
     # Show export and close buttons
@@ -449,7 +449,7 @@ def collapse_window():
 
     # Hide message display
     messageBg.IsVisible = False
-    messageLabel.IsVisible = False
+    messageTextBox.IsVisible = False
     statusLabel.IsVisible = False
 
     # Hide export and close buttons
@@ -578,11 +578,11 @@ messageBg.SetRect(5, y, 390, 340)
 messageBg.IsVisible = is_expanded
 gump.Add(messageBg)
 
-# Message label (gray text on black, using color-coded symbols)
-messageLabel = API.Gumps.CreateGumpTTFLabel("Waiting for messages...\n\nMonitoring queue every 200ms", 10, "#aaaaaa", maxWidth=380)
-messageLabel.SetPos(8, y + 3)
-messageLabel.IsVisible = is_expanded
-gump.Add(messageLabel)
+# Message textbox (better for multi-line display with wrapping)
+messageTextBox = API.Gumps.CreateGumpTextBox(380, 335, "Waiting for messages...\n\nMonitoring queue every 200ms", "#aaaaaa")
+messageTextBox.SetPos(8, y + 3)
+messageTextBox.IsVisible = is_expanded
+gump.Add(messageTextBox)
 
 # Status line
 y += 343
@@ -615,7 +615,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v1.1 Started ===", 68)
+API.SysMsg("=== Debug Console v1.2 Started ===", 68)
 API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
 
 next_poll = time.time()
