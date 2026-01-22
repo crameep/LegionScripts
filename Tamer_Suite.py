@@ -1744,24 +1744,6 @@ statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
 statusLabel.SetPos(leftX + 95, y + 3)
 gump.Add(statusLabel)
 
-# Friend Rez section
-y += 28
-friendRezTitle = API.Gumps.CreateGumpTTFLabel("=== FRIEND REZ ===", 9, "#ff66ff", aligned="center", maxWidth=195)
-friendRezTitle.SetPos(leftX, y)
-gump.Add(friendRezTitle)
-
-y += 16
-rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
-rezFriendLabel.SetPos(leftX, y)
-gump.Add(rezFriendLabel)
-
-y += 14
-rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
-rezFriendBtn.SetPos(leftX, y)
-rezFriendBtn.SetBackgroundHue(38)
-API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
-gump.Add(rezFriendBtn)
-
 # ========== RIGHT PANEL (COMMANDS) ==========
 rightX = 205
 y = 42
@@ -1771,6 +1753,20 @@ cmdTitle.SetPos(rightX, y)
 gump.Add(cmdTitle)
 
 y += 16
+
+# Friend Rez (manual emergency action)
+rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
+rezFriendLabel.SetPos(rightX, y)
+gump.Add(rezFriendLabel)
+
+y += 14
+rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
+rezFriendBtn.SetPos(rightX, y)
+rezFriendBtn.SetBackgroundHue(38)
+API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
+gump.Add(rezFriendBtn)
+
+y += 24
 redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", btnW, btnH)
 redsBtn.SetPos(rightX, y)
 redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
