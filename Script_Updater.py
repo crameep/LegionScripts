@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.6.0
+# Script Updater v1.6.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -27,7 +27,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -225,7 +225,11 @@ def backup_script(relative_path):
         script_dir = get_script_dir()
         source_path = os.path.join(script_dir, relative_path)
 
+        API.SysMsg("DEBUG BACKUP: Backing up " + relative_path, 88)
+        API.SysMsg("DEBUG BACKUP: Source path = " + source_path, 88)
+
         if not os.path.exists(source_path):
+            API.SysMsg("DEBUG BACKUP: File not found!", HUE_RED)
             return (False, "File not found: " + relative_path)
 
         backup_dir = ensure_backup_dir()
@@ -239,15 +243,19 @@ def backup_script(relative_path):
         backup_filename = base_name + "_" + timestamp + ".py"
         backup_path = os.path.join(backup_dir, backup_filename)
 
-        # Copy file
-        with open(source_path, 'r') as src:
+        API.SysMsg("DEBUG BACKUP: Backup path = " + backup_path, 88)
+
+        # Copy file with explicit UTF-8 encoding
+        with open(source_path, 'r', encoding='utf-8') as src:
             content = src.read()
-        with open(backup_path, 'w') as dst:
+        with open(backup_path, 'w', encoding='utf-8', newline='\n') as dst:
             dst.write(content)
 
+        API.SysMsg("DEBUG BACKUP: Success - " + str(len(content)) + " bytes", HUE_GREEN)
         debug_msg("Backed up to: " + backup_path)
         return (True, backup_path)
     except Exception as e:
+        API.SysMsg("DEBUG BACKUP: Exception - " + str(e), HUE_RED)
         return (False, str(e))
 
 def write_script(relative_path, content):
