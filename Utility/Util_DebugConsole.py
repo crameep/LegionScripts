@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "3.2"
+__version__ = "3.3"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -240,8 +240,26 @@ def update_message_display():
     total_messages = len(messages)
     visible_count = len(visible)
 
-    # Update status line
-    statusLabel.SetText("Showing " + str(visible_count) + " of " + str(total_messages) + " messages")
+    # Update status line with filter info
+    status_text = "Showing " + str(visible_count) + " of " + str(total_messages) + " messages"
+
+    # Show which filters are active
+    filters_active = []
+    if not show_info:
+        filters_active.append("!INFO")
+    if not show_warn:
+        filters_active.append("!WARN")
+    if not show_error:
+        filters_active.append("!ERR")
+    if not show_debug:
+        filters_active.append("!DBG")
+    if current_source_filter != "ALL":
+        filters_active.append("src:" + current_source_filter[:6])
+
+    if filters_active:
+        status_text += " (filtered: " + ", ".join(filters_active) + ")"
+
+    statusLabel.SetText(status_text)
 
     # Optimization: Only update if messages actually changed
     visible_hash = hashlib.md5(str(visible_count).encode()).hexdigest()
@@ -340,7 +358,9 @@ def toggle_info():
     global show_info
     show_info = not show_info
     save_filter_state(SETTINGS_KEY + "_ShowInfo", show_info)
+    infoBtn.SetText("[INFO:" + ("ON" if show_info else "OFF") + "]")
     infoBtn.SetBackgroundHue(68 if show_info else 32)
+    API.SysMsg("INFO messages: " + ("ON" if show_info else "OFF"), 68 if show_info else 32)
     update_message_display()
 
 def toggle_warn():
@@ -348,7 +368,9 @@ def toggle_warn():
     global show_warn
     show_warn = not show_warn
     save_filter_state(SETTINGS_KEY + "_ShowWarn", show_warn)
+    warnBtn.SetText("[WARN:" + ("ON" if show_warn else "OFF") + "]")
     warnBtn.SetBackgroundHue(43 if show_warn else 32)
+    API.SysMsg("WARN messages: " + ("ON" if show_warn else "OFF"), 43 if show_warn else 32)
     update_message_display()
 
 def toggle_error():
@@ -356,7 +378,9 @@ def toggle_error():
     global show_error
     show_error = not show_error
     save_filter_state(SETTINGS_KEY + "_ShowError", show_error)
-    errorBtn.SetBackgroundHue(68 if show_error else 32)  # Fixed: green when ON, red when OFF
+    errorBtn.SetText("[ERR:" + ("ON" if show_error else "OFF") + "]")
+    errorBtn.SetBackgroundHue(68 if show_error else 32)
+    API.SysMsg("ERROR messages: " + ("ON" if show_error else "OFF"), 68 if show_error else 32)
     update_message_display()
 
 def toggle_debug():
@@ -364,7 +388,9 @@ def toggle_debug():
     global show_debug
     show_debug = not show_debug
     save_filter_state(SETTINGS_KEY + "_ShowDebug", show_debug)
-    debugBtn.SetBackgroundHue(68 if show_debug else 32)  # Fixed: green when ON, red when OFF
+    debugBtn.SetText("[DBG:" + ("ON" if show_debug else "OFF") + "]")
+    debugBtn.SetBackgroundHue(68 if show_debug else 32)
+    API.SysMsg("DEBUG messages: " + ("ON" if show_debug else "OFF"), 68 if show_debug else 32)
     update_message_display()
 
 def cycle_source_filter():
@@ -383,6 +409,13 @@ def cycle_source_filter():
     # Update button text
     filter_text = "[" + current_source_filter[:8] + "]"
     sourceBtn.SetText(filter_text)
+
+    # Show feedback
+    if current_source_filter == "ALL":
+        API.SysMsg("Showing all sources", 68)
+    else:
+        API.SysMsg("Filtering to: " + current_source_filter, 66)
+
     update_message_display()
 
 def toggle_pause():
@@ -410,14 +443,24 @@ def toggle_scroll():
     update_message_display()
 
 def clear_display():
-    """Clear message list"""
-    global messages, available_sources, current_source_filter
+    """Clear message list and queue"""
+    global messages, available_sources, current_source_filter, last_queue_hash
+
+    # Count messages before clearing
+    msg_count = len(messages)
+
+    # Clear local display
     messages = []
     available_sources = set()
     current_source_filter = "ALL"
     sourceBtn.SetText("[ALL]")
+
+    # Clear the queue so new scripts don't see old messages
+    API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+    last_queue_hash = ""
+
     update_message_display()
-    API.SysMsg("Display cleared", 68)
+    API.SysMsg("Cleared " + str(msg_count) + " messages from display and queue", 68)
 
 def export_messages():
     """Export button handler"""
@@ -538,46 +581,46 @@ gump.Add(expandBtn)
 # === FILTER CONTROLS (Row 1) ===
 y = 26
 
-# Level filter buttons
-infoBtn = API.Gumps.CreateSimpleButton("[INFO]", 50, 20)
+# Level filter buttons with ON/OFF state in label
+infoBtn = API.Gumps.CreateSimpleButton("[INFO:" + ("ON" if show_info else "OFF") + "]", 65, 20)
 infoBtn.SetPos(5, y)
 infoBtn.SetBackgroundHue(68 if show_info else 32)
 infoBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(infoBtn, toggle_info)
 gump.Add(infoBtn)
 
-warnBtn = API.Gumps.CreateSimpleButton("[WARN]", 50, 20)
-warnBtn.SetPos(58, y)
+warnBtn = API.Gumps.CreateSimpleButton("[WARN:" + ("ON" if show_warn else "OFF") + "]", 70, 20)
+warnBtn.SetPos(73, y)
 warnBtn.SetBackgroundHue(43 if show_warn else 32)
 warnBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(warnBtn, toggle_warn)
 gump.Add(warnBtn)
 
-errorBtn = API.Gumps.CreateSimpleButton("[ERR]", 45, 20)
-errorBtn.SetPos(111, y)
-errorBtn.SetBackgroundHue(68 if show_error else 32)  # Fixed: green when ON, red when OFF
+errorBtn = API.Gumps.CreateSimpleButton("[ERR:" + ("ON" if show_error else "OFF") + "]", 60, 20)
+errorBtn.SetPos(146, y)
+errorBtn.SetBackgroundHue(68 if show_error else 32)
 errorBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(errorBtn, toggle_error)
 gump.Add(errorBtn)
 
-debugBtn = API.Gumps.CreateSimpleButton("[DBG]", 45, 20)
-debugBtn.SetPos(159, y)
-debugBtn.SetBackgroundHue(68 if show_debug else 32)  # Fixed: green when ON, red when OFF
+debugBtn = API.Gumps.CreateSimpleButton("[DBG:" + ("ON" if show_debug else "OFF") + "]", 65, 20)
+debugBtn.SetPos(209, y)
+debugBtn.SetBackgroundHue(68 if show_debug else 32)
 debugBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(debugBtn, toggle_debug)
 gump.Add(debugBtn)
 
-# Source filter button
-sourceBtn = API.Gumps.CreateSimpleButton("[ALL]", 80, 20)
-sourceBtn.SetPos(207, y)
+# Source filter button (adjusted position for wider filter buttons)
+sourceBtn = API.Gumps.CreateSimpleButton("[ALL]", 70, 20)
+sourceBtn.SetPos(277, y)
 sourceBtn.SetBackgroundHue(53)
 sourceBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(sourceBtn, cycle_source_filter)
 gump.Add(sourceBtn)
 
-# Clear button
+# Clear button (adjusted position)
 clearBtn = API.Gumps.CreateSimpleButton("[CLR]", 45, 20)
-clearBtn.SetPos(290, y)
+clearBtn.SetPos(350, y)
 clearBtn.SetBackgroundHue(32)
 clearBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearBtn, clear_display)
