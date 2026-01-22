@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v2.0
+# Debug Console v2.1
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -35,7 +35,7 @@ COLLAPSED_HEIGHT = 24
 EXPANDED_HEIGHT = 480
 POLL_INTERVAL = 0.2
 MAX_MESSAGES = 500
-MESSAGE_LINE_HEIGHT = 16  # Height per message line in scroll area
+MESSAGE_LINE_HEIGHT = 18  # Height per message line in scroll area (increased for spacing)
 DEBUG_QUEUE_KEY = "DebugConsole_Queue"
 DEBUG_ENABLED_KEY = "DebugConsole_Enabled"
 SETTINGS_KEY = "DebugConsole"
@@ -251,27 +251,17 @@ def update_message_display():
         message_labels.append(help_label)
         return
 
-    # Add message labels to scroll area (newest at bottom or top based on auto_scroll)
-    y_pos = 5
-    line_height = 16
+    # Add message labels to scroll area
+    y_pos = 2
+    line_height = 18  # Increased spacing to prevent overlap
 
-    # Determine which messages to show (auto-scroll shows newest at bottom)
-    if auto_scroll:
-        display_msgs = visible  # Show all, scrolled to bottom
-    else:
-        display_msgs = visible  # Show all, user can scroll manually
-
-    for msg in display_msgs:
+    for msg in visible:
         msg_text = format_message(msg)
         msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 9, "#aaaaaa", maxWidth=360)
         msg_label.SetPos(5, y_pos)
         scrollArea.Add(msg_label)
         message_labels.append(msg_label)
         y_pos += line_height
-
-    # If auto-scroll is on, scroll to bottom (newest messages)
-    # Note: Legion ScrollArea may not have direct scroll control,
-    # but having newest at bottom works naturally
 
 def export_to_file():
     """Export visible messages to timestamped file"""
@@ -640,7 +630,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v2.0 Started - Now with scrollable log! ===", 68)
+API.SysMsg("=== Debug Console v2.1 Started - Now with scrollable log! ===", 68)
 API.SysMsg("Monitoring queue: " + DEBUG_QUEUE_KEY, 53)
 
 next_poll = time.time()
