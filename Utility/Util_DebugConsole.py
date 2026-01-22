@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "3.3"
+__version__ = "3.4"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -262,8 +262,13 @@ def update_message_display():
     statusLabel.SetText(status_text)
 
     # Optimization: Only update if messages actually changed
-    visible_hash = hashlib.md5(str(visible_count).encode()).hexdigest()
-    if visible_hash == last_visible_messages_hash and visible_count > 0:
+    # Create hash from both count and first/last message to detect changes
+    if visible_count > 0:
+        visible_hash = hashlib.md5((str(visible_count) + visible[0]["message"] + visible[-1]["message"]).encode()).hexdigest()
+    else:
+        visible_hash = "empty"
+
+    if visible_hash == last_visible_messages_hash:
         return  # No change
     last_visible_messages_hash = visible_hash
 
@@ -444,23 +449,35 @@ def toggle_scroll():
 
 def clear_display():
     """Clear message list and queue"""
-    global messages, available_sources, current_source_filter, last_queue_hash
+    global messages, available_sources, current_source_filter, last_queue_hash, last_visible_messages_hash
 
-    # Count messages before clearing
-    msg_count = len(messages)
+    try:
+        # Count messages before clearing
+        msg_count = len(messages)
 
-    # Clear local display
-    messages = []
-    available_sources = set()
-    current_source_filter = "ALL"
-    sourceBtn.SetText("[ALL]")
+        # Clear local display
+        messages = []
+        available_sources = set()
+        current_source_filter = "ALL"
+        last_queue_hash = ""
+        last_visible_messages_hash = ""
 
-    # Clear the queue so new scripts don't see old messages
-    API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
-    last_queue_hash = ""
+        # Update button
+        sourceBtn.SetText("[ALL]")
 
-    update_message_display()
-    API.SysMsg("Cleared " + str(msg_count) + " messages from display and queue", 68)
+        # Clear the persistent queue
+        try:
+            API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+            API.SysMsg("Queue cleared in persistent storage", 53)
+        except Exception as e:
+            API.SysMsg("Failed to clear queue: " + str(e)[:40], 32)
+
+        # Force display update
+        update_message_display()
+
+        API.SysMsg("Cleared " + str(msg_count) + " messages", 68)
+    except Exception as e:
+        API.SysMsg("Clear failed: " + str(e)[:50], 32)
 
 def export_messages():
     """Export button handler"""
@@ -701,11 +718,20 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v3.0 Started - All critical fixes applied! ===", 68)
+API.SysMsg("=== Debug Console v3.3 Started ===", 68)
 
-# Don't auto-clear queue - preserve messages from running scripts
-# Users can use [CLR] button if they want to clear manually
-API.SysMsg("Monitoring existing queue messages...", 53)
+# Clear any stale queue data on startup to start fresh
+try:
+    old_queue = API.GetPersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+    if old_queue:
+        # Count old messages
+        old_count = len(old_queue.split("\x1E"))
+        API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
+        API.SysMsg("Cleared " + str(old_count) + " stale messages from previous session", 53)
+    else:
+        API.SysMsg("Starting fresh - no old messages", 68)
+except Exception as e:
+    API.SysMsg("Startup clear failed: " + str(e)[:40], 43)
 
 # Initial display update
 update_message_display()
