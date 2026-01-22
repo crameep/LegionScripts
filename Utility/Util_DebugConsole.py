@@ -1,5 +1,5 @@
 # ============================================================
-# Debug Console v2.1
+# Debug Console v2.2
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -27,7 +27,7 @@ import time
 import os
 import hashlib
 
-__version__ = "2.1"
+__version__ = "2.2"
 
 # ============ CONSTANTS ============
 WINDOW_WIDTH = 400
@@ -35,7 +35,7 @@ COLLAPSED_HEIGHT = 24
 EXPANDED_HEIGHT = 480
 POLL_INTERVAL = 0.2
 MAX_MESSAGES = 500
-MESSAGE_LINE_HEIGHT = 18  # Height per message line in scroll area (increased for spacing)
+MESSAGE_LINE_HEIGHT = 22  # Height per message line in scroll area (generous spacing)
 DEBUG_QUEUE_KEY = "DebugConsole_Queue"
 DEBUG_ENABLED_KEY = "DebugConsole_Enabled"
 SETTINGS_KEY = "DebugConsole"
@@ -243,22 +243,23 @@ def update_message_display():
     # If no messages, show helper text
     if visible_count == 0:
         help_label = API.Gumps.CreateGumpTTFLabel(
-            "No messages yet\n\nLegend: [i]=INFO [!]=WARN [X]=ERROR [.]=DEBUG",
-            10, "#666666", maxWidth=360
+            "No messages yet\n\n\nLegend:\n[i] = INFO\n[!] = WARN\n[X] = ERROR\n[.] = DEBUG",
+            11, "#888888", maxWidth=360
         )
-        help_label.SetPos(5, 5)
+        help_label.SetPos(10, 10)
         scrollArea.Add(help_label)
         message_labels.append(help_label)
         return
 
-    # Add message labels to scroll area
-    y_pos = 2
-    line_height = 18  # Increased spacing to prevent overlap
+    # Add message labels to scroll area with generous spacing
+    y_pos = 5
+    line_height = 22  # More spacing to prevent any overlap
 
     for msg in visible:
         msg_text = format_message(msg)
-        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 9, "#aaaaaa", maxWidth=360)
-        msg_label.SetPos(5, y_pos)
+        # Larger font size (11 instead of 9)
+        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 11, "#cccccc", maxWidth=360)
+        msg_label.SetPos(8, y_pos)
         scrollArea.Add(msg_label)
         message_labels.append(msg_label)
         y_pos += line_height
@@ -630,7 +631,7 @@ if not is_expanded:
     collapse_window()
 
 # ============ MAIN LOOP ============
-API.SysMsg("=== Debug Console v2.1 Started - Now with scrollable log! ===", 68)
+API.SysMsg("=== Debug Console v2.2 Started - Now with scrollable log! ===", 68)
 
 # Clear old queue on startup to prevent stale messages
 API.SavePersistentVar(DEBUG_QUEUE_KEY, "", API.PersistentVar.Char)
