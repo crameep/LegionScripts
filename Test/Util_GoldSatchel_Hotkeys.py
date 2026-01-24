@@ -1,5 +1,5 @@
 # ============================================================
-# Gold Satchel Auto-Mover v2.0 (with Hotkeys)
+# Gold Satchel Auto-Mover v2.1 (with Hotkeys)
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -9,17 +9,18 @@
 # NEW: Customizable hotkeys for Bank and Make Check actions!
 #
 # Features:
-#   - Customizable hotkeys - click small [K] button to rebind
+#   - Customizable hotkeys - click blue [K] button to rebind
 #   - Compact UI - hotkey buttons show current binding
-#   - BANK GOLD button with hotkey
-#   - MAKE CHECK button with hotkey
+#   - BANK GOLD button with hotkey (default: B)
+#   - MAKE CHECK button with hotkey (default: C)
+#   - Blue = click to change | Purple = listening for key
 #   - All original features from v1.8
 #
 # ============================================================
 import API
 import time
 
-__version__ = "2.0"
+__version__ = "2.1"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -339,13 +340,13 @@ def make_key_handler(key_name):
                 bank_hotkey = key_name
                 API.SavePersistentVar(BANK_HOTKEY_KEY, bank_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Bank bound to: " + key_name, 68)
-                bankHotkeyBtn.SetBackgroundHue(90)
+                bankHotkeyBtn.SetBackgroundHue(66)  # Blue - more noticeable
                 bankHotkeyBtn.SetText("[" + key_name + "]")
             elif listening_for_action == "check":
                 check_hotkey = key_name
                 API.SavePersistentVar(CHECK_HOTKEY_KEY, check_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Make Check bound to: " + key_name, 68)
-                checkHotkeyBtn.SetBackgroundHue(90)
+                checkHotkeyBtn.SetBackgroundHue(66)  # Blue - more noticeable
                 checkHotkeyBtn.SetText("[" + key_name + "]")
 
             listening_for_action = None
@@ -651,10 +652,16 @@ gump.Add(bankBtn)
 
 bankHotkeyBtn = API.Gumps.CreateSimpleButton("[" + bank_hotkey + "]", 18, btnH)
 bankHotkeyBtn.SetPos(leftMargin + 65 + 47, y)
-bankHotkeyBtn.SetBackgroundHue(90)
+bankHotkeyBtn.SetBackgroundHue(66)  # Blue - stands out more
 bankHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
+
+# Try to add tooltip if API supports it (experimental)
+try:
+    bankHotkeyBtn.SetTooltip("Click to change Bank hotkey")
+except:
+    pass  # Tooltip not supported
 
 y += 22
 # MAKE CHECK button with small hotkey button
@@ -667,13 +674,19 @@ gump.Add(checkBtn)
 
 checkHotkeyBtn = API.Gumps.CreateSimpleButton("[" + check_hotkey + "]", 18, btnH)
 checkHotkeyBtn.SetPos(leftMargin + 112, y)
-checkHotkeyBtn.SetBackgroundHue(90)
+checkHotkeyBtn.SetBackgroundHue(66)  # Blue - stands out more
 checkHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkHotkeyBtn, start_capture_check_hotkey)
 gump.Add(checkHotkeyBtn)
 
+# Try to add tooltip if API supports it (experimental)
+try:
+    checkHotkeyBtn.SetTooltip("Click to change Make Check hotkey")
+except:
+    pass  # Tooltip not supported
+
 y += 22
-infoLabel = API.Gumps.CreateGumpTTFLabel("Scans every 2s | [K]=hotkey", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
+infoLabel = API.Gumps.CreateGumpTTFLabel("Blue [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 infoLabel.SetPos(0, y)
 infoLabel.IsVisible = is_expanded
 gump.Add(infoLabel)
@@ -691,8 +704,8 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.0 loaded! (" + str(registered_count) + " keys)", 68)
-API.SysMsg("Bank hotkey: " + bank_hotkey + " | Check hotkey: " + check_hotkey, 66)
+API.SysMsg("Gold Satchel v2.1 loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Blue [K]=rebind", 66)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
 else:
