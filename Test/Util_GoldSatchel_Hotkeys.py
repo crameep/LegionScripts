@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.3.1"
+__version__ = "2.3.2-debug"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -150,18 +150,26 @@ def count_all_gold():
     try:
         backpack = API.Player.Backpack
         if not backpack:
+            API.SysMsg("DEBUG: No backpack found!", 32)
             return 0
 
         # Count all gold in backpack (recursive)
         items = API.ItemsInContainer(backpack.Serial, True)
-        if items:
-            for item in items:
-                if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
-                    amount = getattr(item, 'Amount', 1)
-                    total += amount
+        if not items:
+            API.SysMsg("DEBUG: No items in backpack", 43)
+            return 0
 
+        gold_piles = 0
+        for item in items:
+            if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
+                amount = getattr(item, 'Amount', 1)
+                total += amount
+                gold_piles += 1
+
+        API.SysMsg("DEBUG: Found " + str(gold_piles) + " gold piles, total: " + format(total, ','), 66)
         return total
     except Exception as e:
+        API.SysMsg("ERROR counting gold: " + str(e), 32)
         debug_msg("Error counting gold: " + str(e))
         return 0
 
@@ -854,7 +862,7 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.3.1 loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Gold Satchel v2.3.2-debug loaded! (" + str(registered_count) + " keys)", 68)
 API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
