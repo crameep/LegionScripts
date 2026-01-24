@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.3.3-debug"
+__version__ = "2.3.4-debug"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -161,11 +161,21 @@ def count_all_gold():
 
         # Show first 5 item graphics to debug
         API.SysMsg("DEBUG: Total items found: " + str(len(items)), 66)
-        for i, item in enumerate(items[:5]):
-            if hasattr(item, 'Graphic'):
-                graphic_hex = "0x" + format(item.Graphic, 'X')
-                amount = getattr(item, 'Amount', 1)
-                API.SysMsg("  Item " + str(i+1) + ": Graphic=" + graphic_hex + " Amount=" + str(amount), 88)
+
+        # Find first gold item and show ALL its properties
+        for item in items:
+            if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
+                API.SysMsg("FOUND GOLD! Showing all properties:", 68)
+                props = dir(item)
+                for prop in props:
+                    if not prop.startswith('_'):
+                        try:
+                            value = getattr(item, prop)
+                            if not callable(value):
+                                API.SysMsg("  " + prop + " = " + str(value), 88)
+                        except:
+                            pass
+                break  # Only show first gold item
 
         gold_piles = 0
         for item in items:
@@ -870,7 +880,7 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.3.3-debug loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Gold Satchel v2.3.4-debug loaded! (" + str(registered_count) + " keys)", 68)
 API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
