@@ -41,7 +41,7 @@ GUMP_READY_DELAY = 0.3     # Delay after gump appears before clicking button
 WINDOW_WIDTH = 140
 COLLAPSED_HEIGHT = 24
 NORMAL_HEIGHT = 160  # Taller to accommodate info label
-SETUP_HEIGHT = 230  # Taller to accommodate info label
+SETUP_HEIGHT = 215  # Reduced from 230 - infoLabel hidden during setup
 
 # ============ HOTKEY SYSTEM ============
 # All possible keys for hotkey assignment
@@ -593,10 +593,12 @@ API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
 # === DESTINATION BUTTONS ===
+# Layout: 56px button + 4px gap + 22px hotkey + 4px gap + 28px SET = 114px (26px right margin)
 y = 26
-btnW = 63  # Smaller to make room for hotkey button
+btnW = 56
 hotkeyW = 22
-setW = 41
+setW = 28
+gap = 4
 
 # Home
 homeBtn = API.Gumps.CreateSimpleButton("Home [---]", btnW, 22)
@@ -607,14 +609,14 @@ API.Gumps.AddControlOnClick(homeBtn, recall_home)
 gump.Add(homeBtn)
 
 homeHotkeyBtn = API.Gumps.CreateSimpleButton("[" + home_hotkey + "]", hotkeyW, 22)
-homeHotkeyBtn.SetPos(70, y)
+homeHotkeyBtn.SetPos(5 + btnW + gap, y)  # 65
 homeHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 homeHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(homeHotkeyBtn, start_capture_home_hotkey)
 gump.Add(homeHotkeyBtn)
 
 homeSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-homeSetBtn.SetPos(94, y)
+homeSetBtn.SetPos(5 + btnW + gap + hotkeyW + gap, y)  # 91
 homeSetBtn.SetBackgroundHue(53)
 homeSetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(homeSetBtn, setup_home)
@@ -630,14 +632,14 @@ API.Gumps.AddControlOnClick(bankBtn, recall_bank)
 gump.Add(bankBtn)
 
 bankHotkeyBtn = API.Gumps.CreateSimpleButton("[" + bank_hotkey + "]", hotkeyW, 22)
-bankHotkeyBtn.SetPos(70, y)
+bankHotkeyBtn.SetPos(5 + btnW + gap, y)  # 65
 bankHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 bankHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
 
 bankSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-bankSetBtn.SetPos(94, y)
+bankSetBtn.SetPos(5 + btnW + gap + hotkeyW + gap, y)  # 91
 bankSetBtn.SetBackgroundHue(53)
 bankSetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankSetBtn, setup_bank)
@@ -647,20 +649,20 @@ gump.Add(bankSetBtn)
 y += 26
 custom1Btn = API.Gumps.CreateSimpleButton("Custom1 [---]", btnW, 22)
 custom1Btn.SetPos(5, y)
-custom1Btn.SetBackgroundHue(43)
+custom1Btn.SetBackgroundHue(66)  # Changed from 43 to 66 (blue-green) to avoid matching hotkey buttons
 custom1Btn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1Btn, recall_custom1)
 gump.Add(custom1Btn)
 
 custom1HotkeyBtn = API.Gumps.CreateSimpleButton("[" + custom1_hotkey + "]", hotkeyW, 22)
-custom1HotkeyBtn.SetPos(70, y)
+custom1HotkeyBtn.SetPos(5 + btnW + gap, y)  # 65
 custom1HotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 custom1HotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1HotkeyBtn, start_capture_custom1_hotkey)
 gump.Add(custom1HotkeyBtn)
 
 custom1SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom1SetBtn.SetPos(94, y)
+custom1SetBtn.SetPos(5 + btnW + gap + hotkeyW + gap, y)  # 91
 custom1SetBtn.SetBackgroundHue(53)
 custom1SetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1SetBtn, setup_custom1)
@@ -676,20 +678,20 @@ API.Gumps.AddControlOnClick(custom2Btn, recall_custom2)
 gump.Add(custom2Btn)
 
 custom2HotkeyBtn = API.Gumps.CreateSimpleButton("[" + custom2_hotkey + "]", hotkeyW, 22)
-custom2HotkeyBtn.SetPos(70, y)
+custom2HotkeyBtn.SetPos(5 + btnW + gap, y)  # 65
 custom2HotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 custom2HotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom2HotkeyBtn, start_capture_custom2_hotkey)
 gump.Add(custom2HotkeyBtn)
 
 custom2SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom2SetBtn.SetPos(94, y)
+custom2SetBtn.SetPos(5 + btnW + gap + hotkeyW + gap, y)  # 91
 custom2SetBtn.SetBackgroundHue(53)
 custom2SetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom2SetBtn, setup_custom2)
 gump.Add(custom2SetBtn)
 
-y += 24
+y += 22  # Reduced from 24 to 22 to match Gold Satchel pattern
 # Help label
 infoLabel = API.Gumps.CreateGumpTTFLabel("Yellow [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 infoLabel.SetPos(0, y)
