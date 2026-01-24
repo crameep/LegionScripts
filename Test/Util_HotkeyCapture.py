@@ -1,5 +1,5 @@
 # ============================================================
-# Hotkey Capture v1.0
+# Hotkey Capture v1.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -23,7 +23,7 @@
 import API
 import time
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 # ============ GUI COLORS ============
 HUE_GREEN = 68
@@ -100,16 +100,19 @@ def make_key_handler(key_name):
                 API.SavePersistentVar(ACTION1_KEY, action1_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Action 1 bound to: " + key_name, HUE_GREEN)
                 setBtn1.SetBackgroundHue(HUE_GRAY)
+                setBtn1.SetText("[Change: " + key_name + "]")
             elif listening_for_action == 2:
                 action2_hotkey = key_name
                 API.SavePersistentVar(ACTION2_KEY, action2_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Action 2 bound to: " + key_name, HUE_BLUE)
                 setBtn2.SetBackgroundHue(HUE_GRAY)
+                setBtn2.SetText("[Change: " + key_name + "]")
             elif listening_for_action == 3:
                 action3_hotkey = key_name
                 API.SavePersistentVar(ACTION3_KEY, action3_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Action 3 bound to: " + key_name, HUE_YELLOW)
                 setBtn3.SetBackgroundHue(HUE_GRAY)
+                setBtn3.SetText("[Change: " + key_name + "]")
 
             listening_for_action = None
             update_display()
@@ -131,6 +134,7 @@ def start_capture_action_1():
     global listening_for_action
     listening_for_action = 1
     setBtn1.SetBackgroundHue(HUE_PURPLE)
+    setBtn1.SetText("[Listening...]")
     API.SysMsg("Press any key to bind to Action 1...", HUE_PURPLE)
 
 def start_capture_action_2():
@@ -138,6 +142,7 @@ def start_capture_action_2():
     global listening_for_action
     listening_for_action = 2
     setBtn2.SetBackgroundHue(HUE_PURPLE)
+    setBtn2.SetText("[Listening...]")
     API.SysMsg("Press any key to bind to Action 2...", HUE_PURPLE)
 
 def start_capture_action_3():
@@ -145,6 +150,7 @@ def start_capture_action_3():
     global listening_for_action
     listening_for_action = 3
     setBtn3.SetBackgroundHue(HUE_PURPLE)
+    setBtn3.SetText("[Listening...]")
     API.SysMsg("Press any key to bind to Action 3...", HUE_PURPLE)
 
 def cancel_capture():
@@ -154,8 +160,11 @@ def cancel_capture():
         API.SysMsg("Hotkey capture cancelled", HUE_GRAY)
         listening_for_action = None
         setBtn1.SetBackgroundHue(HUE_GRAY)
+        setBtn1.SetText("[Change: " + action1_hotkey + "]")
         setBtn2.SetBackgroundHue(HUE_GRAY)
+        setBtn2.SetText("[Change: " + action2_hotkey + "]")
         setBtn3.SetBackgroundHue(HUE_GRAY)
+        setBtn3.SetText("[Change: " + action3_hotkey + "]")
 
 def reset_counts():
     """Reset action press counters"""
@@ -241,14 +250,14 @@ gump.Add(action1Label)
 
 y += 25
 
-setBtn1 = API.Gumps.CreateSimpleButton("[Set Hotkey]", 100, 22)
+setBtn1 = API.Gumps.CreateSimpleButton("[Change: " + action1_hotkey + "]", 120, 22)
 setBtn1.SetPos(10, y)
 setBtn1.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(setBtn1, start_capture_action_1)
 gump.Add(setBtn1)
 
 testBtn1 = API.Gumps.CreateSimpleButton("[Test Action]", 100, 22)
-testBtn1.SetPos(115, y)
+testBtn1.SetPos(135, y)
 testBtn1.SetBackgroundHue(HUE_GREEN)
 API.Gumps.AddControlOnClick(testBtn1, execute_action_1_manual)
 gump.Add(testBtn1)
@@ -262,14 +271,14 @@ gump.Add(action2Label)
 
 y += 25
 
-setBtn2 = API.Gumps.CreateSimpleButton("[Set Hotkey]", 100, 22)
+setBtn2 = API.Gumps.CreateSimpleButton("[Change: " + action2_hotkey + "]", 120, 22)
 setBtn2.SetPos(10, y)
 setBtn2.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(setBtn2, start_capture_action_2)
 gump.Add(setBtn2)
 
 testBtn2 = API.Gumps.CreateSimpleButton("[Test Action]", 100, 22)
-testBtn2.SetPos(115, y)
+testBtn2.SetPos(135, y)
 testBtn2.SetBackgroundHue(HUE_BLUE)
 API.Gumps.AddControlOnClick(testBtn2, execute_action_2_manual)
 gump.Add(testBtn2)
@@ -283,14 +292,14 @@ gump.Add(action3Label)
 
 y += 25
 
-setBtn3 = API.Gumps.CreateSimpleButton("[Set Hotkey]", 100, 22)
+setBtn3 = API.Gumps.CreateSimpleButton("[Change: " + action3_hotkey + "]", 120, 22)
 setBtn3.SetPos(10, y)
 setBtn3.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(setBtn3, start_capture_action_3)
 gump.Add(setBtn3)
 
 testBtn3 = API.Gumps.CreateSimpleButton("[Test Action]", 100, 22)
-testBtn3.SetPos(115, y)
+testBtn3.SetPos(135, y)
 testBtn3.SetBackgroundHue(HUE_YELLOW)
 API.Gumps.AddControlOnClick(testBtn3, execute_action_3_manual)
 gump.Add(testBtn3)
@@ -326,7 +335,7 @@ gump.Add(helpLabel)
 
 y += 20
 
-help1 = API.Gumps.CreateGumpTTFLabel("1. Click [Set Hotkey] next to an action", 8, "#aaaaaa")
+help1 = API.Gumps.CreateGumpTTFLabel("1. Click [Change: X] next to an action", 8, "#aaaaaa")
 help1.SetPos(15, y)
 gump.Add(help1)
 
