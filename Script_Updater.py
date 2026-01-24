@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.7.0
+# Script Updater v1.8.0
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -28,7 +28,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -37,8 +37,8 @@ BACKUP_DIR = "_backups"
 DOWNLOAD_TIMEOUT = 5  # seconds
 MAX_BACKUPS_PER_SCRIPT = 5  # Keep only this many backups per script (auto-cleanup old ones)
 
-# Directories to exclude from recursion
-EXCLUDED_DIRS = ["__pycache__", ".git", ".github", "_backups", "Test"]
+# Directories to exclude from recursion (Test excluded conditionally via show_test_scripts toggle)
+EXCLUDED_DIRS_BASE = ["__pycache__", ".git", ".github", "_backups"]
 
 # Scripts to manage - dynamically loaded from GitHub
 MANAGED_SCRIPTS = []  # List of (category, relative_path) tuples
@@ -60,6 +60,7 @@ STATUS_ERROR = "ERROR"
 
 # ============ PERSISTENCE KEYS ============
 SETTINGS_KEY = "Updater_WindowXY"
+SHOW_TEST_KEY = "Updater_ShowTest"
 
 # ============ STATE MACHINE ============
 # States: IDLE, CHECKING, BACKING_UP, DOWNLOADING, WRITING, ERROR
@@ -80,6 +81,7 @@ updater_was_updated = False  # Track if Script_Updater.py was updated (needs res
 last_known_x = 100
 last_known_y = 100
 last_position_check = 0
+show_test_scripts = False  # Toggle to show/hide Test folder scripts
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -460,6 +462,11 @@ def fetch_github_script_list():
 
         script_list = []
 
+        # Build exclusion list based on show_test_scripts toggle
+        excluded_dirs = list(EXCLUDED_DIRS_BASE)
+        if not show_test_scripts:
+            excluded_dirs.append("Test")
+
         def fetch_directory(api_url, path_prefix=""):
             """Recursively fetch contents from a directory"""
             try:
@@ -489,7 +496,7 @@ def fetch_github_script_list():
                         category = path_prefix.rstrip('/') if path_prefix else ""
                         script_list.append((category, relative_path))
 
-                elif item_type == 'dir' and item_name not in EXCLUDED_DIRS:
+                elif item_type == 'dir' and item_name not in excluded_dirs:
                     # Recursively fetch from subdirectory
                     sub_url = item.get('url', '')
                     if sub_url:
@@ -512,6 +519,11 @@ def discover_local_scripts():
         script_dir = get_script_dir()
         script_list = []
 
+        # Build exclusion list based on show_test_scripts toggle
+        excluded_dirs = list(EXCLUDED_DIRS_BASE)
+        if not show_test_scripts:
+            excluded_dirs.append("Test")
+
         def scan_directory(dir_path, path_prefix=""):
             """Recursively scan directory"""
             try:
@@ -523,7 +535,7 @@ def discover_local_scripts():
                         category = path_prefix.rstrip('/') if path_prefix else ""
                         script_list.append((category, relative_path))
 
-                    elif os.path.isdir(item_path) and item_name not in EXCLUDED_DIRS:
+                    elif os.path.isdir(item_path) and item_name not in excluded_dirs:
                         sub_path_prefix = path_prefix + item_name + "/"
                         scan_directory(item_path, sub_path_prefix)
             except:
@@ -852,6 +864,26 @@ def on_restore_backup():
     # For now, just show message
     API.SysMsg("Restore feature: Use file manager to copy from _backups/", HUE_YELLOW)
 
+def toggle_show_test():
+    """Toggle showing Test folder scripts"""
+    global show_test_scripts
+
+    if STATE != "IDLE":
+        API.SysMsg("Please wait until current operation finishes", HUE_YELLOW)
+        return
+
+    show_test_scripts = not show_test_scripts
+    API.SavePersistentVar(SHOW_TEST_KEY, str(show_test_scripts), API.PersistentVar.Char)
+
+    # Update button
+    color = HUE_BLUE if show_test_scripts else HUE_GRAY
+    text = "[SHOW TEST:" + ("ON" if show_test_scripts else "OFF") + "]"
+    showTestBtn.SetBackgroundHue(color)
+    showTestBtn.SetText(text)
+
+    API.SysMsg("Test scripts: " + ("SHOWN" if show_test_scripts else "HIDDEN"), color)
+    API.SysMsg("Please RESTART Script_Updater to reload the script list", HUE_YELLOW)
+
 def toggle_script_selection(index):
     """Toggle selection checkbox for a script"""
     if index < 0 or index >= len(MANAGED_SCRIPTS):
@@ -934,6 +966,9 @@ def onClosed():
     API.Stop()
 
 # ============ INITIALIZATION ============
+# Load show_test_scripts setting before initializing script data
+show_test_scripts = API.GetPersistentVar(SHOW_TEST_KEY, "False", API.PersistentVar.Char) == "True"
+
 init_script_data()
 
 # Clean up old backups on startup
@@ -1025,8 +1060,16 @@ restoreBtn.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(restoreBtn, on_restore_backup)
 gump.Add(restoreBtn)
 
+# Show Test toggle button (second row)
+y += 28
+showTestBtn = API.Gumps.CreateSimpleButton("[SHOW TEST:" + ("ON" if show_test_scripts else "OFF") + "]", 140, 22)
+showTestBtn.SetPos(10, y)
+showTestBtn.SetBackgroundHue(HUE_BLUE if show_test_scripts else HUE_GRAY)
+API.Gumps.AddControlOnClick(showTestBtn, toggle_show_test)
+gump.Add(showTestBtn)
+
 # Status bar
-y += 30
+y += 25
 statusBg = API.Gumps.CreateGumpColorBox(0.9, "#000000")
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
