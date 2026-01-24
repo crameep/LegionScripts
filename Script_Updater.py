@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.8.0
+# Script Updater v1.8.1
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -28,7 +28,7 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.8.0"
+__version__ = "1.8.1"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
@@ -988,9 +988,13 @@ lastY = int(posXY[1])
 last_known_x = lastX
 last_known_y = lastY
 
-# Window size
+# Window size - dynamic height based on script count
 win_width = 580
-win_height = 450
+# Calculate height: header(68) + rows(22 each) + buttons(28+28) + status(25) + padding(20)
+min_height = 450
+calculated_height = 68 + (len(MANAGED_SCRIPTS) * 22) + 28 + 28 + 25 + 20
+max_height = 700  # Don't make window too tall
+win_height = max(min_height, min(calculated_height, max_height))
 gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
@@ -999,12 +1003,14 @@ bg.SetRect(0, 0, win_width, win_height)
 gump.Add(bg)
 
 # Title
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__, 16, "#00d4ff", aligned="center", maxWidth=win_width)
+test_indicator = " [TEST: ON]" if show_test_scripts else ""
+title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff", aligned="center", maxWidth=win_width)
 title.SetPos(0, 5)
 gump.Add(title)
 
-# Instructions
-instructions = API.Gumps.CreateGumpTTFLabel("Check scripts for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
+# Instructions with script count
+script_count_text = str(len(MANAGED_SCRIPTS)) + " scripts"
+instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
 instructions.SetPos(0, 28)
 gump.Add(instructions)
 
