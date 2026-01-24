@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.6.0
+# Script Updater v1.7.0
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -10,6 +10,7 @@
 #   - Check for script updates from GitHub repository
 #   - Compare local vs remote versions (semantic versioning)
 #   - Backup scripts before updating (_backups directory)
+#   - Auto-cleanup old backups (keeps last 5 per script)
 #   - Restore previous versions from backup
 #   - Scrollable list with checkboxes for selective updates
 #   - Category indicators: [Tamer], [Mage], [Dexer], [Utility]
@@ -27,13 +28,14 @@ try:
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
 GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/"
 BACKUP_DIR = "_backups"
 DOWNLOAD_TIMEOUT = 5  # seconds
+MAX_BACKUPS_PER_SCRIPT = 5  # Keep only this many backups per script (auto-cleanup old ones)
 
 # Directories to exclude from recursion
 EXCLUDED_DIRS = ["__pycache__", ".git", ".github", "_backups", "Test"]
@@ -249,6 +251,10 @@ def backup_script(relative_path):
             dst.write(content)
 
         debug_msg("Backed up to: " + backup_path)
+
+        # Clean up old backups
+        cleanup_old_backups(filename)
+
         return (True, backup_path)
     except Exception as e:
         return (False, str(e))
@@ -327,6 +333,106 @@ def list_backups(filename):
         return backups
     except:
         return []
+
+def cleanup_old_backups(filename):
+    """Delete old backups, keeping only the most recent MAX_BACKUPS_PER_SCRIPT"""
+    try:
+        backups = list_backups(filename)
+
+        if len(backups) <= MAX_BACKUPS_PER_SCRIPT:
+            return  # Nothing to clean up
+
+        # Delete backups beyond the limit
+        backups_to_delete = backups[MAX_BACKUPS_PER_SCRIPT:]
+        deleted_count = 0
+
+        for backup_path, timestamp in backups_to_delete:
+            try:
+                os.remove(backup_path)
+                deleted_count += 1
+                debug_msg("Deleted old backup: " + os.path.basename(backup_path))
+            except Exception as e:
+                debug_msg("Failed to delete backup: " + str(e))
+
+        if deleted_count > 0:
+            debug_msg("Cleaned up " + str(deleted_count) + " old backups for " + filename)
+    except Exception as e:
+        debug_msg("Error during backup cleanup: " + str(e))
+
+def cleanup_all_backups():
+    """Clean up all existing backups on startup, keeping only MAX_BACKUPS_PER_SCRIPT per script"""
+    try:
+        script_dir = get_script_dir()
+        backup_dir = os.path.join(script_dir, BACKUP_DIR)
+
+        if not os.path.exists(backup_dir):
+            return  # No backups to clean
+
+        # Group backups by script name
+        script_backups = {}  # {script_name: [(path, timestamp), ...]}
+
+        for backup_file in os.listdir(backup_dir):
+            if not backup_file.endswith('.py'):
+                continue
+
+            # Extract base script name from filename like "Script_20260122_143055.py"
+            # Split by underscore and find where the date pattern starts
+            parts = backup_file.replace('.py', '').split('_')
+
+            # Find the script name (everything before the date pattern YYYYMMDD)
+            script_name = None
+            for i in range(len(parts)):
+                # Check if this part looks like a date (8 digits)
+                if len(parts[i]) == 8 and parts[i].isdigit():
+                    # Script name is everything before this index
+                    script_name = '_'.join(parts[:i]) + '.py'
+                    break
+
+            if not script_name:
+                continue
+
+            # Get timestamp from filename
+            try:
+                if len(parts) >= 2:
+                    date_str = parts[-2]  # YYYYMMDD
+                    time_str = parts[-1]  # HHMMSS
+                    timestamp = date_str + "_" + time_str
+                else:
+                    timestamp = "unknown"
+            except:
+                timestamp = "unknown"
+
+            backup_path = os.path.join(backup_dir, backup_file)
+
+            if script_name not in script_backups:
+                script_backups[script_name] = []
+            script_backups[script_name].append((backup_path, timestamp))
+
+        # Clean up each script's backups
+        total_deleted = 0
+        for script_name, backups in script_backups.items():
+            if len(backups) <= MAX_BACKUPS_PER_SCRIPT:
+                continue
+
+            # Sort by timestamp (newest first)
+            backups.sort(key=lambda x: x[1], reverse=True)
+
+            # Delete old backups
+            backups_to_delete = backups[MAX_BACKUPS_PER_SCRIPT:]
+            for backup_path, timestamp in backups_to_delete:
+                try:
+                    os.remove(backup_path)
+                    total_deleted += 1
+                    debug_msg("Deleted old backup: " + os.path.basename(backup_path))
+                except Exception as e:
+                    debug_msg("Failed to delete backup: " + str(e))
+
+        if total_deleted > 0:
+            API.SysMsg("Cleaned up " + str(total_deleted) + " old backups (keeping " + str(MAX_BACKUPS_PER_SCRIPT) + " per script)", HUE_GREEN)
+            debug_msg("Backup cleanup complete: " + str(total_deleted) + " files deleted")
+
+    except Exception as e:
+        debug_msg("Error during all-backups cleanup: " + str(e))
 
 def restore_backup(backup_path, filename):
     """Restore a backup file. Returns (success, error_or_none)"""
@@ -458,8 +564,8 @@ def init_script_data():
         script_data[relative_path]['local_version'] = local_ver
         if local_ver:
             script_data[relative_path]['status'] = STATUS_OK
-            # Auto-select scripts that are installed locally
-            script_data[relative_path]['selected'] = True
+            # Don't auto-select on initialization - user will check for updates first
+            script_data[relative_path]['selected'] = False
 
 # ============ STATE MACHINE ACTIONS ============
 def start_check_updates(selected_only=False):
@@ -527,6 +633,8 @@ def process_checking():
         if not local_ver:
             # Script doesn't exist locally
             script_data[relative_path]['status'] = STATUS_NEW
+            # Auto-select new scripts
+            script_data[relative_path]['selected'] = True
         elif not remote_ver:
             # Can't find remote version
             script_data[relative_path]['status'] = STATUS_NA
@@ -536,16 +644,16 @@ def process_checking():
             cmp = compare_versions(local_ver, remote_ver)
             if cmp == -1:
                 script_data[relative_path]['status'] = STATUS_UPDATE
-                # Auto-select scripts that are installed and have updates
+                # Auto-select scripts that have updates available
                 script_data[relative_path]['selected'] = True
             elif cmp == 0:
                 script_data[relative_path]['status'] = STATUS_OK
-                # Auto-select scripts that are already installed
-                script_data[relative_path]['selected'] = True
+                # Don't auto-select scripts that are already up-to-date
+                script_data[relative_path]['selected'] = False
             else:
                 script_data[relative_path]['status'] = STATUS_OK  # Local is newer
-                # Auto-select scripts that are already installed
-                script_data[relative_path]['selected'] = True
+                # Don't auto-select scripts that are already up-to-date
+                script_data[relative_path]['selected'] = False
 
         script_data[relative_path]['error'] = None
     else:
@@ -827,6 +935,9 @@ def onClosed():
 
 # ============ INITIALIZATION ============
 init_script_data()
+
+# Clean up old backups on startup
+cleanup_all_backups()
 
 # ============ BUILD GUI ============
 gump = API.Gumps.CreateGump()
