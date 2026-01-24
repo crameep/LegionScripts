@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.3.4-debug"
+__version__ = "2.3.5-debug"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -153,38 +153,30 @@ def count_all_gold():
             API.SysMsg("DEBUG: No backpack found!", 32)
             return 0
 
-        # Count all gold in backpack (recursive)
-        items = API.ItemsInContainer(backpack.Serial, True)
-        if not items:
-            API.SysMsg("DEBUG: No items in backpack", 43)
-            return 0
+        # Count gold in backpack (loose gold)
+        backpack_items = API.ItemsInContainer(backpack.Serial, False)  # Non-recursive for backpack root
+        backpack_gold = 0
+        if backpack_items:
+            for item in backpack_items:
+                if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
+                    amount = getattr(item, 'Amount', 1)
+                    backpack_gold += amount
 
-        # Show first 5 item graphics to debug
-        API.SysMsg("DEBUG: Total items found: " + str(len(items)), 66)
+        # Count gold in satchel (if set)
+        satchel_gold = 0
+        if satchel_serial > 0:
+            satchel = get_satchel()
+            if satchel:
+                satchel_items = API.ItemsInContainer(satchel_serial, False)
+                if satchel_items:
+                    for item in satchel_items:
+                        if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
+                            amount = getattr(item, 'Amount', 1)
+                            satchel_gold += amount
+                            API.SysMsg("DEBUG: Satchel gold pile - Amount=" + str(amount), 88)
 
-        # Find first gold item and show ALL its properties
-        for item in items:
-            if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
-                API.SysMsg("FOUND GOLD! Showing all properties:", 68)
-                props = dir(item)
-                for prop in props:
-                    if not prop.startswith('_'):
-                        try:
-                            value = getattr(item, prop)
-                            if not callable(value):
-                                API.SysMsg("  " + prop + " = " + str(value), 88)
-                        except:
-                            pass
-                break  # Only show first gold item
-
-        gold_piles = 0
-        for item in items:
-            if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
-                amount = getattr(item, 'Amount', 1)
-                total += amount
-                gold_piles += 1
-
-        API.SysMsg("DEBUG: Looking for gold graphic 0x" + format(GOLD_GRAPHIC, 'X') + " - Found " + str(gold_piles) + " piles, total: " + format(total, ','), 66)
+        total = backpack_gold + satchel_gold
+        API.SysMsg("DEBUG: Backpack=" + format(backpack_gold, ',') + " Satchel=" + format(satchel_gold, ',') + " Total=" + format(total, ','), 66)
         return total
     except Exception as e:
         API.SysMsg("ERROR counting gold: " + str(e), 32)
@@ -880,7 +872,7 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.3.4-debug loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Gold Satchel v2.3.5-debug loaded! (" + str(registered_count) + " keys)", 68)
 API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
