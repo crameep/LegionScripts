@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.3"
+__version__ = "2.3.1"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -180,12 +180,15 @@ def check_income_delta():
     # On first check, just set baseline
     if last_known_gold == 0:
         last_known_gold = current_gold
+        if current_gold > 0:
+            API.SysMsg("Income baseline set: " + format(current_gold, ',') + " gold", 66)
         return
 
     # Check for increase (looting)
     if current_gold > last_known_gold:
         delta = current_gold - last_known_gold
         total_income += delta
+        API.SysMsg("+" + format(delta, ',') + " gold looted! (Total income: " + format(total_income, ',') + ")", 68)
         debug_msg("Gold increased by " + str(delta) + " | Total income: " + str(total_income))
 
     # Update baseline (handles both increases and decreases)
@@ -851,7 +854,7 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.3 loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Gold Satchel v2.3.1 loaded! (" + str(registered_count) + " keys)", 68)
 API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
