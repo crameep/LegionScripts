@@ -657,12 +657,6 @@ bankHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
 
-# Try to add tooltip if API supports it (experimental)
-try:
-    bankHotkeyBtn.SetTooltip("Click to change Bank hotkey")
-except:
-    pass  # Tooltip not supported
-
 y += 22
 # MAKE CHECK button with small hotkey button
 checkBtn = API.Gumps.CreateSimpleButton("[CHECK]", 110, btnH)
@@ -678,12 +672,6 @@ checkHotkeyBtn.SetBackgroundHue(66)  # Blue - stands out more
 checkHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkHotkeyBtn, start_capture_check_hotkey)
 gump.Add(checkHotkeyBtn)
-
-# Try to add tooltip if API supports it (experimental)
-try:
-    checkHotkeyBtn.SetTooltip("Click to change Make Check hotkey")
-except:
-    pass  # Tooltip not supported
 
 y += 22
 infoLabel = API.Gumps.CreateGumpTTFLabel("Blue [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
