@@ -21,7 +21,7 @@
 import API
 import time
 
-__version__ = "2.3.5-debug"
+__version__ = "2.4"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -150,7 +150,6 @@ def count_all_gold():
     try:
         backpack = API.Player.Backpack
         if not backpack:
-            API.SysMsg("DEBUG: No backpack found!", 32)
             return 0
 
         # Count gold in backpack (loose gold)
@@ -173,13 +172,10 @@ def count_all_gold():
                         if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
                             amount = getattr(item, 'Amount', 1)
                             satchel_gold += amount
-                            API.SysMsg("DEBUG: Satchel gold pile - Amount=" + str(amount), 88)
 
         total = backpack_gold + satchel_gold
-        API.SysMsg("DEBUG: Backpack=" + format(backpack_gold, ',') + " Satchel=" + format(satchel_gold, ',') + " Total=" + format(total, ','), 66)
         return total
     except Exception as e:
-        API.SysMsg("ERROR counting gold: " + str(e), 32)
         debug_msg("Error counting gold: " + str(e))
         return 0
 
@@ -198,16 +194,15 @@ def check_income_delta():
     # On first check, just set baseline
     if last_known_gold == 0:
         last_known_gold = current_gold
-        if current_gold > 0:
-            API.SysMsg("Income baseline set: " + format(current_gold, ',') + " gold", 66)
         return
 
     # Check for increase (looting)
     if current_gold > last_known_gold:
         delta = current_gold - last_known_gold
         total_income += delta
-        API.SysMsg("+" + format(delta, ',') + " gold looted! (Total income: " + format(total_income, ',') + ")", 68)
-        debug_msg("Gold increased by " + str(delta) + " | Total income: " + str(total_income))
+        # Only show message if significant amount (100+)
+        if delta >= 100:
+            API.SysMsg("+" + format_gold_compact(delta) + " gold looted!", 68)
 
     # Update baseline (handles both increases and decreases)
     last_known_gold = current_gold
@@ -233,8 +228,12 @@ def format_gold_compact(amount):
     """Format gold in compact form: 1234 -> 1.2k, 123456 -> 123k"""
     if amount < 1000:
         return str(int(amount))
-    elif amount < 1000000:
+    elif amount < 10000:
+        # 1000-9999: show 1 decimal (1.2k, 9.8k)
         return str(round(amount / 1000.0, 1)) + "k"
+    elif amount < 1000000:
+        # 10000+: no decimals (12k, 123k)
+        return str(int(amount / 1000)) + "k"
     else:
         return str(round(amount / 1000000.0, 1)) + "m"
 
@@ -670,12 +669,12 @@ def update_display():
         # Update income display
         per_min, per_10min, per_hour = get_income_rates()
 
-        if income_display_mode == 0:  # Compact
+        if income_display_mode == 0:  # Compact - rates only
+            income_text = format_gold_compact(per_min) + "/m | " + format_gold_compact(per_hour) + "/hr"
+        elif income_display_mode == 1:  # Full - total + main rate
+            income_text = format_gold_compact(total_income) + " (" + format_gold_compact(per_min) + "/m)"
+        else:  # Detailed (mode 2) - all rates
             income_text = format_gold_compact(per_min) + "/m | " + format_gold_compact(per_10min) + "/10m | " + format_gold_compact(per_hour) + "/hr"
-        elif income_display_mode == 1:  # Full
-            income_text = "Earned: " + format_gold_compact(total_income) + " (" + format_gold_compact(per_min) + "/m | " + format_gold_compact(per_hour) + "/hr)"
-        else:  # Detailed (mode 2)
-            income_text = "Income: " + format(int(total_income), ',') + " | " + str(int(per_min)) + "/m | " + str(int(per_hour)) + "/hr"
 
         incomeLabel.SetText(income_text)
 
@@ -775,7 +774,7 @@ gump.Add(satchelLabel)
 
 y += 12
 # Income display with mode toggle button
-incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/10m | 0/hr", 8, "#00ff88")
+incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 10, "#00ff88")
 incomeLabel.SetPos(leftMargin, y)
 incomeLabel.IsVisible = is_expanded
 gump.Add(incomeLabel)
@@ -872,7 +871,7 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.3.5-debug loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Gold Satchel v2.4 loaded! (" + str(registered_count) + " keys)", 68)
 API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
