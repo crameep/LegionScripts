@@ -1,5 +1,5 @@
 # ============================================================
-# Gold Satchel Auto-Mover v2.1 (with Hotkeys)
+# Gold Satchel Auto-Mover v2.2 (with Hotkeys)
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -9,18 +9,19 @@
 # NEW: Customizable hotkeys for Bank and Make Check actions!
 #
 # Features:
-#   - Customizable hotkeys - click blue [K] button to rebind
-#   - Compact UI - hotkey buttons show current binding
+#   - Customizable hotkeys - click yellow [K] button to rebind
+#   - Compact UI - hotkey buttons show current binding (22px)
 #   - BANK GOLD button with hotkey (default: B)
 #   - MAKE CHECK button with hotkey (default: C)
-#   - Blue = click to change | Purple = listening for key
+#   - Yellow = configurable | Purple = listening | ESC = cancel
+#   - Duplicate key warning when binding same key twice
 #   - All original features from v1.8
 #
 # ============================================================
 import API
 import time
 
-__version__ = "2.1"
+__version__ = "2.2"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -55,6 +56,7 @@ ALL_KEYS = [
     "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
     "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
     "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
+    "ESC",  # For canceling hotkey capture
 ]
 
 # ============ RUNTIME STATE ============
@@ -336,17 +338,37 @@ def make_key_handler(key_name):
 
         # If we're listening for a key assignment
         if listening_for_action is not None:
+            # ESC cancels listening mode
+            if key_name == "ESC":
+                if listening_for_action == "bank":
+                    bankHotkeyBtn.SetBackgroundHue(43)  # Yellow
+                    bankHotkeyBtn.SetText("[" + bank_hotkey + "]")
+                    API.SysMsg("Cancelled - kept " + bank_hotkey, 53)
+                elif listening_for_action == "check":
+                    checkHotkeyBtn.SetBackgroundHue(43)  # Yellow
+                    checkHotkeyBtn.SetText("[" + check_hotkey + "]")
+                    API.SysMsg("Cancelled - kept " + check_hotkey, 53)
+                listening_for_action = None
+                return
+
+            # Assign the key
             if listening_for_action == "bank":
+                # Warn if duplicate
+                if key_name == check_hotkey:
+                    API.SysMsg("Warning: " + key_name + " already used for Make Check", 43)
                 bank_hotkey = key_name
                 API.SavePersistentVar(BANK_HOTKEY_KEY, bank_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Bank bound to: " + key_name, 68)
-                bankHotkeyBtn.SetBackgroundHue(66)  # Blue - more noticeable
+                bankHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
                 bankHotkeyBtn.SetText("[" + key_name + "]")
             elif listening_for_action == "check":
+                # Warn if duplicate
+                if key_name == bank_hotkey:
+                    API.SysMsg("Warning: " + key_name + " already used for Bank", 43)
                 check_hotkey = key_name
                 API.SavePersistentVar(CHECK_HOTKEY_KEY, check_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Make Check bound to: " + key_name, 68)
-                checkHotkeyBtn.SetBackgroundHue(66)  # Blue - more noticeable
+                checkHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
                 checkHotkeyBtn.SetText("[" + key_name + "]")
 
             listening_for_action = None
@@ -366,7 +388,7 @@ def start_capture_bank_hotkey():
     listening_for_action = "bank"
     bankHotkeyBtn.SetBackgroundHue(38)  # Purple
     bankHotkeyBtn.SetText("[?]")
-    API.SysMsg("Press any key for Bank hotkey...", 38)
+    API.SysMsg("Press key for Bank hotkey (ESC to cancel)...", 38)
 
 def start_capture_check_hotkey():
     """Start listening for check hotkey"""
@@ -374,7 +396,7 @@ def start_capture_check_hotkey():
     listening_for_action = "check"
     checkHotkeyBtn.SetBackgroundHue(38)  # Purple
     checkHotkeyBtn.SetText("[?]")
-    API.SysMsg("Press any key for Make Check hotkey...", 38)
+    API.SysMsg("Press key for Make Check hotkey (ESC to cancel)...", 38)
 
 # ============ EXPAND/COLLAPSE ============
 def toggle_expand():
@@ -642,39 +664,39 @@ resetBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(resetBtn, reset_session)
 gump.Add(resetBtn)
 
-# BANK button with small hotkey button
-bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 45, btnH)
+# BANK button with hotkey button
+bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 43, btnH)
 bankBtn.SetPos(leftMargin + 65, y)
 bankBtn.SetBackgroundHue(90)
 bankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankBtn, move_satchel_to_bank)
 gump.Add(bankBtn)
 
-bankHotkeyBtn = API.Gumps.CreateSimpleButton("[" + bank_hotkey + "]", 18, btnH)
-bankHotkeyBtn.SetPos(leftMargin + 65 + 47, y)
-bankHotkeyBtn.SetBackgroundHue(66)  # Blue - stands out more
+bankHotkeyBtn = API.Gumps.CreateSimpleButton("[" + bank_hotkey + "]", 22, btnH)
+bankHotkeyBtn.SetPos(leftMargin + 65 + 45, y)
+bankHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 bankHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
 
 y += 22
-# MAKE CHECK button with small hotkey button
-checkBtn = API.Gumps.CreateSimpleButton("[CHECK]", 110, btnH)
+# MAKE CHECK button with hotkey button
+checkBtn = API.Gumps.CreateSimpleButton("[CHECK]", 108, btnH)
 checkBtn.SetPos(leftMargin, y)
 checkBtn.SetBackgroundHue(43)
 checkBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkBtn, make_check)
 gump.Add(checkBtn)
 
-checkHotkeyBtn = API.Gumps.CreateSimpleButton("[" + check_hotkey + "]", 18, btnH)
-checkHotkeyBtn.SetPos(leftMargin + 112, y)
-checkHotkeyBtn.SetBackgroundHue(66)  # Blue - stands out more
+checkHotkeyBtn = API.Gumps.CreateSimpleButton("[" + check_hotkey + "]", 22, btnH)
+checkHotkeyBtn.SetPos(leftMargin + 110, y)
+checkHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
 checkHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkHotkeyBtn, start_capture_check_hotkey)
 gump.Add(checkHotkeyBtn)
 
 y += 22
-infoLabel = API.Gumps.CreateGumpTTFLabel("Blue [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
+infoLabel = API.Gumps.CreateGumpTTFLabel("Yellow [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 infoLabel.SetPos(0, y)
 infoLabel.IsVisible = is_expanded
 gump.Add(infoLabel)
@@ -692,8 +714,8 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.1 loaded! (" + str(registered_count) + " keys)", 68)
-API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Blue [K]=rebind", 66)
+API.SysMsg("Gold Satchel v2.2 loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
 if satchel_serial > 0:
     API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
 else:
