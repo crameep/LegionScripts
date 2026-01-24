@@ -1,5 +1,5 @@
 # ============================================================
-# Runebook Recaller v2.0 (Hotkey Edition)
+# Runebook Recaller v2.7 (Hotkey Edition)
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -12,20 +12,46 @@
 #   3. Pick the rune slot (1-16)
 #   4. Click [C] in title bar to configure hotkeys
 #
+# Hotkey Binding:
+#   1. Click [C] to open hotkey config panel
+#   2. Click the button next to a destination (turns PURPLE)
+#   3. Press any key to bind it (or ESC to cancel)
+#   4. Button shows your bound key and turns green
+#
 # Features:
 #   - Collapsible interface (click [-] to minimize, [+] to expand)
 #   - 4 quick-access destination slots
-#   - Hotkey support (default F1-F4)
-#   - Click-to-bind hotkey configuration
+#   - Dynamic hotkey binding (any key, even modifiers like CTRL+F1)
+#   - Click-to-capture hotkey system (purple = listening)
+#   - Visual feedback (green = configured, gray = not configured)
 #   - Works with any runebook
 #   - Remembers settings between sessions
-#   - Unified UI design matching other utility scripts
+#   - Unified UI design (180px width, semantic color coding)
+#
+# v2.7 Changes:
+#   - Dynamic window width: 155px normal mode, 190px config mode
+#   - Buttons fill space in normal mode, window expands for SET buttons
+#   - SET button width increased to 36px (no truncation)
+#
+# v2.6 Changes:
+#   - Reverted to working button pattern (dimensions in Create, SetPos for position)
+#   - Fixed all buttons that broke in v2.5
+#   - Fixed gump position access (back to GetX()/GetY() methods, not properties)
+#   - Fixed text input SetText() method calls
+#
+# v2.4 Changes:
+#   - Fixed hotkey capture system (now uses proven pattern)
+#   - Added ESC to cancel hotkey capture
+#   - Unified button colors (green = ready, gray = not configured)
+#   - Non-blocking hotkey registration
+#   - Added hotkey display on destination buttons
+#   - SET buttons only visible in config mode
 #
 # ============================================================
 import API
 import time
 
-__version__ = "2.0"
+__version__ = "2.7"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
@@ -36,11 +62,18 @@ USE_OBJECT_DELAY = 0.5     # Delay after using runebook before waiting for gump
 GUMP_READY_DELAY = 0.3     # Delay after gump appears before clicking button
 
 # ============ GUI DIMENSIONS ============
-WINDOW_WIDTH = 140
+WINDOW_WIDTH_NORMAL = 155  # Normal mode (no SET buttons): 5px + 147px button + 3px margin
+WINDOW_WIDTH_CONFIG = 190  # Config mode (with SET buttons): 5px + 147px + 2px + 36px SET
 COLLAPSED_HEIGHT = 24
 NORMAL_HEIGHT = 145
 SETUP_HEIGHT = 215
 CONFIG_HEIGHT = 265  # Normal height + config panel (120px)
+
+# Button widths (Note: Legion API doesn't support resizing buttons after creation)
+# Layout: 5px margin + 147px button + 2px gap + 36px SET = 190px total
+BTN_WIDTH = 147        # Destination button width (wider for less empty space in normal mode)
+SET_BTN_WIDTH = 36     # SET button width (wider so [SET] isn't truncated)
+SET_BTN_X = 154        # 5 + 147 + 2
 
 # ============ BUTTON FORMULA ============
 # Your server: Button ID = 49 + slot number
@@ -56,8 +89,7 @@ last_known_x = 100
 last_known_y = 100
 last_position_check = 0
 show_config = False  # Hotkey config panel visibility
-capturing_for = None  # Which destination is capturing a hotkey
-registered_hotkeys = []  # Track registered hotkeys
+capturing_for = None  # Which destination is capturing a hotkey (Home, Bank, Custom1, Custom2, or None)
 
 destinations = {
     "Home": {"runebook": 0, "slot": 0, "name": "Home", "hotkey": "F1"},
@@ -66,96 +98,93 @@ destinations = {
     "Custom2": {"runebook": 0, "slot": 0, "name": "Custom2", "hotkey": "F4"},
 }
 
+# ============ ALL POSSIBLE KEYS ============
+# Register all these keys to capture any press
+ALL_KEYS = [
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
+    "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
+    "TAB", "SPACE", "ENTER", "ESC", "PAUSE", "BACKSPACE",
+    "HOME", "END", "PAGEUP", "PAGEDOWN", "INSERT", "DELETE",
+    "LEFT", "RIGHT", "UP", "DOWN",
+    "MULTIPLY", "ADD", "SUBTRACT", "DIVIDE", "DECIMAL",
+]
+
 # ============ HOTKEY MANAGEMENT ============
-def register_hotkeys():
-    """Register all destination hotkeys"""
-    global registered_hotkeys
+def make_key_handler(key_name):
+    """Create a callback for a specific key - handles both capture and execution"""
+    def handler():
+        global capturing_for
 
-    # Unregister old hotkeys first
-    for hk in registered_hotkeys:
-        try:
-            API.UnregisterHotkey(hk)
-        except:
-            pass
-    registered_hotkeys = []
+        # If we're in capture mode
+        if capturing_for is not None:
+            # ESC cancels capture
+            if key_name == "ESC":
+                API.SysMsg("Hotkey capture cancelled", 90)
+                capturing_for = None
+                update_config_buttons()
+                return
 
-    # Register new hotkeys
-    for key, dest in destinations.items():
-        hotkey = dest.get("hotkey", "")
-        if hotkey:
-            try:
-                if key == "Home":
-                    API.OnHotKey(hotkey, recall_home)
-                elif key == "Bank":
-                    API.OnHotKey(hotkey, recall_bank)
-                elif key == "Custom1":
-                    API.OnHotKey(hotkey, recall_custom1)
-                elif key == "Custom2":
-                    API.OnHotKey(hotkey, recall_custom2)
-                registered_hotkeys.append(hotkey)
-            except Exception as e:
-                API.SysMsg("Failed to bind " + hotkey + ": " + str(e), 32)
+            # Assign this key to the destination
+            destinations[capturing_for]["hotkey"] = key_name
+            save_destinations()
+            update_config_buttons()
+            update_button_labels()  # Update destination buttons to show new hotkey
 
-def start_hotkey_capture(dest_key):
-    """Start capturing a hotkey for a destination"""
+            API.SysMsg(capturing_for + " bound to: " + key_name, 68)
+            capturing_for = None
+            return
+
+        # Not capturing - execute recall if this key is bound to a destination
+        for dest_key, dest in destinations.items():
+            if dest.get("hotkey", "") == key_name:
+                do_recall(dest_key)
+                return
+
+    return handler
+
+def start_capture_home():
+    """Start listening for a key to bind to Home"""
     global capturing_for
-    capturing_for = dest_key
+    capturing_for = "Home"
+    homeHkBtn.SetBackgroundHue(38)  # Purple = listening
+    homeHkBtn.SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Home...", 38)
 
-    # Update button text to show it's waiting
-    if dest_key == "Home":
-        homeHkBtn.SetText("[...]")
-        homeHkBtn.SetBackgroundHue(43)
-    elif dest_key == "Bank":
-        bankHkBtn.SetText("[...]")
-        bankHkBtn.SetBackgroundHue(43)
-    elif dest_key == "Custom1":
-        custom1HkBtn.SetText("[...]")
-        custom1HkBtn.SetBackgroundHue(43)
-    elif dest_key == "Custom2":
-        custom2HkBtn.SetText("[...]")
-        custom2HkBtn.SetBackgroundHue(43)
-
-    API.SysMsg("Press a key to bind to " + dest_key + "...", 68)
-
-def capture_hotkey(dest_key):
-    """Capture a hotkey press for a destination"""
+def start_capture_bank():
+    """Start listening for a key to bind to Bank"""
     global capturing_for
+    capturing_for = "Bank"
+    bankHkBtn.SetBackgroundHue(38)  # Purple = listening
+    bankHkBtn.SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Bank...", 38)
 
-    API.SysMsg("Press any key (or ESC to cancel)...", 53)
+def start_capture_custom1():
+    """Start listening for a key to bind to Custom1"""
+    global capturing_for
+    capturing_for = "Custom1"
+    custom1HkBtn.SetBackgroundHue(38)  # Purple = listening
+    custom1HkBtn.SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Custom1...", 38)
 
-    # Request a hotkey press (30 second timeout)
-    hotkey = API.WaitForHotkey(timeout=30)
+def start_capture_custom2():
+    """Start listening for a key to bind to Custom2"""
+    global capturing_for
+    capturing_for = "Custom2"
+    custom2HkBtn.SetBackgroundHue(38)  # Purple = listening
+    custom2HkBtn.SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Custom2...", 38)
 
-    if not hotkey or hotkey == "ESC":
-        API.SysMsg("Cancelled", 43)
+def cancel_capture():
+    """Cancel hotkey capture mode"""
+    global capturing_for
+    if capturing_for is not None:
+        API.SysMsg("Hotkey capture cancelled", 90)
         capturing_for = None
         update_config_buttons()
-        return
-
-    # Save the hotkey
-    destinations[dest_key]["hotkey"] = hotkey
-    save_destinations()
-
-    # Re-register hotkeys
-    register_hotkeys()
-
-    # Update button
-    update_config_buttons()
-
-    API.SysMsg(dest_key + " hotkey set to " + hotkey, 68)
-    capturing_for = None
-
-def capture_home_hotkey():
-    capture_hotkey("Home")
-
-def capture_bank_hotkey():
-    capture_hotkey("Bank")
-
-def capture_custom1_hotkey():
-    capture_hotkey("Custom1")
-
-def capture_custom2_hotkey():
-    capture_hotkey("Custom2")
 
 # ============ PERSISTENCE ============
 def save_destinations():
@@ -191,40 +220,65 @@ def load_destinations():
     update_config_buttons()
 
 def update_button_labels():
-    """Update button labels based on saved destinations"""
-    for key, dest in destinations.items():
-        if dest["slot"] > 0:
-            label = dest["name"] + " [" + str(dest["slot"]) + "]"
-        else:
-            label = key + " [---]"
+    """Update button labels and hues based on saved destinations"""
+    try:
+        for key, dest in destinations.items():
+            hotkey = dest.get("hotkey", "")
 
-        if key == "Home":
-            homeBtn.SetText(label[:11])
-        elif key == "Bank":
-            bankBtn.SetText(label[:11])
-        elif key == "Custom1":
-            custom1Btn.SetText(label[:11])
-        elif key == "Custom2":
-            custom2Btn.SetText(label[:11])
+            if dest["slot"] > 0:
+                label = dest["name"] + " [" + str(dest["slot"]) + "]"
+                # Add hotkey if configured
+                if hotkey:
+                    label += " (" + hotkey + ")"
+                hue = 68  # Green = configured and ready
+            else:
+                label = key + " [---]"
+                # Add hotkey even if slot not configured
+                if hotkey:
+                    label += " (" + hotkey + ")"
+                hue = 90  # Gray = not configured
+
+            if key == "Home":
+                homeBtn.SetText(label)
+                homeBtn.SetBackgroundHue(hue)
+            elif key == "Bank":
+                bankBtn.SetText(label)
+                bankBtn.SetBackgroundHue(hue)
+            elif key == "Custom1":
+                custom1Btn.SetText(label)
+                custom1Btn.SetBackgroundHue(hue)
+            elif key == "Custom2":
+                custom2Btn.SetText(label)
+                custom2Btn.SetBackgroundHue(hue)
+    except Exception as e:
+        API.SysMsg("Error updating button labels: " + str(e), 32)
 
 def update_config_buttons():
-    """Update hotkey config button labels"""
-    for key, dest in destinations.items():
-        hotkey = dest.get("hotkey", "???")
-        label = "[" + hotkey + "]"
+    """Update hotkey config button labels and hues"""
+    try:
+        for key, dest in destinations.items():
+            hotkey = dest.get("hotkey", "")
+            if hotkey:
+                label = "[" + hotkey + "]"
+                hue = 68  # Green = hotkey bound
+            else:
+                label = "[---]"
+                hue = 90  # Gray = no hotkey
 
-        if key == "Home":
-            homeHkBtn.SetText(label)
-            homeHkBtn.SetBackgroundHue(43)
-        elif key == "Bank":
-            bankHkBtn.SetText(label)
-            bankHkBtn.SetBackgroundHue(43)
-        elif key == "Custom1":
-            custom1HkBtn.SetText(label)
-            custom1HkBtn.SetBackgroundHue(43)
-        elif key == "Custom2":
-            custom2HkBtn.SetText(label)
-            custom2HkBtn.SetBackgroundHue(43)
+            if key == "Home":
+                homeHkBtn.SetText(label)
+                homeHkBtn.SetBackgroundHue(hue)
+            elif key == "Bank":
+                bankHkBtn.SetText(label)
+                bankHkBtn.SetBackgroundHue(hue)
+            elif key == "Custom1":
+                custom1HkBtn.SetText(label)
+                custom1HkBtn.SetBackgroundHue(hue)
+            elif key == "Custom2":
+                custom2HkBtn.SetText(label)
+                custom2HkBtn.SetBackgroundHue(hue)
+    except Exception as e:
+        API.SysMsg("Error updating config buttons: " + str(e), 32)
 
 # ============ EXPAND/COLLAPSE ============
 def toggle_expand():
@@ -243,27 +297,50 @@ def expand_window():
     """Show all controls and resize window"""
     expandBtn.SetText("[-]")
 
-    # Show all destination buttons
+    # Show destination buttons
     homeBtn.IsVisible = True
-    homeSetBtn.IsVisible = True
     bankBtn.IsVisible = True
-    bankSetBtn.IsVisible = True
     custom1Btn.IsVisible = True
-    custom1SetBtn.IsVisible = True
     custom2Btn.IsVisible = True
-    custom2SetBtn.IsVisible = True
 
     # Resize gump and background
     x = gump.GetX()
     y = gump.GetY()
 
-    # Choose height based on active panels
+    # Choose height and width based on active panels
     height = NORMAL_HEIGHT
+    width = WINDOW_WIDTH_NORMAL
     if show_config:
         height = CONFIG_HEIGHT
+        width = WINDOW_WIDTH_CONFIG
+        # Position buttons for wider window
+        configBtn.SetPos(140, 3)
+        expandBtn.SetPos(165, 3)
+    else:
+        # Position buttons for narrower window
+        configBtn.SetPos(105, 3)
+        expandBtn.SetPos(130, 3)
 
-    gump.SetRect(x, y, WINDOW_WIDTH, height)
-    bg.SetRect(0, 0, WINDOW_WIDTH, height)
+    gump.SetRect(x, y, width, height)
+    bg.SetRect(0, 0, width, height)
+
+    # Restore config panel if it was showing
+    if show_config:
+        configBg.IsVisible = True
+        homeHkLabel.IsVisible = True
+        homeHkBtn.IsVisible = True
+        bankHkLabel.IsVisible = True
+        bankHkBtn.IsVisible = True
+        custom1HkLabel.IsVisible = True
+        custom1HkBtn.IsVisible = True
+        custom2HkLabel.IsVisible = True
+        custom2HkBtn.IsVisible = True
+        configDoneBtn.IsVisible = True
+        configHelpLabel.IsVisible = True
+        homeSetBtn.IsVisible = True
+        bankSetBtn.IsVisible = True
+        custom1SetBtn.IsVisible = True
+        custom2SetBtn.IsVisible = True
 
 def collapse_window():
     """Hide all controls and shrink window"""
@@ -279,15 +356,37 @@ def collapse_window():
     custom2Btn.IsVisible = False
     custom2SetBtn.IsVisible = False
 
-    # Also hide setup and config panels if showing
+    # Hide setup panel
     hide_setup_panel()
-    hide_config_panel()
 
-    # Resize gump and background
+    # Hide config panel controls visually (but preserve show_config state)
+    configBg.IsVisible = False
+    homeHkLabel.IsVisible = False
+    homeHkBtn.IsVisible = False
+    bankHkLabel.IsVisible = False
+    bankHkBtn.IsVisible = False
+    custom1HkLabel.IsVisible = False
+    custom1HkBtn.IsVisible = False
+    custom2HkLabel.IsVisible = False
+    custom2HkBtn.IsVisible = False
+    configDoneBtn.IsVisible = False
+    configHelpLabel.IsVisible = False
+
+    # Resize gump and background (use config width if config was active)
     x = gump.GetX()
     y = gump.GetY()
-    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    width = WINDOW_WIDTH_CONFIG if show_config else WINDOW_WIDTH_NORMAL
+
+    # Position buttons based on width
+    if show_config:
+        configBtn.SetPos(140, 3)
+        expandBtn.SetPos(165, 3)
+    else:
+        configBtn.SetPos(105, 3)
+        expandBtn.SetPos(130, 3)
+
+    gump.SetRect(x, y, width, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, width, COLLAPSED_HEIGHT)
 
 def save_expanded_state():
     """Save expanded state to persistence"""
@@ -357,14 +456,24 @@ def show_config_panel():
     configDoneBtn.IsVisible = True
     configHelpLabel.IsVisible = True
 
+    # Show SET buttons in config mode
+    homeSetBtn.IsVisible = True
+    bankSetBtn.IsVisible = True
+    custom1SetBtn.IsVisible = True
+    custom2SetBtn.IsVisible = True
+
     # Update button text
     configBtn.SetText("[C]")
     configBtn.SetBackgroundHue(68)
 
-    # Expand window
+    # Reposition title bar buttons for wider window
+    configBtn.SetPos(140, 3)
+    expandBtn.SetPos(165, 3)
+
+    # Expand window to wider config width
     if is_expanded:
-        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, CONFIG_HEIGHT)
-        bg.SetRect(0, 0, WINDOW_WIDTH, CONFIG_HEIGHT)
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_CONFIG, CONFIG_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_CONFIG, CONFIG_HEIGHT)
 
 def hide_config_panel():
     """Hide the hotkey config panel"""
@@ -385,14 +494,24 @@ def hide_config_panel():
     configDoneBtn.IsVisible = False
     configHelpLabel.IsVisible = False
 
+    # Hide SET buttons when not in config mode
+    homeSetBtn.IsVisible = False
+    bankSetBtn.IsVisible = False
+    custom1SetBtn.IsVisible = False
+    custom2SetBtn.IsVisible = False
+
     # Update button text
     configBtn.SetText("[C]")
     configBtn.SetBackgroundHue(90)
 
-    # Shrink window back to normal (only if expanded)
+    # Reposition title bar buttons for narrower window
+    configBtn.SetPos(105, 3)
+    expandBtn.SetPos(130, 3)
+
+    # Shrink window back to normal width (only if expanded)
     if is_expanded:
-        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, NORMAL_HEIGHT)
-        bg.SetRect(0, 0, WINDOW_WIDTH, NORMAL_HEIGHT)
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
 
 # ============ RECALL FUNCTION ============
 def do_recall(dest_key):
@@ -450,7 +569,7 @@ def setup_destination(dest_key):
     API.SysMsg("=== Setup " + dest_key + " ===", 68)
     API.SysMsg("Target your runebook...", 53)
 
-    target = API.RequestTarget(timeout=30)
+    target = API.RequestTarget(timeout=15)
     if not target:
         API.SysMsg("Cancelled", 32)
         hide_setup_panel()
@@ -469,8 +588,8 @@ def setup_destination(dest_key):
 
     # Show setup panel and set defaults
     show_setup_panel()
-    slotInput.Text = "1"
-    nameInput.Text = dest_key
+    slotInput.SetText("1")
+    nameInput.SetText(dest_key)
     statusLabel.SetText(dest_key + ": Enter slot, click CONFIRM")
 
     API.SysMsg("Runebook saved! Enter slot (1-16) and click CONFIRM", 68)
@@ -543,9 +662,9 @@ def show_setup_panel():
     confirmBtn.IsVisible = True
     cancelBtn.IsVisible = True
     statusLabel.IsVisible = True
-    # Expand gump
-    gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, SETUP_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, SETUP_HEIGHT)
+    # Expand gump (use normal width for setup)
+    gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_NORMAL, SETUP_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, SETUP_HEIGHT)
 
 def hide_setup_panel():
     """Hide the setup controls and shrink gump"""
@@ -559,8 +678,8 @@ def hide_setup_panel():
     statusLabel.IsVisible = False
     # Shrink gump back to normal (only if expanded and config not showing)
     if is_expanded and not show_config:
-        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH, NORMAL_HEIGHT)
-        bg.SetRect(0, 0, WINDOW_WIDTH, NORMAL_HEIGHT)
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
 
 def cancel_setup():
     """Cancel current setup"""
@@ -612,11 +731,6 @@ def recall_custom2():
     do_recall("Custom2")
 
 # ============ CLEANUP ============
-def stop_script():
-    save_window_position()
-    gump.Dispose()
-    API.Stop()
-
 def onClosed():
     """Handle window close event"""
     save_window_position()
@@ -631,11 +745,12 @@ gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
-gump.SetRect(x, y, WINDOW_WIDTH, initial_height)
+initial_width = WINDOW_WIDTH_NORMAL  # Start with normal width (no config panel)
+gump.SetRect(x, y, initial_width, initial_height)
 
 # Background
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
+bg.SetRect(0, 0, initial_width, initial_height)
 gump.Add(bg)
 
 # Title bar
@@ -645,83 +760,81 @@ gump.Add(title)
 
 # Config button [C] - next to expand button
 configBtn = API.Gumps.CreateSimpleButton("[C]", 20, 18)
-configBtn.SetPos(90, 3)
+configBtn.SetPos(105, 3)  # Position for 155px width
 configBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(configBtn, toggle_config)
 gump.Add(configBtn)
 
 # Expand/collapse button
 expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
-expandBtn.SetPos(115, 3)
+expandBtn.SetPos(130, 3)  # Position for 155px width
 expandBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
 # === DESTINATION BUTTONS ===
 y = 26
-btnW = 90
-setW = 35
 
-# Home
-homeBtn = API.Gumps.CreateSimpleButton("Home [---]", btnW, 22)
+# Home (start with full width, config is hidden initially)
+homeBtn = API.Gumps.CreateSimpleButton("Home [---]", BTN_WIDTH, 22)
 homeBtn.SetPos(5, y)
-homeBtn.SetBackgroundHue(68)
+homeBtn.SetBackgroundHue(90)  # Gray = not configured (will update on load)
 homeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(homeBtn, recall_home)
 gump.Add(homeBtn)
 
-homeSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-homeSetBtn.SetPos(100, y)
+homeSetBtn = API.Gumps.CreateSimpleButton("[SET]", SET_BTN_WIDTH, 22)
+homeSetBtn.SetPos(SET_BTN_X, y)
 homeSetBtn.SetBackgroundHue(53)
-homeSetBtn.IsVisible = is_expanded
+homeSetBtn.IsVisible = False  # Only show in config mode
 API.Gumps.AddControlOnClick(homeSetBtn, setup_home)
 gump.Add(homeSetBtn)
 
 # Bank
 y += 26
-bankBtn = API.Gumps.CreateSimpleButton("Bank [---]", btnW, 22)
+bankBtn = API.Gumps.CreateSimpleButton("Bank [---]", BTN_WIDTH, 22)
 bankBtn.SetPos(5, y)
-bankBtn.SetBackgroundHue(88)
+bankBtn.SetBackgroundHue(90)  # Gray = not configured (will update on load)
 bankBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankBtn, recall_bank)
 gump.Add(bankBtn)
 
-bankSetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-bankSetBtn.SetPos(100, y)
+bankSetBtn = API.Gumps.CreateSimpleButton("[SET]", SET_BTN_WIDTH, 22)
+bankSetBtn.SetPos(SET_BTN_X, y)
 bankSetBtn.SetBackgroundHue(53)
-bankSetBtn.IsVisible = is_expanded
+bankSetBtn.IsVisible = False  # Only show in config mode
 API.Gumps.AddControlOnClick(bankSetBtn, setup_bank)
 gump.Add(bankSetBtn)
 
 # Custom1
 y += 26
-custom1Btn = API.Gumps.CreateSimpleButton("Custom1 [---]", btnW, 22)
+custom1Btn = API.Gumps.CreateSimpleButton("Custom1 [---]", BTN_WIDTH, 22)
 custom1Btn.SetPos(5, y)
-custom1Btn.SetBackgroundHue(43)
+custom1Btn.SetBackgroundHue(90)  # Gray = not configured (will update on load)
 custom1Btn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom1Btn, recall_custom1)
 gump.Add(custom1Btn)
 
-custom1SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom1SetBtn.SetPos(100, y)
+custom1SetBtn = API.Gumps.CreateSimpleButton("[SET]", SET_BTN_WIDTH, 22)
+custom1SetBtn.SetPos(SET_BTN_X, y)
 custom1SetBtn.SetBackgroundHue(53)
-custom1SetBtn.IsVisible = is_expanded
+custom1SetBtn.IsVisible = False  # Only show in config mode
 API.Gumps.AddControlOnClick(custom1SetBtn, setup_custom1)
 gump.Add(custom1SetBtn)
 
 # Custom2
 y += 26
-custom2Btn = API.Gumps.CreateSimpleButton("Custom2 [---]", btnW, 22)
+custom2Btn = API.Gumps.CreateSimpleButton("Custom2 [---]", BTN_WIDTH, 22)
 custom2Btn.SetPos(5, y)
-custom2Btn.SetBackgroundHue(63)
+custom2Btn.SetBackgroundHue(90)  # Gray = not configured (will update on load)
 custom2Btn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(custom2Btn, recall_custom2)
 gump.Add(custom2Btn)
 
-custom2SetBtn = API.Gumps.CreateSimpleButton("[SET]", setW, 22)
-custom2SetBtn.SetPos(100, y)
+custom2SetBtn = API.Gumps.CreateSimpleButton("[SET]", SET_BTN_WIDTH, 22)
+custom2SetBtn.SetPos(SET_BTN_X, y)
 custom2SetBtn.SetBackgroundHue(53)
-custom2SetBtn.IsVisible = is_expanded
+custom2SetBtn.IsVisible = False  # Only show in config mode
 API.Gumps.AddControlOnClick(custom2SetBtn, setup_custom2)
 gump.Add(custom2SetBtn)
 
@@ -730,7 +843,7 @@ y += 30
 
 # Setup background
 setupBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
-setupBg.SetRect(0, y - 3, WINDOW_WIDTH, 70)
+setupBg.SetRect(0, y - 3, WINDOW_WIDTH_NORMAL, 70)
 setupBg.IsVisible = False
 gump.Add(setupBg)
 
@@ -741,7 +854,7 @@ slotLabel.IsVisible = False
 gump.Add(slotLabel)
 
 slotInput = API.Gumps.CreateGumpTextBox("1", 28, 20)
-slotInput.SetPos(30, y)
+slotInput.SetRect(30, y, 28, 20)
 slotInput.IsVisible = False
 gump.Add(slotInput)
 
@@ -752,7 +865,7 @@ nameLabel.IsVisible = False
 gump.Add(nameLabel)
 
 nameInput = API.Gumps.CreateGumpTextBox("", 48, 20)
-nameInput.SetPos(87, y)
+nameInput.SetRect(87, y, 48, 20)
 nameInput.IsVisible = False
 gump.Add(nameInput)
 
@@ -786,7 +899,7 @@ configY = 130
 
 # Config background
 configBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
-configBg.SetRect(0, configY, WINDOW_WIDTH, 120)
+configBg.SetRect(0, configY, WINDOW_WIDTH_CONFIG, 120)
 configBg.IsVisible = False
 gump.Add(configBg)
 
@@ -806,9 +919,9 @@ gump.Add(homeHkLabel)
 
 homeHkBtn = API.Gumps.CreateSimpleButton("[F1]", 95, 20)
 homeHkBtn.SetPos(40, configY)
-homeHkBtn.SetBackgroundHue(43)
+homeHkBtn.SetBackgroundHue(90)  # Will update on load
 homeHkBtn.IsVisible = False
-API.Gumps.AddControlOnClick(homeHkBtn, capture_home_hotkey)
+API.Gumps.AddControlOnClick(homeHkBtn, start_capture_home)
 gump.Add(homeHkBtn)
 
 # Bank hotkey
@@ -820,9 +933,9 @@ gump.Add(bankHkLabel)
 
 bankHkBtn = API.Gumps.CreateSimpleButton("[F2]", 95, 20)
 bankHkBtn.SetPos(40, configY)
-bankHkBtn.SetBackgroundHue(43)
+bankHkBtn.SetBackgroundHue(90)  # Will update on load
 bankHkBtn.IsVisible = False
-API.Gumps.AddControlOnClick(bankHkBtn, capture_bank_hotkey)
+API.Gumps.AddControlOnClick(bankHkBtn, start_capture_bank)
 gump.Add(bankHkBtn)
 
 # Custom1 hotkey
@@ -834,9 +947,9 @@ gump.Add(custom1HkLabel)
 
 custom1HkBtn = API.Gumps.CreateSimpleButton("[F3]", 95, 20)
 custom1HkBtn.SetPos(40, configY)
-custom1HkBtn.SetBackgroundHue(43)
+custom1HkBtn.SetBackgroundHue(90)  # Will update on load
 custom1HkBtn.IsVisible = False
-API.Gumps.AddControlOnClick(custom1HkBtn, capture_custom1_hotkey)
+API.Gumps.AddControlOnClick(custom1HkBtn, start_capture_custom1)
 gump.Add(custom1HkBtn)
 
 # Custom2 hotkey
@@ -848,9 +961,9 @@ gump.Add(custom2HkLabel)
 
 custom2HkBtn = API.Gumps.CreateSimpleButton("[F4]", 95, 20)
 custom2HkBtn.SetPos(40, configY)
-custom2HkBtn.SetBackgroundHue(43)
+custom2HkBtn.SetBackgroundHue(90)  # Will update on load
 custom2HkBtn.IsVisible = False
-API.Gumps.AddControlOnClick(custom2HkBtn, capture_custom2_hotkey)
+API.Gumps.AddControlOnClick(custom2HkBtn, start_capture_custom2)
 gump.Add(custom2HkBtn)
 
 # Done button
@@ -865,9 +978,26 @@ gump.Add(configDoneBtn)
 API.Gumps.AddGump(gump)
 
 # ============ INITIALIZATION ============
-load_destinations()
-register_hotkeys()
-API.SysMsg("=== Runebook Recall v2.0 ===", 68)
+try:
+    load_destinations()
+except Exception as e:
+    API.SysMsg("Error loading destinations: " + str(e), 32)
+    API.SysMsg("Using default settings", 43)
+
+# Register ALL possible keys with handler system
+API.SysMsg("=== Runebook Recall v" + __version__ + " ===", 68)
+API.SysMsg("Registering key handlers...", 53)
+
+registered_count = 0
+for key in ALL_KEYS:
+    try:
+        API.OnHotKey(key, make_key_handler(key))
+        registered_count += 1
+    except Exception as e:
+        # Skip keys that don't work
+        pass
+
+API.SysMsg("Registered " + str(registered_count) + " keys", 68)
 API.SysMsg("Click destination to recall, [C] for hotkeys", 53)
 
 # ============ MAIN LOOP ============
@@ -881,8 +1011,12 @@ while not API.StopRequested:
             if current_time - last_position_check > 2.0:
                 last_position_check = current_time
                 try:
-                    last_known_x = gump.GetX()
-                    last_known_y = gump.GetY()
+                    # Get both coordinates atomically to avoid race condition
+                    x = gump.GetX()
+                    y = gump.GetY()
+                    # Only update if both succeed
+                    last_known_x = x
+                    last_known_y = y
                 except:
                     pass  # Silently ignore if gump is disposed
 

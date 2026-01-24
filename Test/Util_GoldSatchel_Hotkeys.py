@@ -1,27 +1,29 @@
 # ============================================================
-# Gold Satchel Auto-Mover v2.2 (with Hotkeys)
+# Gold Manager v3.1 (UI_STANDARDS)
 # by Coryigon for UO Unchained
 # ============================================================
 #
 # Automatically moves gold from your backpack to a designated
-# Gold Satchel container, and banks satchel gold when needed.
+# container, and banks container gold when needed.
 #
-# NEW: Customizable hotkeys for Bank and Make Check actions!
+# NEW v3.1: Fixes and improvements!
+#   - Fixed hotkey button truncation (78px wide buttons)
+#   - Increased window width (165px normal, 195px config)
+#   - Changed [<] to [M] for income mode toggle
+#   - Renamed "Gold Satchel" to "Gold Manager"
+#   - UI text: "Satchel" -> "Container" (works with any bag)
 #
 # Features:
-#   - Customizable hotkeys - click yellow [K] button to rebind
-#   - Compact UI - hotkey buttons show current binding (22px)
-#   - BANK GOLD button with hotkey (default: B)
-#   - MAKE CHECK button with hotkey (default: C)
-#   - Yellow = configurable | Purple = listening | ESC = cancel
-#   - Duplicate key warning when binding same key twice
-#   - All original features from v1.8
+#   - Click hotkey buttons to rebind keys
+#   - Purple = listening | Green = bound | ESC = cancel
+#   - Income tracking with [M] toggle (compact/full/detailed)
+#   - All original features preserved
 #
 # ============================================================
 import API
 import time
 
-__version__ = "2.4"
+__version__ = "3.1"
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
@@ -31,9 +33,15 @@ MOVE_PAUSE = 0.65
 DEBUG = False
 
 # ============ GUI DIMENSIONS ============
-WINDOW_WIDTH = 140
+WINDOW_WIDTH_NORMAL = 165   # Was 155, increased for wider hotkey buttons
+WINDOW_WIDTH_CONFIG = 195   # Was 190, proportional increase
 COLLAPSED_HEIGHT = 24
-EXPANDED_HEIGHT = 200  # Taller for income tracking
+NORMAL_HEIGHT = 118
+CONFIG_HEIGHT = 218  # Normal height + config panel (100px)
+
+# Button dimensions
+HOTKEY_BTN_WIDTH = 78       # Was 70, increased to prevent truncation
+INCOME_BTN_WIDTH = 22       # [M] mode button
 
 # ============ PERSISTENCE KEYS ============
 SATCHEL_KEY = "GoldSatchel_Serial"
@@ -64,6 +72,7 @@ ALL_KEYS = [
 satchel_serial = 0
 enabled = True
 is_expanded = True
+show_config = False  # Config panel visibility
 session_gold = 0
 last_scan_time = 0
 last_error_time = 0
@@ -83,19 +92,18 @@ gump = None
 bg = None
 statusLabel = None
 satchelLabel = None
-incomeLabel = None  # NEW - income tracking display
+incomeLabel = None
 sessionLabel = None
-errorLabel = None
 enableBtn = None
-bankBtn = None
-checkBtn = None
 retargetBtn = None
 resetBtn = None
+configBtn = None  # NEW - toggle config panel
 expandBtn = None
-infoLabel = None
-bankHotkeyBtn = None
-checkHotkeyBtn = None
-incomeModeBtn = None  # NEW - toggle income display mode
+bankHotkeyBtn = None  # NEW - integrated hotkey button
+checkHotkeyBtn = None  # NEW - integrated hotkey button
+incomeModeBtn = None
+configBg = None  # NEW - config panel background
+doneBtn = None  # NEW - close config panel
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -133,7 +141,7 @@ def get_gold_item():
         return None
 
 def get_satchel():
-    """Returns the satchel item if valid, None otherwise"""
+    """Returns the container item if valid, None otherwise"""
     if satchel_serial == 0:
         return None
 
@@ -229,16 +237,25 @@ def format_gold_compact(amount):
     if amount < 1000:
         return str(int(amount))
     elif amount < 10000:
-        # 1000-9999: show 1 decimal (1.2k, 9.8k)
-        return str(round(amount / 1000.0, 1)) + "k"
+        # 1000-9999: show 1 decimal, but strip .0
+        val = round(amount / 1000.0, 1)
+        if val == int(val):  # If it's a whole number like 2.0
+            return str(int(val)) + "k"
+        else:
+            return "{:.1f}".format(val) + "k"  # Force exactly 1 decimal place
     elif amount < 1000000:
         # 10000+: no decimals (12k, 123k)
         return str(int(amount / 1000)) + "k"
     else:
-        return str(round(amount / 1000000.0, 1)) + "m"
+        # Million+: show 1 decimal, but strip .0
+        val = round(amount / 1000000.0, 1)
+        if val == int(val):
+            return str(int(val)) + "m"
+        else:
+            return "{:.1f}".format(val) + "m"  # Force exactly 1 decimal place
 
 def move_gold_to_satchel():
-    """Move one gold pile from backpack to satchel"""
+    """Move one gold pile from backpack to container"""
     global last_error_time, last_error_msg
 
     if not enabled:
@@ -246,12 +263,12 @@ def move_gold_to_satchel():
         return
 
     if satchel_serial == 0:
-        set_error("No satchel set!")
+        set_error("No container set!")
         return
 
     satchel = get_satchel()
     if not satchel:
-        set_error("Satchel not found!")
+        set_error("Container not found!")
         return
 
     gold_item = get_gold_item()
@@ -266,14 +283,14 @@ def move_gold_to_satchel():
             debug_msg("Invalid gold amount: " + str(amount))
             return
 
-        debug_msg("Moving " + str(amount) + " gold (serial " + str(gold_serial) + ") to satchel " + str(satchel_serial))
+        debug_msg("Moving " + str(amount) + " gold (serial " + str(gold_serial) + ") to container " + str(satchel_serial))
 
         API.MoveItem(gold_serial, satchel_serial, amount, -1, -1)
         API.Pause(MOVE_PAUSE)
 
         check_item = get_gold_item()
         if check_item and check_item.Serial == gold_serial:
-            set_error("Move failed - satchel may be full")
+            set_error("Move failed - container may be full")
             return
 
         API.SysMsg("Moved " + str(amount) + " gold", 68)
@@ -284,7 +301,7 @@ def move_gold_to_satchel():
         debug_msg("Error moving gold: " + str(e))
 
 def make_check():
-    """Convert satchel gold to check: bank gold, cash checks, make new check"""
+    """Convert container gold to check: bank gold, cash checks, make new check"""
     global session_gold, last_error_time, last_error_msg
 
     try:
@@ -298,12 +315,12 @@ def make_check():
             return
 
         if satchel_serial == 0:
-            API.SysMsg("No satchel set!", 32)
+            API.SysMsg("No container set!", 32)
             return
 
         satchel = get_satchel()
         if not satchel:
-            API.SysMsg("Satchel not found!", 32)
+            API.SysMsg("Container not found!", 32)
             return
 
         API.SysMsg("Checking balance...", 68)
@@ -370,7 +387,7 @@ def make_check():
         debug_msg("Error in make_check: " + str(e))
 
 def move_satchel_to_bank():
-    """Move all gold from satchel to bank"""
+    """Move all gold from container to bank"""
     global session_gold, last_error_time, last_error_msg
 
     try:
@@ -384,17 +401,17 @@ def move_satchel_to_bank():
             return
 
         if satchel_serial == 0:
-            API.SysMsg("No satchel set!", 32)
+            API.SysMsg("No container set!", 32)
             return
 
         satchel = get_satchel()
         if not satchel:
-            API.SysMsg("Satchel not found!", 32)
+            API.SysMsg("Container not found!", 32)
             return
 
         items = API.ItemsInContainer(satchel_serial, False)
         if not items:
-            API.SysMsg("No items in satchel", 43)
+            API.SysMsg("No items in container", 43)
             return
 
         gold_moved = 0
@@ -413,10 +430,10 @@ def move_satchel_to_bank():
 
         if gold_moved > 0:
             session_gold += gold_moved
-            API.SysMsg("Banked " + format(gold_moved, ',') + " gold from satchel", 68)
+            API.SysMsg("Banked " + format(gold_moved, ',') + " gold from container", 68)
             update_display()
         else:
-            API.SysMsg("No gold found in satchel", 43)
+            API.SysMsg("No gold found in container", 43)
 
     except Exception as e:
         API.SysMsg("Error banking gold: " + str(e), 32)
@@ -446,12 +463,10 @@ def make_key_handler(key_name):
             # ESC cancels listening mode
             if key_name == "ESC":
                 if listening_for_action == "bank":
-                    bankHotkeyBtn.SetBackgroundHue(43)  # Yellow
-                    bankHotkeyBtn.SetText("[" + bank_hotkey + "]")
+                    update_hotkey_buttons()
                     API.SysMsg("Cancelled - kept " + bank_hotkey, 53)
                 elif listening_for_action == "check":
-                    checkHotkeyBtn.SetBackgroundHue(43)  # Yellow
-                    checkHotkeyBtn.SetText("[" + check_hotkey + "]")
+                    update_hotkey_buttons()
                     API.SysMsg("Cancelled - kept " + check_hotkey, 53)
                 listening_for_action = None
                 return
@@ -464,8 +479,6 @@ def make_key_handler(key_name):
                 bank_hotkey = key_name
                 API.SavePersistentVar(BANK_HOTKEY_KEY, bank_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Bank bound to: " + key_name, 68)
-                bankHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
-                bankHotkeyBtn.SetText("[" + key_name + "]")
             elif listening_for_action == "check":
                 # Warn if duplicate
                 if key_name == bank_hotkey:
@@ -473,9 +486,8 @@ def make_key_handler(key_name):
                 check_hotkey = key_name
                 API.SavePersistentVar(CHECK_HOTKEY_KEY, check_hotkey, API.PersistentVar.Char)
                 API.SysMsg("Make Check bound to: " + key_name, 68)
-                checkHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
-                checkHotkeyBtn.SetText("[" + key_name + "]")
 
+            update_hotkey_buttons()
             listening_for_action = None
             return
 
@@ -492,7 +504,7 @@ def start_capture_bank_hotkey():
     global listening_for_action
     listening_for_action = "bank"
     bankHotkeyBtn.SetBackgroundHue(38)  # Purple
-    bankHotkeyBtn.SetText("[?]")
+    bankHotkeyBtn.SetText("[Listening...]")
     API.SysMsg("Press key for Bank hotkey (ESC to cancel)...", 38)
 
 def start_capture_check_hotkey():
@@ -500,8 +512,81 @@ def start_capture_check_hotkey():
     global listening_for_action
     listening_for_action = "check"
     checkHotkeyBtn.SetBackgroundHue(38)  # Purple
-    checkHotkeyBtn.SetText("[?]")
-    API.SysMsg("Press key for Make Check hotkey (ESC to cancel)...", 38)
+    checkHotkeyBtn.SetText("[Listening...]")
+    API.SysMsg("Press key for Check hotkey (ESC to cancel)...", 38)
+
+def update_hotkey_buttons():
+    """Update hotkey button labels based on current bindings"""
+    bankHotkeyBtn.SetText("[BANK: " + bank_hotkey + "]")
+    bankHotkeyBtn.SetBackgroundHue(68)  # Green when bound
+
+    checkHotkeyBtn.SetText("[CHECK: " + check_hotkey + "]")
+    checkHotkeyBtn.SetBackgroundHue(68)  # Green when bound
+
+# ============ CONFIG PANEL ============
+def toggle_config():
+    """Toggle config panel visibility"""
+    global show_config
+    if show_config:
+        hide_config_panel()
+    else:
+        show_config_panel()
+
+def show_config_panel():
+    """Show config panel and expand window width"""
+    global show_config
+    show_config = True
+
+    # Show config elements
+    configBg.IsVisible = True
+    enableBtn.IsVisible = True
+    retargetBtn.IsVisible = True
+    resetBtn.IsVisible = True
+    doneBtn.IsVisible = True
+
+    # Update config button appearance
+    configBtn.SetBackgroundHue(68)  # Green when active
+
+    # Reposition title buttons for wider window
+    configBtn.SetPos(145, 3)
+    expandBtn.SetPos(170, 3)
+
+    # Expand window width (only if expanded)
+    if is_expanded:
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_CONFIG, CONFIG_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_CONFIG, CONFIG_HEIGHT)
+    else:
+        # Just resize width when collapsed
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_CONFIG, COLLAPSED_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_CONFIG, COLLAPSED_HEIGHT)
+
+def hide_config_panel():
+    """Hide config panel and shrink window width"""
+    global show_config
+    show_config = False
+
+    # Hide config elements
+    configBg.IsVisible = False
+    enableBtn.IsVisible = False
+    retargetBtn.IsVisible = False
+    resetBtn.IsVisible = False
+    doneBtn.IsVisible = False
+
+    # Update config button appearance
+    configBtn.SetBackgroundHue(90)  # Gray when inactive
+
+    # Reposition title buttons for narrower window
+    configBtn.SetPos(115, 3)
+    expandBtn.SetPos(140, 3)
+
+    # Shrink window width (only if expanded)
+    if is_expanded:
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, NORMAL_HEIGHT)
+    else:
+        # Just resize width when collapsed
+        gump.SetRect(gump.GetX(), gump.GetY(), WINDOW_WIDTH_NORMAL, COLLAPSED_HEIGHT)
+        bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, COLLAPSED_HEIGHT)
 
 # ============ EXPAND/COLLAPSE ============
 def toggle_expand():
@@ -518,48 +603,74 @@ def toggle_expand():
 def expand_window():
     expandBtn.SetText("[-]")
 
+    # Show main content elements
     statusLabel.IsVisible = True
     satchelLabel.IsVisible = True
     incomeLabel.IsVisible = True
     incomeModeBtn.IsVisible = True
     sessionLabel.IsVisible = True
-    errorLabel.IsVisible = True
-    enableBtn.IsVisible = True
-    retargetBtn.IsVisible = True
-    resetBtn.IsVisible = True
-    bankBtn.IsVisible = True
-    checkBtn.IsVisible = True
-    infoLabel.IsVisible = True
     bankHotkeyBtn.IsVisible = True
     checkHotkeyBtn.IsVisible = True
 
+    # Calculate dimensions based on config state
+    if show_config:
+        width = WINDOW_WIDTH_CONFIG
+        height = CONFIG_HEIGHT
+        # Show config elements
+        configBg.IsVisible = True
+        enableBtn.IsVisible = True
+        retargetBtn.IsVisible = True
+        resetBtn.IsVisible = True
+        doneBtn.IsVisible = True
+        # Position title buttons for wide window
+        configBtn.SetPos(145, 3)
+        expandBtn.SetPos(170, 3)
+    else:
+        width = WINDOW_WIDTH_NORMAL
+        height = NORMAL_HEIGHT
+        # Position title buttons for narrow window
+        configBtn.SetPos(115, 3)
+        expandBtn.SetPos(140, 3)
+
     x = gump.GetX()
     y = gump.GetY()
-    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    gump.SetRect(x, y, width, height)
+    bg.SetRect(0, 0, width, height)
 
 def collapse_window():
     expandBtn.SetText("[+]")
 
+    # Hide all main content
     statusLabel.IsVisible = False
     satchelLabel.IsVisible = False
     incomeLabel.IsVisible = False
     incomeModeBtn.IsVisible = False
     sessionLabel.IsVisible = False
-    errorLabel.IsVisible = False
-    enableBtn.IsVisible = False
-    retargetBtn.IsVisible = False
-    resetBtn.IsVisible = False
-    bankBtn.IsVisible = False
-    checkBtn.IsVisible = False
-    infoLabel.IsVisible = False
     bankHotkeyBtn.IsVisible = False
     checkHotkeyBtn.IsVisible = False
 
+    # Hide config elements
+    configBg.IsVisible = False
+    enableBtn.IsVisible = False
+    retargetBtn.IsVisible = False
+    resetBtn.IsVisible = False
+    doneBtn.IsVisible = False
+
+    # Calculate width based on config state
+    width = WINDOW_WIDTH_CONFIG if show_config else WINDOW_WIDTH_NORMAL
+
+    # Position title buttons based on width
+    if show_config:
+        configBtn.SetPos(145, 3)
+        expandBtn.SetPos(170, 3)
+    else:
+        configBtn.SetPos(115, 3)
+        expandBtn.SetPos(140, 3)
+
     x = gump.GetX()
     y = gump.GetY()
-    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    gump.SetRect(x, y, width, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, width, COLLAPSED_HEIGHT)
 
 def save_expanded_state():
     API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
@@ -575,12 +686,12 @@ def toggle_enabled():
     enabled = not enabled
     API.SavePersistentVar(ENABLED_KEY, str(enabled), API.PersistentVar.Char)
     update_display()
-    API.SysMsg("Gold Satchel: " + ("ENABLED" if enabled else "DISABLED"), 68 if enabled else 32)
+    API.SysMsg("Gold Manager: " + ("ENABLED" if enabled else "DISABLED"), 68 if enabled else 32)
 
 def retarget_satchel():
     global satchel_serial
 
-    API.SysMsg("Target your Gold Satchel container...", 68)
+    API.SysMsg("Target your gold container...", 68)
 
     if API.HasTarget():
         API.CancelTarget()
@@ -601,10 +712,10 @@ def retarget_satchel():
 
             satchel_serial = target
             API.SavePersistentVar(SATCHEL_KEY, str(satchel_serial), API.PersistentVar.Char)
-            debug_msg("Satchel serial set to: " + str(satchel_serial))
+            debug_msg("Container serial set to: " + str(satchel_serial))
             clear_error()
             update_display()
-            API.SysMsg("Gold Satchel set! Serial: 0x" + format(satchel_serial, 'X'), 68)
+            API.SysMsg("Gold container set! Serial: 0x" + format(satchel_serial, 'X'), 68)
         else:
             API.SysMsg("Targeting cancelled", 53)
     except Exception as e:
@@ -646,25 +757,25 @@ def update_display():
     try:
         if enabled:
             if satchel_serial == 0:
-                statusLabel.SetText("Status: ENABLED (no satchel)")
+                statusLabel.SetText("Status: ENABLED (no container)")
             else:
                 satchel = get_satchel()
                 if satchel:
                     statusLabel.SetText("Status: ACTIVE")
                 else:
-                    statusLabel.SetText("Status: ENABLED (satchel not found)")
+                    statusLabel.SetText("Status: ENABLED (container not found)")
         else:
             statusLabel.SetText("Status: DISABLED")
 
         debug_msg("update_display: satchel_serial = " + str(satchel_serial))
         if satchel_serial == 0:
-            satchelLabel.SetText("Satchel: [Not Set]")
+            satchelLabel.SetText("Container: [Not Set]")
         else:
             satchel = get_satchel()
             if satchel:
-                satchelLabel.SetText("Satchel: 0x" + format(satchel_serial, 'X') + " [OK]")
+                satchelLabel.SetText("Container: 0x" + format(satchel_serial, 'X') + " [OK]")
             else:
-                satchelLabel.SetText("Satchel: 0x" + format(satchel_serial, 'X') + " [NOT FOUND]")
+                satchelLabel.SetText("Container: 0x" + format(satchel_serial, 'X') + " [NOT FOUND]")
 
         # Update income display
         per_min, per_10min, per_hour = get_income_rates()
@@ -680,19 +791,8 @@ def update_display():
 
         sessionLabel.SetText("Banked: " + format(session_gold, ',') + " gold")
 
-        if last_error_msg:
-            errorLabel.SetText("Error: " + last_error_msg)
-        else:
-            errorLabel.SetText("")
-
         enableBtn.SetText("[" + ("ON" if enabled else "OFF") + "]")
         enableBtn.SetBackgroundHue(68 if enabled else 32)
-
-        bank_serial = API.Bank
-        if bank_serial and bank_serial > 0:
-            bankBtn.SetBackgroundHue(68)
-        else:
-            bankBtn.SetBackgroundHue(90)
 
     except Exception as e:
         API.SysMsg("Error updating display: " + str(e), 32)
@@ -736,129 +836,133 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
-initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+initial_width = WINDOW_WIDTH_NORMAL
+initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
 
 gump = API.Gumps.CreateGump()
-gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
+gump.SetRect(lastX, lastY, initial_width, initial_height)
 API.Gumps.AddControlOnDisposed(gump, on_closed)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
+bg.SetRect(0, 0, initial_width, initial_height)
 gump.Add(bg)
 
-titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Satchel", 16, "#ffaa00")
+# ============ TITLE BAR ============
+titleLabel = API.Gumps.CreateGumpTTFLabel("Gold Manager", 16, "#ffaa00")
 titleLabel.SetPos(5, 2)
 gump.Add(titleLabel)
 
+configBtn = API.Gumps.CreateSimpleButton("[C]", 20, 18)
+configBtn.SetPos(115, 3)  # For 165px width
+configBtn.SetBackgroundHue(90)  # Gray initially
+API.Gumps.AddControlOnClick(configBtn, toggle_config)
+gump.Add(configBtn)
+
 expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
-expandBtn.SetPos(115, 3)
+expandBtn.SetPos(140, 3)  # For 165px width
 expandBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
+# ============ MAIN CONTENT (always visible when expanded) ============
 leftMargin = 5
-btnW = 65
-btnH = 20
 y = 26
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 8, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 11, "#00ff00")
 statusLabel.SetPos(leftMargin, y)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
-y += 10
-satchelLabel = API.Gumps.CreateGumpTTFLabel("Satchel: [Not Set]", 8, "#ff6666")
+y += 13
+satchelLabel = API.Gumps.CreateGumpTTFLabel("Container: [Not Set]", 11, "#ff6666")
 satchelLabel.SetPos(leftMargin, y)
 satchelLabel.IsVisible = is_expanded
 gump.Add(satchelLabel)
 
-y += 12
+y += 14
 # Income display with mode toggle button
-incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 10, "#00ff88")
+incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 13, "#00ff88")
 incomeLabel.SetPos(leftMargin, y)
 incomeLabel.IsVisible = is_expanded
 gump.Add(incomeLabel)
 
-incomeModeBtn = API.Gumps.CreateSimpleButton("[<]", 16, 14)
-incomeModeBtn.SetPos(WINDOW_WIDTH - 20, y - 1)
+incomeModeBtn = API.Gumps.CreateSimpleButton("[M]", INCOME_BTN_WIDTH, 14)
+incomeModeBtn.SetPos(WINDOW_WIDTH_NORMAL - 24, y - 1)
 incomeModeBtn.SetBackgroundHue(66)
 incomeModeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(incomeModeBtn, toggle_income_mode)
 gump.Add(incomeModeBtn)
 
-y += 14
-sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 12, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH)
+y += 16
+sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 14, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 sessionLabel.SetPos(0, y)
 sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 y += 16
-errorLabel = API.Gumps.CreateGumpTTFLabel("", 7, "#ff3333")
-errorLabel.SetPos(leftMargin, y)
-errorLabel.IsVisible = is_expanded
-gump.Add(errorLabel)
-
-y += 14
-enableBtn = API.Gumps.CreateSimpleButton("[ON]", btnW, btnH)
-enableBtn.SetPos(leftMargin, y)
-enableBtn.SetBackgroundHue(68)
-enableBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(enableBtn, toggle_enabled)
-gump.Add(enableBtn)
-
-retargetBtn = API.Gumps.CreateSimpleButton("[TARGET]", btnW, btnH)
-retargetBtn.SetPos(leftMargin + 65, y)
-retargetBtn.SetBackgroundHue(66)
-retargetBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(retargetBtn, retarget_satchel)
-gump.Add(retargetBtn)
-
-y += 22
-resetBtn = API.Gumps.CreateSimpleButton("[RESET]", btnW, btnH)
-resetBtn.SetPos(leftMargin, y)
-resetBtn.SetBackgroundHue(53)
-resetBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(resetBtn, reset_session)
-gump.Add(resetBtn)
-
-# BANK button with hotkey button
-bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 43, btnH)
-bankBtn.SetPos(leftMargin + 65, y)
-bankBtn.SetBackgroundHue(90)
-bankBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(bankBtn, move_satchel_to_bank)
-gump.Add(bankBtn)
-
-bankHotkeyBtn = API.Gumps.CreateSimpleButton("[" + bank_hotkey + "]", 22, btnH)
-bankHotkeyBtn.SetPos(leftMargin + 65 + 45, y)
-bankHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
+# ============ INTEGRATED HOTKEY BUTTONS ============
+# Bank button with integrated hotkey
+bankHotkeyBtn = API.Gumps.CreateSimpleButton("[BANK: B]", HOTKEY_BTN_WIDTH, 24)
+bankHotkeyBtn.SetPos(leftMargin, y)
+bankHotkeyBtn.SetBackgroundHue(68)  # Green
 bankHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
 
-y += 22
-# MAKE CHECK button with hotkey button
-checkBtn = API.Gumps.CreateSimpleButton("[CHECK]", 108, btnH)
-checkBtn.SetPos(leftMargin, y)
-checkBtn.SetBackgroundHue(43)
-checkBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(checkBtn, make_check)
-gump.Add(checkBtn)
-
-checkHotkeyBtn = API.Gumps.CreateSimpleButton("[" + check_hotkey + "]", 22, btnH)
-checkHotkeyBtn.SetPos(leftMargin + 110, y)
-checkHotkeyBtn.SetBackgroundHue(43)  # Yellow - configurable
+# Check button with integrated hotkey
+checkHotkeyBtn = API.Gumps.CreateSimpleButton("[CHECK: C]", HOTKEY_BTN_WIDTH, 24)
+checkHotkeyBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
+checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(checkHotkeyBtn, start_capture_check_hotkey)
 gump.Add(checkHotkeyBtn)
 
-y += 22
-infoLabel = API.Gumps.CreateGumpTTFLabel("Yellow [K] = click to rebind key", 7, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
-infoLabel.SetPos(0, y)
-infoLabel.IsVisible = is_expanded
-gump.Add(infoLabel)
+# ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
+config_y = 118
+
+configBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
+configBg.SetRect(0, config_y, WINDOW_WIDTH_CONFIG, 100)
+configBg.IsVisible = False
+gump.Add(configBg)
+
+btnW = 85
+btnH = 20
+config_y += 8
+
+enableBtn = API.Gumps.CreateSimpleButton("[ON]", btnW, btnH)
+enableBtn.SetPos(leftMargin, config_y)
+enableBtn.SetBackgroundHue(68)
+enableBtn.IsVisible = False
+API.Gumps.AddControlOnClick(enableBtn, toggle_enabled)
+gump.Add(enableBtn)
+
+retargetBtn = API.Gumps.CreateSimpleButton("[TARGET]", btnW, btnH)
+retargetBtn.SetPos(leftMargin + 90, config_y)
+retargetBtn.SetBackgroundHue(66)
+retargetBtn.IsVisible = False
+API.Gumps.AddControlOnClick(retargetBtn, retarget_satchel)
+gump.Add(retargetBtn)
+
+config_y += 24
+resetBtn = API.Gumps.CreateSimpleButton("[RESET]", 180, btnH)
+resetBtn.SetPos(leftMargin, config_y)
+resetBtn.SetBackgroundHue(53)
+resetBtn.IsVisible = False
+API.Gumps.AddControlOnClick(resetBtn, reset_session)
+gump.Add(resetBtn)
+
+config_y += 24
+doneBtn = API.Gumps.CreateSimpleButton("[DONE]", 180, 22)
+doneBtn.SetPos(leftMargin, config_y)
+doneBtn.SetBackgroundHue(90)
+doneBtn.IsVisible = False
+API.Gumps.AddControlOnClick(doneBtn, hide_config_panel)
+gump.Add(doneBtn)
 
 API.Gumps.AddGump(gump)
+
+# Update button labels to show current bindings
+update_hotkey_buttons()
 
 update_display()
 
@@ -871,12 +975,12 @@ for key in ALL_KEYS:
     except:
         pass
 
-API.SysMsg("Gold Satchel v2.4 loaded! (" + str(registered_count) + " keys)", 68)
-API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | Yellow [K]=rebind", 43)
+API.SysMsg("Gold Manager v3.1 loaded! (" + str(registered_count) + " keys)", 68)
+API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | [M]=mode [C]=config", 43)
 if satchel_serial > 0:
-    API.SysMsg("Satchel: 0x" + format(satchel_serial, 'X'), 66)
+    API.SysMsg("Container: 0x" + format(satchel_serial, 'X'), 66)
 else:
-    API.SysMsg("Click [TARGET] to set your satchel", 43)
+    API.SysMsg("Click [C] config button, then [TARGET] to set your container", 43)
 
 # ============ MAIN LOOP ============
 DISPLAY_UPDATE_INTERVAL = 0.5
