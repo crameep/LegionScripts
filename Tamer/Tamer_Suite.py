@@ -1,11 +1,31 @@
 # ============================================================
-# Tamer Suite v2.4
+# Tamer Suite v3.0
 # by Coryigon for UO Unchained
 # ============================================================
 #
 # The all-in-one tamer script. Combines pet healing and commands
 # into a single window with a non-blocking design - your hotkeys
 # stay responsive even during long actions like resurrections.
+#
+# v3.0 Changes (Separate Config Window):
+#   - MAJOR: Config window now opens as separate 520x450px window
+#   - MAJOR: Main UI compacted to 280x250px (was 400x360px)
+#   - IMPROVED: Config button changed to compact [C] next to minimize
+#   - IMPROVED: All config buttons update instantly without window rebuild
+#   - IMPROVED: Position saved separately for main and config windows
+#   - IMPROVED: Trapped pouch shows hex serial (like vet kit)
+#   - IMPROVED: Pet 4/5 labels repositioned to avoid overlap with skip buttons
+#   - FIXED: Config buttons now update visually when hotkeys captured
+#   - FIXED: ESC cancel restores button to current binding state
+#   - REMOVED: 602 lines of inline config panel code
+#
+# v2.2 Changes (Per-Pet Hotkeys):
+#   - ADDED: Per-pet hotkey system (5 customizable pet hotkeys)
+#   - ADDED: Hotkey display buttons on each pet row [F1] or [---]
+#   - ADDED: Arrow indicators [>] showing last selected pet
+#   - ADDED: Pet Hotkeys config section with capture system
+#   - ADDED: Normal press = Follow pet + set priority heal flag
+#   - ADDED: Priority heal pet gets healed before tank pet
 #
 # Features:
 #   - Collapsible interface (click [-] to minimize, [+] to expand)
@@ -19,13 +39,18 @@
 #   - Sound alerts for critical HP, pet death, out of bandages
 #   - Shared pet list syncs with other tamer scripts
 #
-# Hotkeys: TAB (All Kill), 1 (Guard), 2 (Follow), PAUSE (toggle)
+# Setup:
+#   1. Click [C] to open config panel
+#   2. Configure toggles, hotkeys, and pet order mode
+#   3. ESC cancels hotkey capture, [DONE] closes panel
+#
+# Default Hotkeys: TAB (Kill), 1 (Guard), 2 (Follow), PAUSE (toggle)
 #
 # ============================================================
 import API
 import time
 
-__version__ = "2.4"
+__version__ = "3.0"
 
 # ============ USER SETTINGS ============
 # Item graphics
@@ -35,7 +60,7 @@ DEBUG = False
 # === TIMING (adjust for your DEX) ===
 # Reference: 8 - (DEX / 20) seconds
 SELF_DELAY = 4.5              # Self bandage time
-VET_DELAY = 4.5               # Pet bandage time  
+VET_DELAY = 4.5               # Pet bandage time
 REZ_DELAY = 10.0              # Pet resurrection time
 CAST_DELAY = 2.5              # Greater Heal spell time
 VET_KIT_DELAY = 5.0           # Vet kit cooldown
@@ -52,13 +77,6 @@ PET_HP_PERCENT = 90           # Heal pets below this %
 VET_KIT_HP_PERCENT = 70       # Vet kit threshold
 VET_KIT_THRESHOLD = 2         # Use vet kit when this many pets hurt
 VET_KIT_COOLDOWN = 10.0       # Min seconds between vet kit uses
-
-# === HOTKEYS ===
-PAUSE_HOTKEY = "PAUSE"        # Pause/resume healing
-ALL_KILL_HOTKEY = "TAB"       # All Kill
-GUARD_HOTKEY = "1"            # Guard Me
-FOLLOW_HOTKEY = "2"           # Follow Me
-STAY_HOTKEY = ""              # All Stay (disabled)
 
 # === COMMANDS ===
 MAX_DISTANCE = 10             # Max hostile search range
@@ -78,10 +96,12 @@ PET_SYNC_INTERVAL = 2.0
 LOW_BANDAGE_WARNING = 10
 MAX_PETS = 5
 
-# === GUI DIMENSIONS ===
-WINDOW_WIDTH = 400
+# === GUI DIMENSIONS (v2.2 - config panel height increased) ===
+WINDOW_WIDTH_NORMAL = 280     # Compact single-column layout
+WINDOW_WIDTH_CONFIG = 400     # Config panel same width
 COLLAPSED_HEIGHT = 24
-EXPANDED_HEIGHT = 430
+EXPANDED_HEIGHT = 250         # Compact layout height
+CONFIG_HEIGHT = 1270          # Was 1100 in v2.1 (+170px for Pet Hotkeys)
 
 # === POTIONS ===
 POTION_HEAL = 0x0F0C          # Greater Heal
@@ -96,6 +116,7 @@ AUTO_TARGET_RANGE = 3         # Range for auto-targeting next enemy
 
 # Persistent storage keys
 SETTINGS_KEY = "TamerSuite_XY"
+CONFIG_XY_KEY = "TamerSuite_ConfigXY"
 MAGERY_KEY = "TamerSuite_UseMagery"
 REZ_KEY = "TamerSuite_UseRez"
 HEALSELF_KEY = "TamerSuite_HealSelf"
@@ -111,6 +132,20 @@ TRAPPED_POUCH_SERIAL_KEY = "TamerSuite_TrappedPouch"
 USE_TRAPPED_POUCH_KEY = "TamerSuite_UseTrappedPouch"
 AUTO_TARGET_KEY = "TamerSuite_AutoTarget"
 EXPANDED_KEY = "TamerSuite_Expanded"
+
+# Hotkey binding persistence (command hotkeys)
+PAUSE_HOTKEY_KEY = "TamerSuite_HK_Pause"
+KILL_HOTKEY_KEY = "TamerSuite_HK_Kill"
+GUARD_HOTKEY_KEY = "TamerSuite_HK_Guard"
+FOLLOW_HOTKEY_KEY = "TamerSuite_HK_Follow"
+STAY_HOTKEY_KEY = "TamerSuite_HK_Stay"
+
+# Pet hotkey binding persistence (NEW in v2.2)
+PET1_HOTKEY_KEY = "TamerSuite_PetHK_1"
+PET2_HOTKEY_KEY = "TamerSuite_PetHK_2"
+PET3_HOTKEY_KEY = "TamerSuite_PetHK_3"
+PET4_HOTKEY_KEY = "TamerSuite_PetHK_4"
+PET5_HOTKEY_KEY = "TamerSuite_PetHK_5"
 
 # ============ HEALER STATE MACHINE ============
 # States: idle, healing, following, rezzing, vetkit
@@ -137,6 +172,9 @@ manual_heal_target = 0
 
 # GUI
 is_expanded = True
+show_config = False  # Config panel visibility (deprecated - will use separate gump)
+config_gump = None  # Separate config window
+config_controls = {}  # Store config window button references for direct updates
 
 # Commands
 TARGET_REDS = False
@@ -166,10 +204,15 @@ last_critical_alert = 0
 last_pet_death_alerts = {}
 ALERT_COOLDOWN = 5.0
 
-# Position tracking
+# Position tracking (main window)
 last_known_x = 100
 last_known_y = 100
 last_position_check = 0
+
+# Position tracking (config window)
+config_last_known_x = 150
+config_last_known_y = 150
+config_last_position_check = 0
 
 # Friend rez
 rez_friend_target = 0
@@ -179,19 +222,48 @@ rez_friend_name = ""
 MAX_REZ_ATTEMPTS = 50
 REZ_FRIEND_DELAY = 8.0
 
+# Hotkey capture system
+capturing_for = None  # "pause", "kill", "guard", "follow", "stay", "pet0"-"pet4", or None
+hotkeys = {
+    "pause": "PAUSE",
+    "kill": "TAB",
+    "guard": "1",
+    "follow": "2",
+    "stay": ""  # Empty = unbound
+}
+
+# Pet hotkey system (NEW in v2.2)
+pet_hotkeys = ["", "", "", "", ""]  # Empty string = unbound
+priority_heal_pet = 0  # Serial of pet flagged for priority heal
+last_selected_pet_index = -1  # Which pet row shows [>] arrow
+
 # Journal messages for resurrection detection
 JOURNAL_REZ_SUCCESS = [
-    "You are able to resurrect your patient",  # Primary success message
-    "You have resurrected",                     # Alternate shard message
-    "returns to life"                           # Alternate shard message
+    "You are able to resurrect your patient",
+    "You have resurrected",
+    "returns to life"
 ]
 
 JOURNAL_REZ_FAIL = [
-    "You fail to resurrect your patient",       # Failed attempt
-    "That being is not damaged",                # Target not dead
-    "You cannot perform beneficial acts",       # Criminal/grey
-    "That is too far away",                     # Out of range
-    "Target cannot be seen"                     # Line of sight
+    "You fail to resurrect your patient",
+    "That being is not damaged",
+    "You cannot perform beneficial acts",
+    "That is too far away",
+    "Target cannot be seen"
+]
+
+# ============ ALL POSSIBLE KEYS ============
+ALL_KEYS = [
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
+    "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
+    "TAB", "SPACE", "ENTER", "ESC", "PAUSE", "BACKSPACE",
+    "HOME", "END", "PAGEUP", "PAGEDOWN", "INSERT", "DELETE",
+    "LEFT", "RIGHT", "UP", "DOWN",
+    "MULTIPLY", "ADD", "SUBTRACT", "DIVIDE", "DECIMAL",
 ]
 
 # ============ UTILITY FUNCTIONS ============
@@ -283,7 +355,7 @@ def play_sound_alert(sound_id):
 def check_critical_alerts():
     global last_critical_alert, last_pet_death_alerts
     now = time.time()
-    
+
     if HEAL_SELF and not is_player_dead():
         try:
             player = API.Player
@@ -293,7 +365,7 @@ def check_critical_alerts():
                 play_sound_alert(SOUND_CRITICAL)
         except:
             pass
-    
+
     for pet in PETS:
         mob = API.FindMobile(pet)
         if mob and mob.IsDead:
@@ -328,12 +400,10 @@ def get_potion_count(graphic):
         if backpack_serial == 0:
             return 0
 
-        # Get all items in backpack recursively
         items = API.ItemsInContainer(backpack_serial, True)
         if not items:
             return 0
 
-        # Count all matching potions
         total = 0
         for item in items:
             if hasattr(item, 'Graphic') and item.Graphic == graphic:
@@ -380,7 +450,6 @@ def is_player_paralyzed():
     """Check if player is paralyzed"""
     try:
         player = API.Player
-        # Try multiple attribute names for paralysis
         if hasattr(player, 'IsParalyzed') and player.IsParalyzed:
             return True
         if hasattr(player, 'Paralyzed') and player.Paralyzed:
@@ -395,24 +464,20 @@ def use_trapped_pouch():
     """Open trapped pouch to break paralyze (10-20 damage)"""
     global trapped_pouch_serial
 
-    # Safety check - don't use if HP too low
     if API.Player.Hits < TRAPPED_POUCH_MIN_HP:
         API.SysMsg("HP too low for trapped pouch! (" + str(API.Player.Hits) + "/" + str(TRAPPED_POUCH_MIN_HP) + ")", 32)
         return False
 
-    # Check if we have a pouch configured
     if trapped_pouch_serial == 0:
         API.SysMsg("No trapped pouch configured! Use [SET POUCH] button", 43)
         return False
 
-    # Find the pouch
     pouch = API.FindItem(trapped_pouch_serial)
     if not pouch:
         API.SysMsg("Trapped pouch not found!", 32)
         return False
 
     try:
-        # Open the pouch - this triggers the explosion
         API.UseObject(trapped_pouch_serial, False)
         API.SysMsg("Opening trapped pouch to break paralyze!", 68)
         statusLabel.SetText("Trapped Pouch!")
@@ -436,7 +501,8 @@ def target_trapped_pouch():
                 trapped_pouch_serial = target
                 API.SavePersistentVar(TRAPPED_POUCH_SERIAL_KEY, str(trapped_pouch_serial), API.PersistentVar.Char)
                 API.SysMsg("Trapped pouch set! Serial: " + hex(trapped_pouch_serial), 68)
-                update_potion_display()
+                update_config_pouch_display()
+                update_config_gump_state()
             else:
                 API.SysMsg("Target not found!", 32)
         else:
@@ -454,27 +520,20 @@ def handle_auto_target():
     if not auto_target:
         return
 
-    # Check if we have a current target
     if current_attack_target == 0:
         return
 
-    # Check if current target is still valid
     target = API.FindMobile(current_attack_target)
 
-    # If target is dead, gone, or out of range, find next target
     target_distance = target.Distance if target and hasattr(target, 'Distance') else 999
     if not target or target.IsDead or target_distance > AUTO_TARGET_RANGE:
-        # Build notoriety list based on settings
         notorieties = [API.Notoriety.Enemy]
         if TARGET_GRAYS:
-            notorieties.append(API.Notoriety.Gray)
-            notorieties.append(API.Notoriety.Criminal)
+            notorieties.extend([API.Notoriety.Gray, API.Notoriety.Criminal])
         if TARGET_REDS:
             notorieties.append(API.Notoriety.Murderer)
 
-        # Find next target within 3 tiles
         next_enemy = API.NearestMobile(notorieties, AUTO_TARGET_RANGE)
-
         if next_enemy and next_enemy.Serial != API.Player.Serial and not next_enemy.IsDead:
             API.Msg("all kill")
             if API.WaitForTarget(timeout=TARGET_TIMEOUT):
@@ -483,804 +542,607 @@ def handle_auto_target():
                 API.HeadMsg("NEXT!", next_enemy.Serial, 68)
                 API.SysMsg("Auto-targeting: " + get_mob_name(next_enemy), 68)
         else:
-            # No more targets in range
             current_attack_target = 0
 
-def check_journal_for_message(msg):
-    """Check if journal contains a message"""
-    try:
-        return API.InJournal(msg, False)  # Don't clear matches
-    except:
-        return False
-
-def clear_journal_safe():
-    """Safely clear journal"""
-    try:
-        API.ClearJournal()
-    except:
-        pass
-
-def check_rez_success():
-    """Check journal for resurrection success messages"""
-    for msg in JOURNAL_REZ_SUCCESS:
-        if check_journal_for_message(msg):
-            return True
-    return False
-
-def check_rez_fail():
-    """Check journal for resurrection failure messages"""
-    for msg in JOURNAL_REZ_FAIL:
-        if check_journal_for_message(msg):
-            return msg  # Return the specific failure message
-    return None
-
-# ============ PERSISTENCE ============
-def load_settings():
-    global USE_MAGERY, USE_REZ, HEAL_SELF, SKIP_OUT_OF_RANGE, TANK_PET, VET_KIT_GRAPHIC
-    global TARGET_REDS, TARGET_GRAYS, ATTACK_MODE, PETS, PET_NAMES, PET_ACTIVE, last_known_pets_str
-    global USE_POTIONS, trapped_pouch_serial, use_trapped_pouch, auto_target
-
-    USE_MAGERY = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char) == "True"
-    USE_REZ = API.GetPersistentVar(REZ_KEY, "False", API.PersistentVar.Char) == "True"
-    HEAL_SELF = API.GetPersistentVar(HEALSELF_KEY, "True", API.PersistentVar.Char) == "True"
-    SKIP_OUT_OF_RANGE = API.GetPersistentVar(SKIPOOR_KEY, "True", API.PersistentVar.Char) == "True"
-    TARGET_REDS = API.GetPersistentVar(REDS_KEY, "False", API.PersistentVar.Char) == "True"
-    TARGET_GRAYS = API.GetPersistentVar(GRAYS_KEY, "False", API.PersistentVar.Char) == "True"
-    USE_POTIONS = API.GetPersistentVar(POTION_KEY, "True", API.PersistentVar.Char) == "True"
-    use_trapped_pouch = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
-    auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
-    ATTACK_MODE = API.GetPersistentVar(MODE_KEY, "ALL", API.PersistentVar.Char)
-    if ATTACK_MODE not in ["ALL", "ORDER"]:
-        ATTACK_MODE = "ALL"
-
-    try:
-        TANK_PET = int(API.GetPersistentVar(TANK_KEY, "0", API.PersistentVar.Char))
-    except:
-        TANK_PET = 0
-
-    try:
-        VET_KIT_GRAPHIC = int(API.GetPersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char))
-    except:
-        VET_KIT_GRAPHIC = 0
-
-    try:
-        trapped_pouch_serial = int(API.GetPersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char))
-    except:
-        trapped_pouch_serial = 0
-
-    # Load shared pets
-    PETS = []
-    PET_NAMES = {}
-    PET_ACTIVE = {}
-    pets_str = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
-    last_known_pets_str = pets_str
-    if pets_str:
-        for part in pets_str.split("|"):
-            if not part:
-                continue
-            try:
-                pieces = part.split(":")
-                if len(pieces) >= 2:
-                    serial = int(pieces[1])
-                    PETS.append(serial)
-                    PET_NAMES[serial] = pieces[0]
-                    PET_ACTIVE[serial] = True  # Default to active
-            except:
-                pass
-
-    # Load pet active states
-    active_str = API.GetPersistentVar(PETACTIVE_KEY, "", API.PersistentVar.Char)
-    if active_str:
-        for part in active_str.split("|"):
-            if not part:
-                continue
-            try:
-                pieces = part.split(":")
-                if len(pieces) >= 2:
-                    serial = int(pieces[0])
-                    active = pieces[1] == "1"
-                    if serial in PET_ACTIVE:
-                        PET_ACTIVE[serial] = active
-            except:
-                pass
-
-def save_pets():
+# ============ SHARED PET STORAGE (READ/WRITE) ============
+def save_pets_to_storage():
     global last_known_pets_str
-    parts = []
-    for serial in PETS:
-        name = PET_NAMES.get(serial, "Unknown")
-        safe_name = name.replace("|", "_").replace(":", "_")
-        parts.append(safe_name + ":" + str(serial) + ":1")
-    pets_str = "|".join(parts)
-    last_known_pets_str = pets_str
-    API.SavePersistentVar(SHARED_PETS_KEY, pets_str, API.PersistentVar.Char)
+    if len(PETS) == 0:
+        API.SavePersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
+        last_known_pets_str = ""
+        return
 
-    # Save active states
-    active_parts = []
+    pairs = []
     for serial in PETS:
-        active = PET_ACTIVE.get(serial, True)
-        active_parts.append(str(serial) + ":" + ("1" if active else "0"))
-    active_str = "|".join(active_parts)
-    API.SavePersistentVar(PETACTIVE_KEY, active_str, API.PersistentVar.Char)
+        name = PET_NAMES.get(serial, "Pet")
+        active_state = PET_ACTIVE.get(serial, True)
+        active_str = "1" if active_state else "0"
+        pairs.append(name + ":" + str(serial) + ":" + active_str)
+
+    new_str = "|".join(pairs)
+    if new_str != last_known_pets_str:
+        API.SavePersistentVar(SHARED_PETS_KEY, new_str, API.PersistentVar.Char)
+        last_known_pets_str = new_str
 
 def sync_pets_from_storage():
     global PETS, PET_NAMES, PET_ACTIVE, last_known_pets_str
-    current_str = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
-    if current_str == last_known_pets_str:
-        return False
+    stored = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
 
-    old_count = len(PETS)
+    if stored == last_known_pets_str:
+        return
+
+    last_known_pets_str = stored
+
+    if not stored:
+        PETS = []
+        PET_NAMES = {}
+        PET_ACTIVE = {}
+        return
+
     PETS = []
     PET_NAMES = {}
-    if current_str:
-        for part in current_str.split("|"):
-            if not part:
-                continue
+    PET_ACTIVE = {}
+
+    pairs = [x for x in stored.split("|") if x]
+    for pair in pairs:
+        parts = pair.split(":")
+        if len(parts) >= 2:
+            name = parts[0]
             try:
-                pieces = part.split(":")
-                if len(pieces) >= 2:
-                    serial = int(pieces[1])
-                    PETS.append(serial)
-                    PET_NAMES[serial] = pieces[0]
-                    # Initialize active state if not already set
-                    if serial not in PET_ACTIVE:
-                        PET_ACTIVE[serial] = True
+                serial = int(parts[1])
+                active = True
+                if len(parts) >= 3:
+                    active = (parts[2] == "1")
+
+                PETS.append(serial)
+                PET_NAMES[serial] = name
+                PET_ACTIVE[serial] = active
             except:
                 pass
-    last_known_pets_str = current_str
 
-    new_count = len(PETS)
-    if old_count != new_count:
-        API.SysMsg("Pet list synced: " + str(new_count) + " pets", 66)
-        update_pet_display()
-    return True
-
-# ============ NON-BLOCKING HEAL ACTIONS ============
-def start_heal_action(target_serial, action_type, duration, is_self=False):
-    """Start a heal/rez action WITHOUT blocking. Returns True if started."""
-    global HEAL_STATE, heal_start_time, heal_target, heal_duration, heal_action_type
-    
-    if HEAL_STATE != "idle":
-        return False  # Already doing something
-    
-    if action_type == "heal":
-        if USE_MAGERY:
-            # Cast Greater Heal
-            API.PreTarget(target_serial, "beneficial")
-            API.Pause(0.1)
-            API.CastSpell("Greater Heal")
-            API.Pause(0.1)
-            API.CancelPreTarget()
-        else:
-            # Use bandage
-            if not check_bandages():
-                return False
-            API.PreTarget(target_serial, "beneficial")
-            API.Pause(0.1)
-            API.UseObject(API.Found, False)
-            API.Pause(0.1)
-            API.CancelPreTarget()
-        
-        mob = API.FindMobile(target_serial) if not is_self else None
-        name = "Self" if is_self else get_mob_name(mob)
-        API.HeadMsg("Healing!", target_serial, 68)
-        statusLabel.SetText("Healing: " + name)
-        
-    elif action_type == "rez":
-        if not check_bandages():
-            return False
-        API.PreTarget(target_serial, "beneficial")
-        API.Pause(0.1)
-        API.UseObject(API.Found, False)
-        API.Pause(0.1)
-        API.CancelPreTarget()
-        
-        mob = API.FindMobile(target_serial)
-        name = get_mob_name(mob)
-        API.HeadMsg("Rezzing!", target_serial, 38)
-        statusLabel.SetText("Rezzing: " + name)
-        
-    elif action_type == "vetkit":
-        if VET_KIT_GRAPHIC == 0 or not API.FindType(VET_KIT_GRAPHIC):
-            return False
-        API.UseObject(API.Found, False)
-        API.Pause(0.1)
-        if API.HasTarget():
-            # Target first hurt pet
-            for pet in PETS:
-                mob = API.FindMobile(pet)
-                if mob and not mob.IsDead and get_hp_percent(mob) < VET_KIT_HP_PERCENT:
-                    API.Target(pet)
-                    break
-            else:
-                clear_stray_cursor()
-        API.HeadMsg("Vet Kit!", API.Player.Serial, 68)
-        statusLabel.SetText("Using Vet Kit")
-
-    elif action_type == "trapped_pouch":
-        if not use_trapped_pouch():
-            return False
-        # Don't set healing state - this is instant
-
-    elif action_type == "cure_potion":
-        if not drink_potion(POTION_CURE, "Cure Potion"):
-            return False
-        # Don't set healing state - potions are instant
-
-    elif action_type == "heal_potion":
-        if not drink_potion(POTION_HEAL, "Heal Potion"):
-            return False
-        # Don't set healing state - potions are instant
-
-    clear_stray_cursor()
-
-    # Only set healing state for actions that take time (bandages, vet kit, rez)
-    # Potions and trapped pouch are instant
-    if action_type in ["heal", "rez", "vetkit"]:
-        HEAL_STATE = "healing"
-        heal_start_time = time.time()
-        heal_target = target_serial
-        heal_duration = duration
-        heal_action_type = action_type
-
-    return True
-
-def check_heal_complete():
-    """Check if current heal action is done. Returns True if done or idle."""
-    global HEAL_STATE, last_vetkit_use
-    
-    if HEAL_STATE == "idle":
-        return True
-    
-    if HEAL_STATE == "healing":
-        if time.time() >= heal_start_time + heal_duration:
-            if heal_action_type == "vetkit":
-                last_vetkit_use = time.time()
-            HEAL_STATE = "idle"
-            statusLabel.SetText("Running")
-            return True
-    
-    return False
-
-def cancel_heal():
-    """Cancel current heal action"""
-    global HEAL_STATE
-    HEAL_STATE = "idle"
-    statusLabel.SetText("Running")
-    clear_stray_cursor()
-
-# ============ HEAL PRIORITY LOGIC ============
+# ============ HEALING ACTIONS ============
 def get_next_heal_action():
-    """
-    Determine what to heal next. Returns (target, action_type, duration, is_self) or None.
-    Does NOT block - just decides what to do.
-
-    Priority:
-    0. FRIEND REZ: Absolute highest priority (blocks all other healing)
-    1. TRAPPED POUCH: Break paralyze (if safe HP)
-    2. PLAYER POTIONS: Critical/poison/heal
-    3. SELF BANDAGES: After potions
-    4. VET KIT: Multiple pets hurt
-    5. PET HEALING: Tank and others
-    """
-    # FRIEND REZ: Absolute highest priority - pauses all other healing
-    if rez_friend_active:
-        return None  # Don't do any other healing while rezzing friend
-
-    # Skip if we're already healing
-    if HEAL_STATE != "idle":
-        return None
-
-    # Skip if no bandages (and not using magery)
-    if not USE_MAGERY and get_bandage_count() == 0:
-        return None
-
-    # TRAPPED POUCH: Break paralyze (HIGHEST PRIORITY)
-    if use_trapped_pouch and trapped_pouch_serial > 0:
-        if is_player_paralyzed() and API.Player.Hits >= TRAPPED_POUCH_MIN_HP:
-            return (0, "trapped_pouch", 0.1, False)
-
-    # Manual heal override
-    global manual_heal_target
-    if manual_heal_target != 0:
-        target = manual_heal_target
-        manual_heal_target = 0
-        mob = API.FindMobile(target)
-        if mob:
-            if mob.IsDead and USE_REZ:
-                return (target, "rez", REZ_DELAY, False)
-            elif not mob.IsDead:
-                return (target, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
-    # Vet kit check (multiple pets hurt)
-    if VET_KIT_GRAPHIC > 0 and time.time() - last_vetkit_use > VET_KIT_COOLDOWN:
-        hurt_count = sum(1 for p in PETS if API.FindMobile(p) and not API.FindMobile(p).IsDead and 
-                        (is_poisoned(API.FindMobile(p)) or get_hp_percent(API.FindMobile(p)) < VET_KIT_HP_PERCENT))
-        if hurt_count >= VET_KIT_THRESHOLD:
-            return (0, "vetkit", VET_KIT_DELAY, False)
-    
-    # Self heal (poison or damage) - BANDAGES ONLY
-    if HEAL_SELF and not is_player_dead():
+    if HEAL_SELF:
+        if is_player_poisoned():
+            if drink_potion(POTION_CURE, "Cure"):
+                return None
         player = API.Player
-        if CURE_POISON and is_player_poisoned():
-            return (player.Serial, "heal", SELF_DELAY if not USE_MAGERY else CAST_DELAY, True)
-        if player.HitsDiff > SELF_HEAL_THRESHOLD:
-            return (player.Serial, "heal", SELF_DELAY if not USE_MAGERY else CAST_DELAY, True)
+        if player.Hits < (player.HitsMax - SELF_HEAL_THRESHOLD):
+            if USE_POTIONS and potion_ready():
+                if drink_potion(POTION_HEAL, "Heal"):
+                    return None
+            return (API.Player.Serial, "heal_self", SELF_DELAY, True)
 
-    # PLAYER POTIONS: Critical/poison/heal (AFTER bandages, BEFORE pets)
-    if HEAL_SELF and USE_POTIONS and not is_player_dead():
-        # Cure poison (highest priority for potions)
-        if is_player_poisoned() and potion_ready():
-            if get_potion_count(POTION_CURE) > 0:
-                return (0, "cure_potion", 0.1, False)
+    if use_trapped_pouch and is_player_paralyzed():
+        if use_trapped_pouch():
+            return None
 
-        # Heal if low HP (>= 15 missing HP)
-        player_hits_diff = API.Player.HitsMax - API.Player.Hits
-        if player_hits_diff >= 15 and potion_ready():
-            if get_potion_count(POTION_HEAL) > 0:
-                return (0, "heal_potion", 0.1, False)
+    # Priority heal pet (NEW in v2.2)
+    if priority_heal_pet != 0:
+        mob = API.FindMobile(priority_heal_pet)
+        if mob and not mob.IsDead and get_distance(mob) <= SPELL_RANGE:
+            if is_poisoned(mob):
+                return (priority_heal_pet, "cure", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
+            hp_pct = get_hp_percent(mob)
+            if hp_pct < PET_HP_PERCENT:
+                return (priority_heal_pet, "heal", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
 
-    # Tank poison
-    if TANK_PET and CURE_POISON:
+    if TANK_PET != 0:
         mob = API.FindMobile(TANK_PET)
-        if mob and not mob.IsDead and is_poisoned(mob):
-            if get_distance(mob) <= (SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE):
-                return (TANK_PET, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
-    # Pet poison
-    if CURE_POISON:
-        for pet in PETS:
-            if pet == TANK_PET:
-                continue
-            mob = API.FindMobile(pet)
-            if mob and not mob.IsDead and is_poisoned(mob):
-                if get_distance(mob) <= (SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE):
-                    return (pet, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
-    # Tank critical
-    if TANK_PET:
-        mob = API.FindMobile(TANK_PET)
-        if mob:
-            if mob.IsDead and USE_REZ:
-                if get_distance(mob) <= BANDAGE_RANGE:
-                    return (TANK_PET, "rez", REZ_DELAY, False)
-            elif not mob.IsDead and get_hp_percent(mob) < TANK_HP_PERCENT:
-                if get_distance(mob) <= (SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE):
-                    return (TANK_PET, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
-    # Other pets
-    worst_pet = None
-    worst_pct = 100
+        if mob and not mob.IsDead and get_distance(mob) <= SPELL_RANGE:
+            if is_poisoned(mob):
+                return (TANK_PET, "cure", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
+            hp_pct = get_hp_percent(mob)
+            if hp_pct < TANK_HP_PERCENT:
+                return (TANK_PET, "heal", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
+
     for pet in PETS:
-        if pet == TANK_PET:
-            continue
         mob = API.FindMobile(pet)
-        if not mob:
+        if not mob or mob.IsDead:
             continue
         dist = get_distance(mob)
-        max_range = SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE
-        
-        if mob.IsDead and USE_REZ:
-            if dist <= BANDAGE_RANGE:
-                return (pet, "rez", REZ_DELAY, False)
-        elif not mob.IsDead:
+        if SKIP_OUT_OF_RANGE and dist > SPELL_RANGE:
+            continue
+
+        if is_poisoned(mob):
+            return (pet, "cure", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
+
+    lowest_hp = None
+    lowest_pct = 100
+    for pet in PETS:
+        mob = API.FindMobile(pet)
+        if not mob or mob.IsDead:
+            continue
+        dist = get_distance(mob)
+        if SKIP_OUT_OF_RANGE and dist > SPELL_RANGE:
+            continue
+
+        hp_pct = get_hp_percent(mob)
+        if hp_pct < PET_HP_PERCENT and hp_pct < lowest_pct:
+            lowest_hp = pet
+            lowest_pct = hp_pct
+
+    if lowest_hp:
+        return (lowest_hp, "heal", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
+
+    if VET_KIT_GRAPHIC != 0:
+        hurt_count = 0
+        for pet in PETS:
+            mob = API.FindMobile(pet)
+            if not mob or mob.IsDead:
+                continue
             hp_pct = get_hp_percent(mob)
-            if hp_pct < PET_HP_PERCENT and hp_pct < worst_pct and dist <= max_range:
-                worst_pct = hp_pct
-                worst_pet = pet
-    
-    if worst_pet:
-        return (worst_pet, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
-    
-    # Tank top-off
-    if TANK_PET:
-        mob = API.FindMobile(TANK_PET)
-        if mob and not mob.IsDead and mob.HitsDiff > 0:
-            if get_distance(mob) <= (SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE):
-                return (TANK_PET, "heal", VET_DELAY if not USE_MAGERY else CAST_DELAY, False)
+            if hp_pct < VET_KIT_HP_PERCENT:
+                hurt_count += 1
+
+        if hurt_count >= VET_KIT_THRESHOLD:
+            if time.time() - last_vetkit_use > VET_KIT_COOLDOWN:
+                return (0, "vetkit", VET_KIT_DELAY, False)
+
+    if USE_REZ:
+        for pet in PETS:
+            mob = API.FindMobile(pet)
+            if mob and mob.IsDead:
+                dist = get_distance(mob)
+                if dist <= SPELL_RANGE:
+                    return (pet, "rez", REZ_DELAY, False)
 
     return None
 
-# ============ FRIEND REZ FUNCTIONS ============
-def start_friend_rez():
-    """Start the friend resurrection process"""
-    global rez_friend_target, rez_friend_active, rez_friend_attempts, rez_friend_name
+def start_heal_action(target, action_type, duration, is_self):
+    global HEAL_STATE, heal_start_time, heal_target, heal_duration, heal_action_type
 
-    API.SysMsg("Target a DEAD friend to resurrect...", 38)
-    cancel_all_targets()
+    if action_type == "vetkit":
+        if not API.FindType(VET_KIT_GRAPHIC):
+            API.SysMsg("Vet kit not found!", 32)
+            return
+        try:
+            API.UseObject(API.Found, False)
+            API.HeadMsg("Vet Kit!", API.Player.Serial, 68)
+            global last_vetkit_use
+            last_vetkit_use = time.time()
+            HEAL_STATE = "vetkit"
+            heal_start_time = time.time()
+            heal_duration = duration
+            heal_action_type = action_type
+            statusLabel.SetText("Vet Kit!")
+        except Exception as e:
+            API.SysMsg("Vet kit error: " + str(e), 32)
+        return
 
-    target = API.RequestTarget(timeout=15)
+    if is_self:
+        if not check_bandages():
+            return
+        try:
+            cancel_all_targets()
+            API.PreTarget(target, "beneficial")
+            API.Pause(0.1)
+            if API.FindType(BANDAGE):
+                API.UseObject(API.Found, False)
+                API.Pause(0.1)
+            API.CancelPreTarget()
+            API.HeadMsg("Healing!", target, 68)
 
-    if not target:
-        API.SysMsg("Targeting cancelled", 32)
+            HEAL_STATE = "healing"
+            heal_start_time = time.time()
+            heal_target = target
+            heal_duration = duration
+            heal_action_type = action_type
+            statusLabel.SetText("Healing Self")
+        except Exception as e:
+            API.SysMsg("Heal error: " + str(e), 32)
+            clear_stray_cursor()
         return
 
     mob = API.FindMobile(target)
     if not mob:
-        API.SysMsg("Not a valid mobile!", 32)
         return
 
-    # Check if they're dead
-    if not mob.IsDead:
-        API.SysMsg(get_mob_name(mob) + " is not dead!", 32)
+    if action_type == "rez":
+        try:
+            cancel_all_targets()
+            API.PreTarget(target, "beneficial")
+            API.Pause(0.1)
+            if API.FindType(BANDAGE):
+                API.UseObject(API.Found, False)
+                API.Pause(0.1)
+            API.CancelPreTarget()
+            API.HeadMsg("Rezzing!", target, 38)
+
+            HEAL_STATE = "rezzing"
+            heal_start_time = time.time()
+            heal_target = target
+            heal_duration = duration
+            heal_action_type = action_type
+            name = get_mob_name(mob)
+            statusLabel.SetText("Rezzing: " + name)
+        except Exception as e:
+            API.SysMsg("Rez error: " + str(e), 32)
+            clear_stray_cursor()
         return
 
-    # Start rezzing
-    rez_friend_target = target
-    rez_friend_name = get_mob_name(mob)
-    rez_friend_attempts = 0
-    rez_friend_active = True
+    if action_type == "cure":
+        if USE_MAGERY:
+            try:
+                cancel_all_targets()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.1)
+                API.Cast("Cure")
+                API.Pause(0.1)
+                API.CancelPreTarget()
+                API.HeadMsg("Curing!", target, 68)
 
-    API.SysMsg("=== REZZING " + rez_friend_name.upper() + " ===", 38)
-    API.SysMsg("Pet healing PAUSED until rez complete or cancelled", 43)
+                HEAL_STATE = "healing"
+                heal_start_time = time.time()
+                heal_target = target
+                heal_duration = duration
+                heal_action_type = action_type
+                name = get_mob_name(mob)
+                statusLabel.SetText("Curing: " + name)
+            except Exception as e:
+                API.SysMsg("Cure error: " + str(e), 32)
+                clear_stray_cursor()
+        else:
+            if not check_bandages():
+                return
+            try:
+                cancel_all_targets()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.1)
+                if API.FindType(BANDAGE):
+                    API.UseObject(API.Found, False)
+                    API.Pause(0.1)
+                API.CancelPreTarget()
+                API.HeadMsg("Curing!", target, 68)
 
-    update_rez_friend_display()
+                HEAL_STATE = "healing"
+                heal_start_time = time.time()
+                heal_target = target
+                heal_duration = duration
+                heal_action_type = action_type
+                name = get_mob_name(mob)
+                statusLabel.SetText("Curing: " + name)
+            except Exception as e:
+                API.SysMsg("Heal error: " + str(e), 32)
+                clear_stray_cursor()
+        return
 
-def cancel_friend_rez():
-    """Cancel the friend resurrection process"""
-    global rez_friend_target, rez_friend_active, rez_friend_attempts, rez_friend_name
+    if action_type == "heal":
+        if USE_MAGERY:
+            try:
+                cancel_all_targets()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.1)
+                API.Cast("Greater Heal")
+                API.Pause(0.1)
+                API.CancelPreTarget()
+                API.HeadMsg("Healing!", target, 68)
 
-    if rez_friend_active:
-        API.SysMsg("Friend rez cancelled after " + str(rez_friend_attempts) + " attempts", 43)
+                HEAL_STATE = "healing"
+                heal_start_time = time.time()
+                heal_target = target
+                heal_duration = duration
+                heal_action_type = action_type
+                name = get_mob_name(mob)
+                statusLabel.SetText("Healing: " + name)
+            except Exception as e:
+                API.SysMsg("Heal error: " + str(e), 32)
+                clear_stray_cursor()
+        else:
+            if not check_bandages():
+                return
+            try:
+                cancel_all_targets()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.1)
+                if API.FindType(BANDAGE):
+                    API.UseObject(API.Found, False)
+                    API.Pause(0.1)
+                API.CancelPreTarget()
+                API.HeadMsg("Healing!", target, 68)
 
-    rez_friend_target = 0
-    rez_friend_name = ""
-    rez_friend_attempts = 0
-    rez_friend_active = False
+                HEAL_STATE = "healing"
+                heal_start_time = time.time()
+                heal_target = target
+                heal_duration = duration
+                heal_action_type = action_type
+                name = get_mob_name(mob)
+                statusLabel.SetText("Healing: " + name)
+            except Exception as e:
+                API.SysMsg("Heal error: " + str(e), 32)
+                clear_stray_cursor()
 
-    update_rez_friend_display()
+def check_heal_complete():
+    global HEAL_STATE
 
+    if HEAL_STATE == "idle":
+        return
+
+    elapsed = time.time() - heal_start_time
+    if elapsed >= heal_duration:
+        HEAL_STATE = "idle"
+        statusLabel.SetText("Running" if not PAUSED else "PAUSED")
+
+# ============ FRIEND REZ LOGIC ============
 def attempt_friend_rez():
-    """Attempt to resurrect the targeted friend"""
-    global rez_friend_attempts, rez_friend_active
-
-    if not rez_friend_active or rez_friend_target == 0:
-        return False
-
-    mob = API.FindMobile(rez_friend_target)
-    if not mob:
-        API.SysMsg("Lost target - " + rez_friend_name + " not found!", 32)
-        cancel_friend_rez()
-        return False
-
-    # Check if they're still dead
-    if not mob.IsDead:
-        API.SysMsg("=== " + rez_friend_name.upper() + " IS ALIVE! ===", 68)
-        API.HeadMsg("ALIVE!", rez_friend_target, 68)
-        heal_friend_after_rez()
-        cancel_friend_rez()
-        return True
-
-    # Check max attempts
-    if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
-        API.SysMsg("Max attempts reached (" + str(MAX_REZ_ATTEMPTS) + ") - giving up on " + rez_friend_name, 32)
-        cancel_friend_rez()
-        return False
-
-    # Increment attempt counter
-    rez_friend_attempts += 1
-
-    # Check distance
-    distance = get_distance(mob)
-    if distance > BANDAGE_RANGE:
-        API.SysMsg("Following " + rez_friend_name + " (distance: " + str(distance) + ")", 53)
-        # Simple follow - just move towards them
-        API.AutoFollow(rez_friend_target)
-        timeout = time.time() + 5.0
-        while time.time() < timeout:
-            mob = API.FindMobile(rez_friend_target)
-            if not mob:
-                API.CancelAutoFollow()
-                return False
-            if get_distance(mob) <= BANDAGE_RANGE:
-                break
-            API.Pause(0.2)
-        API.CancelAutoFollow()
-
-        # Re-check distance
-        mob = API.FindMobile(rez_friend_target)
-        if not mob or get_distance(mob) > BANDAGE_RANGE:
-            API.SysMsg("Couldn't reach " + rez_friend_name + " - retrying...", 32)
-            return False
-
-    # Check bandages
-    if not check_bandages():
-        API.SysMsg("Out of bandages! Rez paused.", 32)
-        return False
-
-    # Attempt rez
-    cancel_all_targets()
-    clear_journal_safe()
-
-    API.HeadMsg("Rez #" + str(rez_friend_attempts), rez_friend_target, 38)
-    API.SysMsg("Rez attempt #" + str(rez_friend_attempts) + " on " + rez_friend_name, 38)
-
-    API.PreTarget(rez_friend_target, "beneficial")
-    API.Pause(0.2)
-    API.UseObject(API.Found, False)
-    API.Pause(0.5)
-    API.CancelPreTarget()
-    clear_stray_cursor()
-
-    # Wait and check for success
-    start_time = time.time()
-    while time.time() - start_time < REZ_FRIEND_DELAY:
-        # Check if they're alive now
-        mob = API.FindMobile(rez_friend_target)
-        if mob and not mob.IsDead:
-            API.SysMsg("=== " + rez_friend_name.upper() + " RESURRECTED! ===", 68)
-            API.HeadMsg("RESURRECTED!", rez_friend_target, 68)
-            heal_friend_after_rez()
-            cancel_friend_rez()
-            return True
-
-        # Check journal for success
-        if check_rez_success():
-            API.SysMsg("=== " + rez_friend_name.upper() + " RESURRECTED! (journal) ===", 68)
-            API.HeadMsg("RESURRECTED!", rez_friend_target, 68)
-            clear_journal_safe()
-            heal_friend_after_rez()
-            cancel_friend_rez()
-            return True
-
-        # Check for failures
-        fail_msg = check_rez_fail()
-        if fail_msg:
-            if "not damaged" in fail_msg.lower():
-                # Target is alive!
-                API.SysMsg("=== " + rez_friend_name.upper() + " IS ALIVE! ===", 68)
-                heal_friend_after_rez()
-                cancel_friend_rez()
-                return True
-            else:
-                API.SysMsg("Rez failed: " + fail_msg, 43)
-                clear_journal_safe()
-                break
-
-        API.Pause(0.5)
-
-    # Not successful yet, will retry on next loop
-    update_rez_friend_display()
-    return False
-
-def heal_friend_after_rez():
-    """Bandage the friend once after resurrection"""
-    global rez_friend_target, rez_friend_name
+    global rez_friend_active, rez_friend_attempts
 
     if rez_friend_target == 0:
+        rez_friend_active = False
+        statusLabel.SetText("Running")
         return
 
-    API.SysMsg("Healing " + rez_friend_name + " after rez...", 68)
-    API.HeadMsg("Healing!", rez_friend_target, 68)
-
-    # Check bandages
-    if not check_bandages():
-        API.SysMsg("No bandages to heal after rez!", 32)
-        return
-
-    # Check if in range
     mob = API.FindMobile(rez_friend_target)
     if not mob:
+        API.SysMsg("Friend not found. Rez cancelled.", 43)
+        rez_friend_active = False
+        statusLabel.SetText("Running")
         return
 
-    distance = get_distance(mob)
-    if distance > BANDAGE_RANGE:
-        # Try to follow
-        API.AutoFollow(rez_friend_target)
-        timeout = time.time() + 5.0
-        while time.time() < timeout:
-            mob = API.FindMobile(rez_friend_target)
-            if not mob:
-                API.CancelAutoFollow()
-                return
-            if get_distance(mob) <= BANDAGE_RANGE:
-                break
-            API.Pause(0.2)
-        API.CancelAutoFollow()
+    if not mob.IsDead:
+        API.SysMsg("Friend is alive! Rez complete.", 68)
+        rez_friend_active = False
+        statusLabel.SetText("Running")
+        return
 
-        # Re-check
-        mob = API.FindMobile(rez_friend_target)
-        if not mob or get_distance(mob) > BANDAGE_RANGE:
-            API.SysMsg("Couldn't reach " + rez_friend_name + " to heal", 32)
-            return
+    if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
+        API.SysMsg("Max attempts reached. Rez cancelled.", 32)
+        rez_friend_active = False
+        statusLabel.SetText("Running")
+        return
 
-    # Bandage them
-    cancel_all_targets()
-    clear_journal_safe()
+    if not check_bandages():
+        rez_friend_active = False
+        statusLabel.SetText("Running")
+        return
 
-    API.PreTarget(rez_friend_target, "beneficial")
-    API.Pause(0.2)
-    API.UseObject(API.Found, False)
-    API.Pause(0.5)
-    API.CancelPreTarget()
-    clear_stray_cursor()
+    try:
+        cancel_all_targets()
+        API.PreTarget(rez_friend_target, "beneficial")
+        API.Pause(0.1)
+        if API.FindType(BANDAGE):
+            API.UseObject(API.Found, False)
+            API.Pause(0.1)
+        API.CancelPreTarget()
 
-    # Wait for bandage
-    API.Pause(VET_DELAY)
-    clear_stray_cursor()
+        rez_friend_attempts += 1
+        API.Pause(REZ_FRIEND_DELAY)
+    except Exception as e:
+        API.SysMsg("Friend rez error: " + str(e), 32)
+        clear_stray_cursor()
 
-    API.SysMsg("Post-rez heal complete!", 68)
+# ============ COMMANDS ============
+def should_use_order_mode():
+    """Check if ORDER mode should be used (either explicitly set OR any pet is inactive)"""
+    if ATTACK_MODE == "ORDER":
+        return True
+    # Auto-trigger ORDER mode if any pet is set to skip
+    for serial in PETS:
+        if not PET_ACTIVE.get(serial, True):
+            return True
+    return False
 
-def update_rez_friend_display():
-    """Update the rez friend button and label"""
-    if rez_friend_active:
-        rezFriendBtn.SetText("[CANCEL REZ]")
-        rezFriendBtn.SetBackgroundHue(32)
-        rezFriendLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
+def all_kill_manual():
+    global current_attack_target
+    if not should_use_order_mode():
+        API.Msg("all kill")
+        API.SysMsg("All Kill - select target", 68)
     else:
-        rezFriendBtn.SetText("[REZ FRIEND]")
-        rezFriendBtn.SetBackgroundHue(38)
-        rezFriendLabel.SetText("Friend Rez: Inactive")
+        API.SysMsg("Target enemy for ordered attack...", 32)
+        cancel_all_targets()
+        try:
+            target = API.RequestTarget(timeout=TARGET_TIMEOUT)
+            if target:
+                current_attack_target = target
+                execute_order_mode("all kill", target)
+            else:
+                API.SysMsg("Target cancelled", 43)
+            clear_stray_cursor()
+        except Exception as e:
+            API.SysMsg("Target error: " + str(e), 32)
+            clear_stray_cursor()
 
-def toggle_rez_friend():
-    """Toggle friend rez on/off"""
-    if rez_friend_active:
-        cancel_friend_rez()
-    else:
-        start_friend_rez()
+def all_kill_hotkey():
+    global current_attack_target
+    if not TARGET_REDS and not TARGET_GRAYS:
+        API.SysMsg("Enable [REDS] or [GRAYS] first!", 43)
+        return
 
-# ============ PET COMMANDS (INSTANT) ============
-def find_attack_target():
-    """Find nearest hostile"""
     notorieties = [API.Notoriety.Enemy]
     if TARGET_GRAYS:
         notorieties.extend([API.Notoriety.Gray, API.Notoriety.Criminal])
     if TARGET_REDS:
         notorieties.append(API.Notoriety.Murderer)
-    
+
     enemy = API.NearestMobile(notorieties, MAX_DISTANCE)
-    if enemy and enemy.Serial != API.Player.Serial:
-        return enemy
-    return None
 
-def all_kill():
-    """Main attack command"""
-    if ATTACK_MODE == "ORDER" and PETS:
-        ordered_kill()
-    else:
-        all_kill_classic()
+    if not enemy or enemy.Serial == API.Player.Serial:
+        # Fallback to manual targeting
+        API.SysMsg("No hostile found - select target manually", 53)
+        if not should_use_order_mode():
+            API.Msg("all kill")
+        else:
+            try:
+                target = API.RequestTarget(timeout=TARGET_TIMEOUT)
+                if not target:
+                    API.SysMsg("No target selected", 32)
+                    return
+                current_attack_target = target
+                execute_order_mode("all kill", target)
+            except:
+                API.SysMsg("Target cancelled", 43)
+        return
 
-def all_kill_classic():
-    """Classic all kill"""
-    global current_attack_target
-    enemy = find_attack_target()
-    if enemy:
+    current_attack_target = enemy.Serial
+
+    if not should_use_order_mode():
         API.Msg("all kill")
         if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-            API.Target(enemy)
-            current_attack_target = enemy.Serial  # Track this target for auto-targeting
-            API.HeadMsg("KILL!", enemy, 32)
+            API.Target(enemy.Serial)
+            API.Attack(enemy.Serial)
+            API.HeadMsg("KILL!", enemy.Serial, 32)
             API.SysMsg("All kill: " + get_mob_name(enemy), 68)
         else:
             API.SysMsg("No target cursor", 32)
     else:
-        API.SysMsg("No hostile - select manually", 53)
-        API.Msg("all kill")
-
-def ordered_kill():
-    """Send each active pet by name to attack"""
-    global current_attack_target
-    if not PETS:
-        all_kill_classic()
-        return
-
-    # Filter for active pets only
-    active_pets = [s for s in PETS if PET_ACTIVE.get(s, True)]
-    if not active_pets:
-        API.SysMsg("No active pets in ORDER mode! Using ALL mode", 43)
-        all_kill_classic()
-        return
-
-    enemy = find_attack_target()
-    if not enemy:
-        API.SysMsg("No hostile - select target manually", 53)
-        target = API.RequestTarget(timeout=TARGET_TIMEOUT)
-        if not target:
-            API.SysMsg("No target selected", 32)
-            return
-        enemy_serial = target
-        current_attack_target = target  # Track this target
-        mob = API.FindMobile(target)
-        if mob:
-            API.HeadMsg("KILL!", target, 32)
-    else:
-        enemy_serial = enemy.Serial
-        current_attack_target = enemy.Serial  # Track this target
-        API.HeadMsg("KILL!", enemy, 32)
-        API.SysMsg("Ordered attack: " + get_mob_name(enemy), 68)
-
-    for i, pet_serial in enumerate(active_pets):
-        name = PET_NAMES.get(pet_serial, "pet")
-        if i > 0:
-            API.Pause(COMMAND_DELAY)
-        API.Msg(name + " kill")
-        API.SysMsg("  " + str(i+1) + ". " + name + " -> attack", 88)
-        if API.WaitForTarget(timeout=2.0):
-            API.Target(enemy_serial)
-        API.Pause(0.2)
-
-    API.SysMsg("Ordered attack: " + str(len(active_pets)) + " pets sent", 68)
+        execute_order_mode("all kill", enemy.Serial)
 
 def all_follow():
-    if ATTACK_MODE == "ORDER" and PETS:
-        ordered_command("follow me", "Follow")
-    else:
+    if not should_use_order_mode():
         API.Msg("all follow me")
-        API.SysMsg("Pets: Follow Me", 88)
+    else:
+        execute_order_mode("all follow me", 0)
 
 def all_guard():
-    if ATTACK_MODE == "ORDER" and PETS:
-        ordered_command("guard me", "Guard")
-    else:
+    if not should_use_order_mode():
         API.Msg("all guard me")
-        API.SysMsg("Pets: Guard Me", 88)
+    else:
+        execute_order_mode("all guard me", 0)
 
 def all_stay():
-    if ATTACK_MODE == "ORDER" and PETS:
-        ordered_command("stay", "Stay")
-    else:
+    if not should_use_order_mode():
         API.Msg("all stay")
-        API.SysMsg("Pets: Stay", 88)
+    else:
+        execute_order_mode("all stay", 0)
 
-def ordered_command(cmd, display_name):
-    """Send command to each active pet by name"""
-    # Filter for active pets only
+def execute_order_mode(base_cmd, attack_target):
     active_pets = [s for s in PETS if PET_ACTIVE.get(s, True)]
 
     if not active_pets:
-        API.Msg("all " + cmd)
-        API.SysMsg(display_name + " (all)", 88)
+        API.SysMsg("No active pets in ORDER mode!", 43)
         return
 
-    for i, pet_serial in enumerate(active_pets):
-        name = PET_NAMES.get(pet_serial, "pet")
+    for i, serial in enumerate(active_pets):
+        name = PET_NAMES.get(serial, "Pet")
+        mob = API.FindMobile(serial)
+        if not mob:
+            continue
+        dist = get_distance(mob)
+        if dist > MAX_FOLLOW_RANGE:
+            continue
+
         if i > 0:
-            API.Pause(0.3)  # Small delay between commands
-        API.Msg(name + " " + cmd)
-        API.SysMsg("  " + name + " " + cmd, 88)
-    API.SysMsg(display_name + " sent to " + str(len(active_pets)) + " pets", 68)
+            API.Pause(COMMAND_DELAY)
 
-def pet_follow_by_click(index):
-    """Send follow command to specific pet by clicking"""
-    if index >= len(PETS):
-        return
-    serial = PETS[index]
-    name = PET_NAMES.get(serial, "pet")
-    mob = API.FindMobile(serial)
-    if not mob:
-        API.SysMsg(name + " not found!", 32)
-        return
-    API.Msg(name + " follow me")
-    API.SysMsg(name + " follow!", 68)
-    API.HeadMsg("Follow!", serial, 68)
+        cmd = base_cmd.replace("all", name)
+        API.Msg(cmd)
+        API.SysMsg("  " + str(i+1) + ". " + name + " -> " + base_cmd.replace("all ", ""), 88)
+
+        if attack_target != 0:
+            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
+                API.Target(attack_target)
+                API.HeadMsg("KILL!", attack_target, 32)
+            API.Pause(0.2)
 
 def say_bank():
     API.Msg("bank")
-    API.SysMsg("Opening bank...", 68)
 
 def say_balance():
     API.Msg("balance")
-    API.SysMsg("Checking balance...", 68)
 
-def all_kill_manual():
-    """Just say all kill - manual targeting"""
-    API.Msg("all kill")
-    API.SysMsg("All Kill - select target", 68)
+# ============ PET MANAGEMENT ============
+def add_pet():
+    API.SysMsg("Target a pet to add...", 68)
+    cancel_all_targets()
 
-def pet_follow_by_name(serial):
-    """Send follow command to specific pet"""
-    name = PET_NAMES.get(serial, "pet")
-    API.Msg(name + " follow me")
-    API.SysMsg(name + " follow!", 68)
-    API.HeadMsg("Follow!", serial, 68)
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            mob = API.FindMobile(target)
+            if mob:
+                name = get_mob_name(mob, "Pet")
+                if target not in PETS:
+                    PETS.append(target)
+                    PET_NAMES[target] = name
+                    PET_ACTIVE[target] = True
+                    save_pets_to_storage()
+                    API.SysMsg("Added: " + name, 68)
+                else:
+                    API.SysMsg("Already in list: " + name, 43)
+            else:
+                API.SysMsg("Target not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+        clear_stray_cursor()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        clear_stray_cursor()
 
-# ============ EXPAND/COLLAPSE ============
+def remove_pet():
+    API.SysMsg("Target a pet to remove...", 32)
+    cancel_all_targets()
+
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            if target in PETS:
+                name = PET_NAMES.get(target, "Pet")
+                PETS.remove(target)
+                if target in PET_NAMES:
+                    del PET_NAMES[target]
+                if target in PET_ACTIVE:
+                    del PET_ACTIVE[target]
+                save_pets_to_storage()
+                API.SysMsg("Removed: " + name, 68)
+            else:
+                API.SysMsg("Not in list!", 43)
+        else:
+            API.SysMsg("Target cancelled", 43)
+        clear_stray_cursor()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        clear_stray_cursor()
+
+def clear_all_pets():
+    global PETS, PET_NAMES, PET_ACTIVE
+    PETS = []
+    PET_NAMES = {}
+    PET_ACTIVE = {}
+    save_pets_to_storage()
+    API.SysMsg("Pet list cleared", 90)
+
+def make_pet_click_callback(idx):
+    def callback():
+        if idx >= len(PETS):
+            return
+        serial = PETS[idx]
+        mob = API.FindMobile(serial)
+        if not mob:
+            API.SysMsg("Pet not found!", 32)
+            return
+
+        name = get_mob_name(mob)
+        if mob.IsDead:
+            API.SysMsg(name + " is dead!", 32)
+            return
+
+        API.Msg(name + " follow me")
+        API.HeadMsg("Follow!", serial, 68)
+        API.Pause(0.3)
+
+        global manual_heal_target
+        manual_heal_target = serial
+        API.SysMsg("Following + priority heal: " + name, 68)
+    return callback
+
+def toggle_pet_active(idx):
+    """Toggle pet active state in ORDER mode"""
+    if idx >= len(PETS):
+        return
+
+    serial = PETS[idx]
+    current_state = PET_ACTIVE.get(serial, True)
+    PET_ACTIVE[serial] = not current_state
+    save_pets_to_storage()
+    update_pet_order_display()
+    update_pet_arrow_display()
+    update_config_gump_state()
+
+# ============ GUI CALLBACKS ============
 def toggle_expand():
-    """Toggle between collapsed and expanded states"""
     global is_expanded
-
     is_expanded = not is_expanded
-    save_expanded_state()
+    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
 
     if is_expanded:
         expand_window()
@@ -1288,184 +1150,862 @@ def toggle_expand():
         collapse_window()
 
 def expand_window():
-    """Show all controls and resize window"""
     expandBtn.SetText("[-]")
 
-    # Show all controls - LEFT PANEL (HEALER)
-    healerTitle.IsVisible = True
-    mageryBtn.IsVisible = True
-    selfBtn.IsVisible = True
-    rezBtn.IsVisible = True
-    skipBtn.IsVisible = True
-    tankLabel.IsVisible = True
-    setTankBtn.IsVisible = True
-    clrTankBtn.IsVisible = True
-    vetkitLabel.IsVisible = True
-    setVetBtn.IsVisible = True
-    clrVetBtn.IsVisible = True
+    # Status row
     pauseBtn.IsVisible = True
+    modeBtn.IsVisible = True
     statusLabel.IsVisible = True
 
-    # Show all controls - RIGHT PANEL (COMMANDS)
-    cmdTitle.IsVisible = True
-    rezFriendLabel.IsVisible = True
+    # Action buttons
     rezFriendBtn.IsVisible = True
-    redsBtn.IsVisible = True
-    graysBtn.IsVisible = True
-    modeBtn.IsVisible = True
-    hotkeyLabel.IsVisible = True
-    bankBtn.IsVisible = True
-    balanceBtn.IsVisible = True
     allKillBtn.IsVisible = True
     followAllBtn.IsVisible = True
     guardAllBtn.IsVisible = True
     stayAllBtn.IsVisible = True
-    potionsBtn.IsVisible = True
-    autoTargetBtn.IsVisible = True
-    setPouchBtn.IsVisible = True
-    usePouchBtn.IsVisible = True
-    healPotionLabel.IsVisible = True
-    curePotionLabel.IsVisible = True
 
-    # Show all controls - BOTTOM PANEL (PETS)
+    # Pets section
     petsTitle.IsVisible = True
-    for lbl in pet_labels:
-        lbl.IsVisible = True
-    for toggle in pet_toggles:
-        toggle.IsVisible = True
     addBtn.IsVisible = True
     removeBtn.IsVisible = True
     clearBtn.IsVisible = True
+    for lbl in pet_labels:
+        lbl.IsVisible = True
 
-    # Resize gump and background
+    # Resize window
     x = gump.GetX()
     y = gump.GetY()
-    gump.SetRect(x, y, WINDOW_WIDTH, EXPANDED_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, EXPANDED_HEIGHT)
+    gump.SetRect(x, y, WINDOW_WIDTH_NORMAL, EXPANDED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, EXPANDED_HEIGHT)
 
 def collapse_window():
-    """Hide all controls and shrink window"""
     expandBtn.SetText("[+]")
 
-    # Hide all controls - LEFT PANEL (HEALER)
-    healerTitle.IsVisible = False
-    mageryBtn.IsVisible = False
-    selfBtn.IsVisible = False
-    rezBtn.IsVisible = False
-    skipBtn.IsVisible = False
-    tankLabel.IsVisible = False
-    setTankBtn.IsVisible = False
-    clrTankBtn.IsVisible = False
-    vetkitLabel.IsVisible = False
-    setVetBtn.IsVisible = False
-    clrVetBtn.IsVisible = False
+    # Status row
     pauseBtn.IsVisible = False
+    modeBtn.IsVisible = False
     statusLabel.IsVisible = False
 
-    # Hide all controls - RIGHT PANEL (COMMANDS)
-    cmdTitle.IsVisible = False
-    rezFriendLabel.IsVisible = False
+    # Action buttons
     rezFriendBtn.IsVisible = False
-    redsBtn.IsVisible = False
-    graysBtn.IsVisible = False
-    modeBtn.IsVisible = False
-    hotkeyLabel.IsVisible = False
-    bankBtn.IsVisible = False
-    balanceBtn.IsVisible = False
     allKillBtn.IsVisible = False
     followAllBtn.IsVisible = False
     guardAllBtn.IsVisible = False
     stayAllBtn.IsVisible = False
-    potionsBtn.IsVisible = False
-    autoTargetBtn.IsVisible = False
-    setPouchBtn.IsVisible = False
-    usePouchBtn.IsVisible = False
-    healPotionLabel.IsVisible = False
-    curePotionLabel.IsVisible = False
 
-    # Hide all controls - BOTTOM PANEL (PETS)
+    # Pets section
     petsTitle.IsVisible = False
-    for lbl in pet_labels:
-        lbl.IsVisible = False
-    for toggle in pet_toggles:
-        toggle.IsVisible = False
     addBtn.IsVisible = False
     removeBtn.IsVisible = False
     clearBtn.IsVisible = False
+    for lbl in pet_labels:
+        lbl.IsVisible = False
 
-    # Resize gump and background
+    # Resize window
     x = gump.GetX()
     y = gump.GetY()
-    gump.SetRect(x, y, WINDOW_WIDTH, COLLAPSED_HEIGHT)
-    bg.SetRect(0, 0, WINDOW_WIDTH, COLLAPSED_HEIGHT)
+    gump.SetRect(x, y, WINDOW_WIDTH_NORMAL, COLLAPSED_HEIGHT)
+    bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, COLLAPSED_HEIGHT)
 
-def save_expanded_state():
-    """Save expanded state to persistence"""
-    API.SavePersistentVar(EXPANDED_KEY, str(is_expanded), API.PersistentVar.Char)
-
-def load_expanded_state():
-    """Load expanded state from persistence"""
-    global is_expanded
-    saved = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char)
-    is_expanded = (saved == "True")
-
-# ============ GUI CALLBACKS ============
-def toggle_pause():
-    global PAUSED
-    PAUSED = not PAUSED
-    if PAUSED:
-        cancel_heal()
-        pauseBtn.SetText("[PAUSED]")
-        pauseBtn.SetBackgroundHue(32)
-        statusLabel.SetText("*** PAUSED ***")
-        API.SysMsg("Healer PAUSED", 43)
+def toggle_config():
+    """Open separate config window (NEW v2.2 - uses separate gump)"""
+    global config_gump
+    if config_gump is None:
+        build_config_gump()
     else:
-        pauseBtn.SetText("[PAUSE]")
-        pauseBtn.SetBackgroundHue(90)
-        statusLabel.SetText("Running")
-        API.SysMsg("Healer RESUMED", 68)
+        close_config_gump()
 
+def show_config_panel():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
+
+def hide_config_panel():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
+
+# ============ NEW CONFIG WINDOW (SEPARATE GUMP) ============
+def build_config_gump():
+    """Create and display the separate config window (520x440px)"""
+    global config_gump, config_controls, config_last_known_x, config_last_known_y
+
+    # Don't create if already open
+    if config_gump is not None:
+        return
+
+    # Clear button references
+    config_controls = {}
+
+    # Load saved position or use default (offset from main window)
+    saved_pos = API.GetPersistentVar(CONFIG_XY_KEY, "150,150", API.PersistentVar.Char)
+    pos_parts = saved_pos.split(',')
+    cfg_x, cfg_y = int(pos_parts[0]), int(pos_parts[1])
+
+    # Initialize position tracking
+    config_last_known_x = cfg_x
+    config_last_known_y = cfg_y
+
+    # Create config gump
+    config_gump = API.Gumps.CreateGump()
+    config_gump.SetRect(cfg_x, cfg_y, 520, 450)
+
+    # Main background
+    cfg_bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e")
+    cfg_bg.SetRect(0, 0, 520, 450)
+    config_gump.Add(cfg_bg)
+
+    # Title (no separate bar - integrated into background)
+    title = API.Gumps.CreateGumpTTFLabel("Tamer Suite Configuration v3.0", 13, "#ffaa00")
+    title.SetPos(100, 8)
+    config_gump.Add(title)
+
+    # === SECTION 1: TOP ROW (3 columns) ===
+    y_start = 30
+
+    # --- COLUMN 1: HEALING & PRIORITY (X: 8, W: 160) ---
+    col1_x = 8
+    col1_y = y_start
+
+    # Section box
+    heal_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    heal_box.SetRect(col1_x, col1_y, 160, 150)
+    config_gump.Add(heal_box)
+
+    # Header
+    heal_hdr = API.Gumps.CreateGumpTTFLabel("HEALING", 10, "#00ff88")
+    heal_hdr.SetPos(col1_x + 45, col1_y + 3)
+    config_gump.Add(heal_hdr)
+
+    col1_y += 16
+
+    # Magery toggle
+    mag_lbl = API.Gumps.CreateGumpTTFLabel("Magery:", 9, "#dddddd")
+    mag_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(mag_lbl)
+
+    config_controls["magery_band"] = API.Gumps.CreateSimpleButton("[BAND]", 55, 18)
+    config_controls["magery_band"].SetPos(col1_x + 50, col1_y)
+    config_controls["magery_band"].SetBackgroundHue(68 if not USE_MAGERY else 90)
+    API.Gumps.AddControlOnClick(config_controls["magery_band"], lambda: toggle_magery_config(False))
+    config_gump.Add(config_controls["magery_band"])
+
+    config_controls["magery_mage"] = API.Gumps.CreateSimpleButton("[MAGE]", 52, 18)
+    config_controls["magery_mage"].SetPos(col1_x + 105, col1_y)
+    config_controls["magery_mage"].SetBackgroundHue(66 if USE_MAGERY else 90)
+    API.Gumps.AddControlOnClick(config_controls["magery_mage"], lambda: toggle_magery_config(True))
+    config_gump.Add(config_controls["magery_mage"])
+
+    col1_y += 17
+
+    # Heal Self
+    hs_lbl = API.Gumps.CreateGumpTTFLabel("Heal Self:", 9, "#dddddd")
+    hs_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(hs_lbl)
+
+    config_controls["heal_self_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["heal_self_off"].SetPos(col1_x + 60, col1_y)
+    config_controls["heal_self_off"].SetBackgroundHue(32 if not HEAL_SELF else 90)
+    API.Gumps.AddControlOnClick(config_controls["heal_self_off"], lambda: toggle_self(False))
+    config_gump.Add(config_controls["heal_self_off"])
+
+    config_controls["heal_self_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["heal_self_on"].SetPos(col1_x + 110, col1_y)
+    config_controls["heal_self_on"].SetBackgroundHue(68 if HEAL_SELF else 90)
+    API.Gumps.AddControlOnClick(config_controls["heal_self_on"], lambda: toggle_self(True))
+    config_gump.Add(config_controls["heal_self_on"])
+
+    col1_y += 17
+
+    # Pet Rez
+    pr_lbl = API.Gumps.CreateGumpTTFLabel("Pet Rez:", 9, "#dddddd")
+    pr_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(pr_lbl)
+
+    config_controls["pet_rez_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["pet_rez_off"].SetPos(col1_x + 60, col1_y)
+    config_controls["pet_rez_off"].SetBackgroundHue(32 if not USE_REZ else 90)
+    API.Gumps.AddControlOnClick(config_controls["pet_rez_off"], lambda: toggle_rez(False))
+    config_gump.Add(config_controls["pet_rez_off"])
+
+    config_controls["pet_rez_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["pet_rez_on"].SetPos(col1_x + 110, col1_y)
+    config_controls["pet_rez_on"].SetBackgroundHue(68 if USE_REZ else 90)
+    API.Gumps.AddControlOnClick(config_controls["pet_rez_on"], lambda: toggle_rez(True))
+    config_gump.Add(config_controls["pet_rez_on"])
+
+    col1_y += 17
+
+    # Skip OOR
+    so_lbl = API.Gumps.CreateGumpTTFLabel("Skip OOR:", 9, "#dddddd")
+    so_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(so_lbl)
+
+    config_controls["skip_oor_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["skip_oor_off"].SetPos(col1_x + 60, col1_y)
+    config_controls["skip_oor_off"].SetBackgroundHue(32 if not SKIP_OUT_OF_RANGE else 90)
+    API.Gumps.AddControlOnClick(config_controls["skip_oor_off"], lambda: toggle_skip(False))
+    config_gump.Add(config_controls["skip_oor_off"])
+
+    config_controls["skip_oor_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["skip_oor_on"].SetPos(col1_x + 110, col1_y)
+    config_controls["skip_oor_on"].SetBackgroundHue(68 if SKIP_OUT_OF_RANGE else 90)
+    API.Gumps.AddControlOnClick(config_controls["skip_oor_on"], lambda: toggle_skip(True))
+    config_gump.Add(config_controls["skip_oor_on"])
+
+    col1_y += 17
+
+    # Potions
+    pot_lbl = API.Gumps.CreateGumpTTFLabel("Potions:", 9, "#dddddd")
+    pot_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(pot_lbl)
+
+    config_controls["potions_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["potions_off"].SetPos(col1_x + 60, col1_y)
+    config_controls["potions_off"].SetBackgroundHue(32 if not USE_POTIONS else 90)
+    API.Gumps.AddControlOnClick(config_controls["potions_off"], lambda: toggle_potions(False))
+    config_gump.Add(config_controls["potions_off"])
+
+    config_controls["potions_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["potions_on"].SetPos(col1_x + 110, col1_y)
+    config_controls["potions_on"].SetBackgroundHue(68 if USE_POTIONS else 90)
+    API.Gumps.AddControlOnClick(config_controls["potions_on"], lambda: toggle_potions(True))
+    config_gump.Add(config_controls["potions_on"])
+
+    col1_y += 20
+
+    # Tank Priority
+    tank_lbl = API.Gumps.CreateGumpTTFLabel("Tank Priority:", 9, "#dddddd")
+    tank_lbl.SetPos(col1_x + 4, col1_y)
+    config_gump.Add(tank_lbl)
+
+    col1_y += 12
+    tank_name = get_tank_name() if TANK_PET != 0 else "None"
+    tank_val = API.Gumps.CreateGumpTTFLabel(tank_name, 9, "#ffaaff" if TANK_PET != 0 else "#aaaaaa")
+    tank_val.SetPos(col1_x + 4, col1_y)
+    config_gump.Add(tank_val)
+
+    col1_y += 14
+    tank_set = API.Gumps.CreateSimpleButton("[SET]", 50, 16)
+    tank_set.SetPos(col1_x + 4, col1_y)
+    tank_set.SetBackgroundHue(38)
+    API.Gumps.AddControlOnClick(tank_set, set_tank)
+    config_gump.Add(tank_set)
+
+    tank_clr = API.Gumps.CreateSimpleButton("[CLEAR]", 50, 16)
+    tank_clr.SetPos(col1_x + 57, col1_y)
+    tank_clr.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(tank_clr, clear_tank)
+    config_gump.Add(tank_clr)
+
+    # --- COLUMN 2: COMMANDS (X: 176, W: 160) ---
+    col2_x = 176
+    col2_y = y_start
+
+    # Section box
+    cmd_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    cmd_box.SetRect(col2_x, col2_y, 160, 114)
+    config_gump.Add(cmd_box)
+
+    # Header
+    cmd_hdr = API.Gumps.CreateGumpTTFLabel("COMMANDS", 10, "#ff6666")
+    cmd_hdr.SetPos(col2_x + 40, col2_y + 3)
+    config_gump.Add(cmd_hdr)
+
+    col2_y += 16
+
+    # REDS
+    red_lbl = API.Gumps.CreateGumpTTFLabel("REDS:", 9, "#dddddd")
+    red_lbl.SetPos(col2_x + 4, col2_y + 3)
+    config_gump.Add(red_lbl)
+
+    config_controls["reds_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["reds_off"].SetPos(col2_x + 60, col2_y)
+    config_controls["reds_off"].SetBackgroundHue(32 if not TARGET_REDS else 90)
+    API.Gumps.AddControlOnClick(config_controls["reds_off"], lambda: toggle_reds(False))
+    config_gump.Add(config_controls["reds_off"])
+
+    config_controls["reds_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["reds_on"].SetPos(col2_x + 110, col2_y)
+    config_controls["reds_on"].SetBackgroundHue(68 if TARGET_REDS else 90)
+    API.Gumps.AddControlOnClick(config_controls["reds_on"], lambda: toggle_reds(True))
+    config_gump.Add(config_controls["reds_on"])
+
+    col2_y += 17
+
+    # GRAYS
+    gray_lbl = API.Gumps.CreateGumpTTFLabel("GRAYS:", 9, "#dddddd")
+    gray_lbl.SetPos(col2_x + 4, col2_y + 3)
+    config_gump.Add(gray_lbl)
+
+    config_controls["grays_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["grays_off"].SetPos(col2_x + 60, col2_y)
+    config_controls["grays_off"].SetBackgroundHue(32 if not TARGET_GRAYS else 90)
+    API.Gumps.AddControlOnClick(config_controls["grays_off"], lambda: toggle_grays(False))
+    config_gump.Add(config_controls["grays_off"])
+
+    config_controls["grays_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["grays_on"].SetPos(col2_x + 110, col2_y)
+    config_controls["grays_on"].SetBackgroundHue(68 if TARGET_GRAYS else 90)
+    API.Gumps.AddControlOnClick(config_controls["grays_on"], lambda: toggle_grays(True))
+    config_gump.Add(config_controls["grays_on"])
+
+    col2_y += 17
+
+    # Mode
+    mode_lbl = API.Gumps.CreateGumpTTFLabel("Mode:", 9, "#dddddd")
+    mode_lbl.SetPos(col2_x + 4, col2_y + 3)
+    config_gump.Add(mode_lbl)
+
+    config_controls["mode_all"] = API.Gumps.CreateSimpleButton("[ALL]", 50, 18)
+    config_controls["mode_all"].SetPos(col2_x + 60, col2_y)
+    config_controls["mode_all"].SetBackgroundHue(68 if ATTACK_MODE == "ALL" else 90)
+    API.Gumps.AddControlOnClick(config_controls["mode_all"], toggle_mode)
+    config_gump.Add(config_controls["mode_all"])
+
+    config_controls["mode_order"] = API.Gumps.CreateSimpleButton("[ORDER]", 47, 18)
+    config_controls["mode_order"].SetPos(col2_x + 110, col2_y)
+    config_controls["mode_order"].SetBackgroundHue(68 if ATTACK_MODE == "ORDER" else 90)
+    API.Gumps.AddControlOnClick(config_controls["mode_order"], toggle_mode)
+    config_gump.Add(config_controls["mode_order"])
+
+    col2_y += 17
+
+    # Auto-Target
+    at_lbl = API.Gumps.CreateGumpTTFLabel("Auto-Target:", 9, "#dddddd")
+    at_lbl.SetPos(col2_x + 4, col2_y + 3)
+    config_gump.Add(at_lbl)
+
+    config_controls["auto_target_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["auto_target_off"].SetPos(col2_x + 60, col2_y)
+    config_controls["auto_target_off"].SetBackgroundHue(32 if not auto_target else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_target_off"], lambda: toggle_auto_target(False))
+    config_gump.Add(config_controls["auto_target_off"])
+
+    config_controls["auto_target_on"] = API.Gumps.CreateSimpleButton("[ON]", 47, 18)
+    config_controls["auto_target_on"].SetPos(col2_x + 110, col2_y)
+    config_controls["auto_target_on"].SetBackgroundHue(68 if auto_target else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_target_on"], lambda: toggle_auto_target(True))
+    config_gump.Add(config_controls["auto_target_on"])
+
+    # --- COLUMN 3: EQUIPMENT (X: 344, W: 168) ---
+    col3_x = 344
+    col3_y = y_start
+
+    # Section box
+    eq_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    eq_box.SetRect(col3_x, col3_y, 168, 165)
+    config_gump.Add(eq_box)
+
+    # Header
+    eq_hdr = API.Gumps.CreateGumpTTFLabel("EQUIPMENT", 10, "#ffaa00")
+    eq_hdr.SetPos(col3_x + 40, col3_y + 3)
+    config_gump.Add(eq_hdr)
+
+    col3_y += 16
+
+    # Vet Kit
+    vk_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 9, "#dddddd")
+    vk_lbl.SetPos(col3_x + 4, col3_y)
+    config_gump.Add(vk_lbl)
+
+    col3_y += 12
+    vk_val_text = "#" + str(VET_KIT_GRAPHIC) if VET_KIT_GRAPHIC != 0 else "Not Set"
+    vk_val = API.Gumps.CreateGumpTTFLabel(vk_val_text, 9, "#aaffaa" if VET_KIT_GRAPHIC != 0 else "#aaaaaa")
+    vk_val.SetPos(col3_x + 4, col3_y)
+    config_gump.Add(vk_val)
+
+    col3_y += 14
+    vk_set = API.Gumps.CreateSimpleButton("[SET]", 50, 16)
+    vk_set.SetPos(col3_x + 4, col3_y)
+    vk_set.SetBackgroundHue(68)
+    API.Gumps.AddControlOnClick(vk_set, set_vetkit)
+    config_gump.Add(vk_set)
+
+    vk_clr = API.Gumps.CreateSimpleButton("[CLEAR]", 50, 16)
+    vk_clr.SetPos(col3_x + 57, col3_y)
+    vk_clr.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(vk_clr, clear_vetkit)
+    config_gump.Add(vk_clr)
+
+    col3_y += 22
+
+    # Trapped Pouch
+    tp_lbl = API.Gumps.CreateGumpTTFLabel("Pouch:", 9, "#dddddd")
+    tp_lbl.SetPos(col3_x + 4, col3_y)
+    config_gump.Add(tp_lbl)
+
+    col3_y += 12
+    tp_val_text = hex(trapped_pouch_serial) if trapped_pouch_serial != 0 else "Not Set"
+    tp_val = API.Gumps.CreateGumpTTFLabel(tp_val_text, 9, "#aaffaa" if trapped_pouch_serial != 0 else "#aaaaaa")
+    tp_val.SetPos(col3_x + 4, col3_y)
+    config_gump.Add(tp_val)
+
+    col3_y += 14
+    tp_set = API.Gumps.CreateSimpleButton("[SET]", 50, 16)
+    tp_set.SetPos(col3_x + 4, col3_y)
+    tp_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(tp_set, on_set_trapped_pouch)
+    config_gump.Add(tp_set)
+
+    tp_clr = API.Gumps.CreateSimpleButton("[CLEAR]", 50, 16)
+    tp_clr.SetPos(col3_x + 57, col3_y)
+    tp_clr.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(tp_clr, clear_trapped_pouch)
+    config_gump.Add(tp_clr)
+
+    col3_y += 21
+
+    # Use Pouch
+    up_lbl = API.Gumps.CreateGumpTTFLabel("Use Pouch:", 9, "#dddddd")
+    up_lbl.SetPos(col3_x + 4, col3_y + 3)
+    config_gump.Add(up_lbl)
+
+    config_controls["use_pouch_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
+    config_controls["use_pouch_off"].SetPos(col3_x + 60, col3_y)
+    config_controls["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+    API.Gumps.AddControlOnClick(config_controls["use_pouch_off"], lambda: toggle_use_trapped_pouch(False))
+    config_gump.Add(config_controls["use_pouch_off"])
+
+    config_controls["use_pouch_on"] = API.Gumps.CreateSimpleButton("[ON]", 50, 18)
+    config_controls["use_pouch_on"].SetPos(col3_x + 113, col3_y)
+    config_controls["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+    API.Gumps.AddControlOnClick(config_controls["use_pouch_on"], lambda: toggle_use_trapped_pouch(True))
+    config_gump.Add(config_controls["use_pouch_on"])
+
+    # === SECTION 2: PET HOTKEYS ===
+    sec2_y = 188
+
+    pk_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    pk_box.SetRect(8, sec2_y, 504, 75)
+    config_gump.Add(pk_box)
+
+    pk_hdr = API.Gumps.CreateGumpTTFLabel("PET HOTKEYS", 10, "#ffaa00")
+    pk_hdr.SetPos(200, sec2_y + 3)
+    config_gump.Add(pk_hdr)
+
+    pk_row_y = sec2_y + 18
+
+    # Left column (pets 1-3)
+    for i in range(3):
+        if i < len(PETS):
+            serial = PETS[i]
+            name = PET_NAMES.get(serial, "Pet")
+            lbl_text = "Pet " + str(i+1) + " (" + name + "):"
+        else:
+            lbl_text = "Pet " + str(i+1) + ":"
+
+        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        pk_lbl.SetPos(15, pk_row_y + 3)
+        config_gump.Add(pk_lbl)
+
+        hk_text = "[" + (pet_hotkeys[i] if i < len(pet_hotkeys) and pet_hotkeys[i] else "---") + "]"
+        config_controls["pet_hk_" + str(i)] = API.Gumps.CreateSimpleButton(hk_text, 40, 18)
+        config_controls["pet_hk_" + str(i)].SetPos(160, pk_row_y)
+        config_controls["pet_hk_" + str(i)].SetBackgroundHue(68 if (i < len(pet_hotkeys) and pet_hotkeys[i]) else 90)
+        API.Gumps.AddControlOnClick(config_controls["pet_hk_" + str(i)], lambda idx=i: clear_pet_hotkey(idx))
+        config_gump.Add(config_controls["pet_hk_" + str(i)])
+
+        pk_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+        pk_set.SetPos(203, pk_row_y)
+        pk_set.SetBackgroundHue(43)
+        API.Gumps.AddControlOnClick(pk_set, lambda idx=i: start_capture_pet_hotkey(idx))
+        config_gump.Add(pk_set)
+
+        pk_row_y += 18
+
+    # Right column (pets 4-5)
+    pk_row_y = sec2_y + 18
+    for i in range(3, 5):
+        if i < len(PETS):
+            serial = PETS[i]
+            name = PET_NAMES.get(serial, "Pet")
+            lbl_text = "Pet " + str(i+1) + " (" + name + "):"
+        else:
+            lbl_text = "Pet " + str(i+1) + ":"
+
+        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        pk_lbl.SetPos(265, pk_row_y + 3)
+        config_gump.Add(pk_lbl)
+
+        hk_text = "[" + (pet_hotkeys[i] if i < len(pet_hotkeys) and pet_hotkeys[i] else "---") + "]"
+        config_controls["pet_hk_" + str(i)] = API.Gumps.CreateSimpleButton(hk_text, 40, 18)
+        config_controls["pet_hk_" + str(i)].SetPos(410, pk_row_y)
+        config_controls["pet_hk_" + str(i)].SetBackgroundHue(68 if (i < len(pet_hotkeys) and pet_hotkeys[i]) else 90)
+        API.Gumps.AddControlOnClick(config_controls["pet_hk_" + str(i)], lambda idx=i: clear_pet_hotkey(idx))
+        config_gump.Add(config_controls["pet_hk_" + str(i)])
+
+        pk_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+        pk_set.SetPos(453, pk_row_y)
+        pk_set.SetBackgroundHue(43)
+        API.Gumps.AddControlOnClick(pk_set, lambda idx=i: start_capture_pet_hotkey(idx))
+        config_gump.Add(pk_set)
+
+        pk_row_y += 18
+
+    # === SECTION 3: ORDER MODE ===
+    sec3_y = 271
+
+    om_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    om_box.SetRect(8, sec3_y, 504, 75)
+    config_gump.Add(om_box)
+
+    om_hdr = API.Gumps.CreateGumpTTFLabel("ORDER MODE (any skip = individual cmds)", 10, "#66aaff")
+    om_hdr.SetPos(115, sec3_y + 3)
+    config_gump.Add(om_hdr)
+
+    om_row_y = sec3_y + 18
+
+    # Left column (pets 1-3)
+    for i in range(3):
+        if i < len(PETS):
+            serial = PETS[i]
+            name = PET_NAMES.get(serial, "Pet")
+            lbl_text = "Pet " + str(i+1) + " (" + name + "):"
+            is_active = PET_ACTIVE.get(serial, True)
+        else:
+            lbl_text = "Pet " + str(i+1) + ":"
+            is_active = True
+
+        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        om_lbl.SetPos(15, om_row_y + 3)
+        config_gump.Add(om_lbl)
+
+        om_act = API.Gumps.CreateSimpleButton("[ACTIVE]", 60, 18)
+        om_act.SetPos(160, om_row_y)
+        om_act.SetBackgroundHue(68 if is_active else 32)
+        API.Gumps.AddControlOnClick(om_act, lambda idx=i: toggle_pet_active(idx))
+        config_gump.Add(om_act)
+
+        om_skip = API.Gumps.CreateSimpleButton("[SKIP]", 60, 18)
+        om_skip.SetPos(223, om_row_y)
+        om_skip.SetBackgroundHue(68 if not is_active else 32)
+        API.Gumps.AddControlOnClick(om_skip, lambda idx=i: toggle_pet_active(idx))
+        config_gump.Add(om_skip)
+
+        om_row_y += 18
+
+    # Right column (pets 4-5)
+    om_row_y = sec3_y + 18
+    for i in range(3, 5):
+        if i < len(PETS):
+            serial = PETS[i]
+            name = PET_NAMES.get(serial, "Pet")
+            lbl_text = "Pet " + str(i+1) + " (" + name + "):"
+            is_active = PET_ACTIVE.get(serial, True)
+        else:
+            lbl_text = "Pet " + str(i+1) + ":"
+            is_active = True
+
+        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        om_lbl.SetPos(295, om_row_y + 3)
+        config_gump.Add(om_lbl)
+
+        om_act = API.Gumps.CreateSimpleButton("[ACTIVE]", 60, 18)
+        om_act.SetPos(390, om_row_y)
+        om_act.SetBackgroundHue(68 if is_active else 32)
+        API.Gumps.AddControlOnClick(om_act, lambda idx=i: toggle_pet_active(idx))
+        config_gump.Add(om_act)
+
+        om_skip = API.Gumps.CreateSimpleButton("[SKIP]", 60, 18)
+        om_skip.SetPos(452, om_row_y)
+        om_skip.SetBackgroundHue(68 if not is_active else 32)
+        API.Gumps.AddControlOnClick(om_skip, lambda idx=i: toggle_pet_active(idx))
+        config_gump.Add(om_skip)
+
+        om_row_y += 18
+
+    # === SECTION 4: COMMAND HOTKEYS ===
+    sec4_y = 354
+
+    ch_box = API.Gumps.CreateGumpColorBox(0.9, "#0f0f1a")
+    ch_box.SetRect(8, sec4_y, 504, 78)
+    config_gump.Add(ch_box)
+
+    ch_hdr = API.Gumps.CreateGumpTTFLabel("COMMAND HOTKEYS", 10, "#ff8800")
+    ch_hdr.SetPos(185, sec4_y + 3)
+    config_gump.Add(ch_hdr)
+
+    # Row 1
+    cmd_y = sec4_y + 18
+
+    # Pause
+    ch_pause_lbl = API.Gumps.CreateGumpTTFLabel("Pause:", 9, "#dddddd")
+    ch_pause_lbl.SetPos(15, cmd_y + 3)
+    config_gump.Add(ch_pause_lbl)
+
+    pause_hk_text = "[" + (hotkeys.get("pause") or "---") + "]"
+    config_controls["pause_hk_display"] = API.Gumps.CreateSimpleButton(pause_hk_text, 50, 18)
+    config_controls["pause_hk_display"].SetPos(60, cmd_y)
+    config_controls["pause_hk_display"].SetBackgroundHue(68 if hotkeys.get("pause") else 90)
+    config_gump.Add(config_controls["pause_hk_display"])
+
+    ch_pause_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+    ch_pause_set.SetPos(113, cmd_y)
+    ch_pause_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(ch_pause_set, start_capture_pause)
+    config_gump.Add(ch_pause_set)
+
+    # Kill
+    ch_kill_lbl = API.Gumps.CreateGumpTTFLabel("Kill:", 9, "#dddddd")
+    ch_kill_lbl.SetPos(170, cmd_y + 3)
+    config_gump.Add(ch_kill_lbl)
+
+    kill_hk_text = "[" + (hotkeys.get("kill") or "---") + "]"
+    config_controls["kill_hk_display"] = API.Gumps.CreateSimpleButton(kill_hk_text, 40, 18)
+    config_controls["kill_hk_display"].SetPos(200, cmd_y)
+    config_controls["kill_hk_display"].SetBackgroundHue(68 if hotkeys.get("kill") else 90)
+    config_gump.Add(config_controls["kill_hk_display"])
+
+    ch_kill_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+    ch_kill_set.SetPos(243, cmd_y)
+    ch_kill_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(ch_kill_set, start_capture_kill)
+    config_gump.Add(ch_kill_set)
+
+    # Guard
+    ch_guard_lbl = API.Gumps.CreateGumpTTFLabel("Guard:", 9, "#dddddd")
+    ch_guard_lbl.SetPos(300, cmd_y + 3)
+    config_gump.Add(ch_guard_lbl)
+
+    guard_hk_text = "[" + (hotkeys.get("guard") or "---") + "]"
+    config_controls["guard_hk_display"] = API.Gumps.CreateSimpleButton(guard_hk_text, 40, 18)
+    config_controls["guard_hk_display"].SetPos(340, cmd_y)
+    config_controls["guard_hk_display"].SetBackgroundHue(68 if hotkeys.get("guard") else 90)
+    config_gump.Add(config_controls["guard_hk_display"])
+
+    ch_guard_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+    ch_guard_set.SetPos(383, cmd_y)
+    ch_guard_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(ch_guard_set, start_capture_guard)
+    config_gump.Add(ch_guard_set)
+
+    # Row 2
+    cmd_y += 20
+
+    # Follow
+    ch_follow_lbl = API.Gumps.CreateGumpTTFLabel("Follow:", 9, "#dddddd")
+    ch_follow_lbl.SetPos(15, cmd_y + 3)
+    config_gump.Add(ch_follow_lbl)
+
+    follow_hk_text = "[" + (hotkeys.get("follow") or "---") + "]"
+    config_controls["follow_hk_display"] = API.Gumps.CreateSimpleButton(follow_hk_text, 40, 18)
+    config_controls["follow_hk_display"].SetPos(60, cmd_y)
+    config_controls["follow_hk_display"].SetBackgroundHue(68 if hotkeys.get("follow") else 90)
+    config_gump.Add(config_controls["follow_hk_display"])
+
+    ch_follow_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+    ch_follow_set.SetPos(103, cmd_y)
+    ch_follow_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(ch_follow_set, start_capture_follow)
+    config_gump.Add(ch_follow_set)
+
+    # Stay
+    ch_stay_lbl = API.Gumps.CreateGumpTTFLabel("Stay:", 9, "#dddddd")
+    ch_stay_lbl.SetPos(160, cmd_y + 3)
+    config_gump.Add(ch_stay_lbl)
+
+    stay_hk_text = "[" + (hotkeys.get("stay") or "---") + "]"
+    config_controls["stay_hk_display"] = API.Gumps.CreateSimpleButton(stay_hk_text, 40, 18)
+    config_controls["stay_hk_display"].SetPos(195, cmd_y)
+    config_controls["stay_hk_display"].SetBackgroundHue(68 if hotkeys.get("stay") else 90)
+    config_gump.Add(config_controls["stay_hk_display"])
+
+    ch_stay_set = API.Gumps.CreateSimpleButton("[SET]", 35, 18)
+    ch_stay_set.SetPos(238, cmd_y)
+    ch_stay_set.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(ch_stay_set, start_capture_stay)
+    config_gump.Add(ch_stay_set)
+
+    # === CLOSE BUTTON ===
+    close_btn = API.Gumps.CreateSimpleButton("[CLOSE]", 100, 22)
+    close_btn.SetPos(210, 420)
+    close_btn.SetBackgroundHue(68)
+    API.Gumps.AddControlOnClick(close_btn, close_config_gump)
+    config_gump.Add(close_btn)
+
+    # Register close callback
+    API.Gumps.AddControlOnDisposed(config_gump, on_config_closed)
+
+    # Display the gump
+    API.Gumps.AddGump(config_gump)
+
+    API.SysMsg("Config window opened", 68)
+
+def close_config_gump():
+    """Close the config window"""
+    global config_gump, config_controls, config_last_known_x, config_last_known_y
+    if config_gump is not None:
+        # Always use tracked position - gump is being disposed so GetX/GetY returns 0
+        if config_last_known_x >= 0 and config_last_known_y >= 0:
+            API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+
+        config_gump.Dispose()
+        config_gump = None
+        config_controls = {}
+
+def on_config_closed():
+    """Called when config window is closed"""
+    global config_gump, config_controls, config_last_known_x, config_last_known_y
+
+    # Always use tracked position - gump is being disposed so GetX/GetY returns 0
+    if config_last_known_x >= 0 and config_last_known_y >= 0:
+        API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+
+    # Clear references
+    config_gump = None
+    config_controls = {}
+    API.SysMsg("Config window closed", 90)
+
+def update_config_gump_state():
+    """Update config window button states WITHOUT rebuilding"""
+    if config_gump is None:
+        return  # Window not open, nothing to update
+
+    c = config_controls
+
+    # Magery toggle
+    if "magery_band" in c:
+        c["magery_band"].SetBackgroundHue(68 if not USE_MAGERY else 90)
+    if "magery_mage" in c:
+        c["magery_mage"].SetBackgroundHue(66 if USE_MAGERY else 90)
+
+    # Heal Self toggle
+    if "heal_self_off" in c:
+        c["heal_self_off"].SetBackgroundHue(32 if not HEAL_SELF else 90)
+    if "heal_self_on" in c:
+        c["heal_self_on"].SetBackgroundHue(68 if HEAL_SELF else 90)
+
+    # Pet Rez toggle
+    if "pet_rez_off" in c:
+        c["pet_rez_off"].SetBackgroundHue(32 if not USE_REZ else 90)
+    if "pet_rez_on" in c:
+        c["pet_rez_on"].SetBackgroundHue(68 if USE_REZ else 90)
+
+    # Skip OOR toggle
+    if "skip_oor_off" in c:
+        c["skip_oor_off"].SetBackgroundHue(32 if not SKIP_OUT_OF_RANGE else 90)
+    if "skip_oor_on" in c:
+        c["skip_oor_on"].SetBackgroundHue(68 if SKIP_OUT_OF_RANGE else 90)
+
+    # Potions toggle
+    if "potions_off" in c:
+        c["potions_off"].SetBackgroundHue(32 if not USE_POTIONS else 90)
+    if "potions_on" in c:
+        c["potions_on"].SetBackgroundHue(68 if USE_POTIONS else 90)
+
+    # REDS toggle
+    if "reds_off" in c:
+        c["reds_off"].SetBackgroundHue(32 if not TARGET_REDS else 90)
+    if "reds_on" in c:
+        c["reds_on"].SetBackgroundHue(68 if TARGET_REDS else 90)
+
+    # GRAYS toggle
+    if "grays_off" in c:
+        c["grays_off"].SetBackgroundHue(32 if not TARGET_GRAYS else 90)
+    if "grays_on" in c:
+        c["grays_on"].SetBackgroundHue(68 if TARGET_GRAYS else 90)
+
+    # Mode toggle
+    if "mode_all" in c:
+        c["mode_all"].SetBackgroundHue(68 if ATTACK_MODE == "ALL" else 90)
+    if "mode_order" in c:
+        c["mode_order"].SetBackgroundHue(68 if ATTACK_MODE == "ORDER" else 90)
+
+    # Auto-Target toggle
+    if "auto_target_off" in c:
+        c["auto_target_off"].SetBackgroundHue(32 if not auto_target else 90)
+    if "auto_target_on" in c:
+        c["auto_target_on"].SetBackgroundHue(68 if auto_target else 90)
+
+    # Use Pouch toggle
+    if "use_pouch_off" in c:
+        c["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+    if "use_pouch_on" in c:
+        c["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+
+def toggle_magery_config(use_mage):
+    """Toggle magery mode from config window"""
+    global USE_MAGERY
+    USE_MAGERY = use_mage
+    API.SavePersistentVar(MAGERY_KEY, str(USE_MAGERY), API.PersistentVar.Char)
+    update_config_gump_state()
+
+def get_tank_name():
+    """Get tank pet name for display"""
+    if TANK_PET == 0:
+        return "None"
+    mob = API.FindMobile(TANK_PET)
+    if mob:
+        return get_mob_name(mob)
+    return "Unknown"
+
+# ============ EXISTING FUNCTIONS ============
 def toggle_magery():
     global USE_MAGERY
     USE_MAGERY = not USE_MAGERY
     API.SavePersistentVar(MAGERY_KEY, str(USE_MAGERY), API.PersistentVar.Char)
-    mageryBtn.SetText("[MAGE]" if USE_MAGERY else "[BAND]")
-    mageryBtn.SetBackgroundHue(66 if USE_MAGERY else 68)
+    update_config_gump_state()
 
-def toggle_self():
+def toggle_self(state):
     global HEAL_SELF
-    HEAL_SELF = not HEAL_SELF
+    HEAL_SELF = state
     API.SavePersistentVar(HEALSELF_KEY, str(HEAL_SELF), API.PersistentVar.Char)
-    selfBtn.SetText("[SELF:" + ("ON" if HEAL_SELF else "OFF") + "]")
-    selfBtn.SetBackgroundHue(68 if HEAL_SELF else 90)
+    update_config_healer_display()
+    update_config_gump_state()
 
-def toggle_rez():
+def toggle_rez(state):
     global USE_REZ
-    USE_REZ = not USE_REZ
+    USE_REZ = state
     API.SavePersistentVar(REZ_KEY, str(USE_REZ), API.PersistentVar.Char)
-    rezBtn.SetText("[REZ:" + ("ON" if USE_REZ else "OFF") + "]")
-    rezBtn.SetBackgroundHue(38 if USE_REZ else 90)
+    update_config_healer_display()
+    update_config_gump_state()
 
-def toggle_skip():
+def toggle_skip(state):
     global SKIP_OUT_OF_RANGE
-    SKIP_OUT_OF_RANGE = not SKIP_OUT_OF_RANGE
+    SKIP_OUT_OF_RANGE = state
     API.SavePersistentVar(SKIPOOR_KEY, str(SKIP_OUT_OF_RANGE), API.PersistentVar.Char)
-    skipBtn.SetText("[SKIP:" + ("ON" if SKIP_OUT_OF_RANGE else "OFF") + "]")
-    skipBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 90)
+    update_config_healer_display()
+    update_config_gump_state()
 
-def toggle_reds():
+def toggle_reds(state):
     global TARGET_REDS
-    TARGET_REDS = not TARGET_REDS
+    TARGET_REDS = state
     API.SavePersistentVar(REDS_KEY, str(TARGET_REDS), API.PersistentVar.Char)
-    redsBtn.SetText("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]")
-    redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
+    update_config_cmd_display()
+    update_config_gump_state()
 
-def toggle_grays():
+def toggle_grays(state):
     global TARGET_GRAYS
-    TARGET_GRAYS = not TARGET_GRAYS
+    TARGET_GRAYS = state
     API.SavePersistentVar(GRAYS_KEY, str(TARGET_GRAYS), API.PersistentVar.Char)
-    graysBtn.SetText("[GRAYS:" + ("ON" if TARGET_GRAYS else "OFF") + "]")
-    graysBtn.SetBackgroundHue(53 if TARGET_GRAYS else 90)
+    update_config_cmd_display()
+    update_config_gump_state()
+
+def toggle_potions(state):
+    global USE_POTIONS
+    USE_POTIONS = state
+    API.SavePersistentVar(POTION_KEY, str(USE_POTIONS), API.PersistentVar.Char)
+    update_config_cmd_display()
+    update_config_gump_state()
+
+def toggle_auto_target(state):
+    global auto_target
+    auto_target = state
+    API.SavePersistentVar(AUTO_TARGET_KEY, str(auto_target), API.PersistentVar.Char)
+    update_config_cmd_display()
+    update_config_gump_state()
+
+def toggle_use_trapped_pouch(state):
+    global use_trapped_pouch
+    use_trapped_pouch = state
+    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(use_trapped_pouch), API.PersistentVar.Char)
+    update_config_cmd_display()
+    update_config_gump_state()
+
+def toggle_pause():
+    global PAUSED
+    PAUSED = not PAUSED
+    pauseBtn.SetBackgroundHue(32 if PAUSED else 90)
+    statusLabel.SetText("PAUSED" if PAUSED else "Running")
 
 def toggle_mode():
     global ATTACK_MODE
@@ -1473,330 +2013,559 @@ def toggle_mode():
     API.SavePersistentVar(MODE_KEY, ATTACK_MODE, API.PersistentVar.Char)
     modeBtn.SetText("[" + ATTACK_MODE + "]")
     modeBtn.SetBackgroundHue(66 if ATTACK_MODE == "ORDER" else 68)
-
-def toggle_potions():
-    global USE_POTIONS
-    USE_POTIONS = not USE_POTIONS
-    API.SavePersistentVar(POTION_KEY, str(USE_POTIONS), API.PersistentVar.Char)
-    potionsBtn.SetText("[POTIONS:" + ("ON" if USE_POTIONS else "OFF") + "]")
-    potionsBtn.SetBackgroundHue(68 if USE_POTIONS else 90)
-
-def toggle_auto_target():
-    global auto_target, current_attack_target
-    auto_target = not auto_target
-    API.SavePersistentVar(AUTO_TARGET_KEY, str(auto_target), API.PersistentVar.Char)
-    autoTargetBtn.SetText("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]")
-    autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
-    if auto_target:
-        API.SysMsg("Auto-Target: ON (3 tile range)", 68)
-    else:
-        API.SysMsg("Auto-Target: OFF", 32)
-        current_attack_target = 0
-
-def toggle_use_trapped_pouch():
-    global use_trapped_pouch
-    use_trapped_pouch = not use_trapped_pouch
-    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(use_trapped_pouch), API.PersistentVar.Char)
-    usePouchBtn.SetText("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]")
-    usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
-
-def on_set_trapped_pouch():
-    target_trapped_pouch()
+    update_config_gump_state()
 
 def set_tank():
-    global TANK_PET, PET_NAMES
-    API.SysMsg("Target your TANK pet...", 68)
+    global TANK_PET
+    API.SysMsg("Target your tank pet...", 38)
     cancel_all_targets()
-    target = API.RequestTarget(timeout=10)
-    if target:
-        mob = API.FindMobile(target)
-        if mob:
-            name = get_mob_name(mob)
-            TANK_PET = target
-            PET_NAMES[target] = name
-            if target not in PETS and len(PETS) < MAX_PETS:
-                PETS.append(target)
-                save_pets()
-            API.SavePersistentVar(TANK_KEY, str(TANK_PET), API.PersistentVar.Char)
-            update_tank_display()
-            update_pet_display()
-            API.SysMsg("Tank set: " + name, 38)
+
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            mob = API.FindMobile(target)
+            if mob:
+                TANK_PET = target
+                API.SavePersistentVar(TANK_KEY, str(TANK_PET), API.PersistentVar.Char)
+                name = get_mob_name(mob)
+                API.SysMsg("Tank set: " + name, 68)
+                update_tank_display()
+                update_config_tank_display()
+                update_config_gump_state()
+            else:
+                API.SysMsg("Target not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+        clear_stray_cursor()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        clear_stray_cursor()
 
 def clear_tank():
     global TANK_PET
     TANK_PET = 0
     API.SavePersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
+    API.SysMsg("Tank cleared", 90)
     update_tank_display()
-    update_pet_display()
-    API.SysMsg("Tank cleared", 68)
+    update_config_tank_display()
+    update_config_gump_state()
 
 def set_vetkit():
     global VET_KIT_GRAPHIC
-    API.SysMsg("Target your VET KIT...", 68)
+    API.SysMsg("Target your vet kit...", 68)
     cancel_all_targets()
-    target = API.RequestTarget(timeout=10)
-    if target:
-        item = API.FindItem(target)
-        if item:
-            VET_KIT_GRAPHIC = item.Graphic
-            API.SavePersistentVar(VETKIT_KEY, str(VET_KIT_GRAPHIC), API.PersistentVar.Char)
-            update_vetkit_display()
-            API.SysMsg("Vet Kit set! Graphic: " + str(VET_KIT_GRAPHIC), 68)
+
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            item = API.FindItem(target)
+            if item:
+                VET_KIT_GRAPHIC = item.Graphic if hasattr(item, 'Graphic') else 0
+                API.SavePersistentVar(VETKIT_KEY, str(VET_KIT_GRAPHIC), API.PersistentVar.Char)
+                API.SysMsg("Vet kit set! Graphic: " + hex(VET_KIT_GRAPHIC), 68)
+                update_vetkit_display()
+                update_config_vetkit_display()
+                update_config_gump_state()
+            else:
+                API.SysMsg("Target not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+        clear_stray_cursor()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        clear_stray_cursor()
 
 def clear_vetkit():
     global VET_KIT_GRAPHIC
     VET_KIT_GRAPHIC = 0
     API.SavePersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
+    API.SysMsg("Vet kit cleared", 90)
     update_vetkit_display()
-    API.SysMsg("Vet Kit cleared", 68)
+    update_config_vetkit_display()
+    update_config_gump_state()
 
-def add_pet():
-    global PET_NAMES, PET_ACTIVE
-    if len(PETS) >= MAX_PETS:
-        API.SysMsg("Max pets reached!", 32)
+def on_set_trapped_pouch():
+    target_trapped_pouch()
+
+def clear_trapped_pouch():
+    global trapped_pouch_serial
+    trapped_pouch_serial = 0
+    API.SavePersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
+    API.SysMsg("Trapped pouch cleared", 90)
+    update_config_pouch_display()
+    update_config_gump_state()
+
+def toggle_rez_friend():
+    global rez_friend_active, rez_friend_target, rez_friend_attempts, rez_friend_name
+
+    if rez_friend_active:
+        rez_friend_active = False
+        rez_friend_target = 0
+        rez_friend_attempts = 0
+        API.SysMsg("Friend rez cancelled", 43)
+        statusLabel.SetText("Running")
         return
-    API.SysMsg("Target a pet to add...", 68)
+
+    API.SysMsg("Target friend to resurrect...", 38)
     cancel_all_targets()
-    target = API.RequestTarget(timeout=10)
-    if target:
-        mob = API.FindMobile(target)
-        if mob:
-            if target in PETS:
-                API.SysMsg("Already in list!", 32)
-            else:
-                name = get_mob_name(mob)
-                PETS.append(target)
-                PET_NAMES[target] = name
-                PET_ACTIVE[target] = True  # Default to active
-                save_pets()
-                update_pet_display()
-                API.SysMsg("Added: " + name, 68)
 
-def remove_pet():
-    global PET_NAMES, PET_ACTIVE, TANK_PET
-    if not PETS:
-        API.SysMsg("No pets to remove!", 32)
-        return
-    API.SysMsg("Target a pet to remove...", 68)
-    cancel_all_targets()
-    target = API.RequestTarget(timeout=10)
-    if target and target in PETS:
-        name = PET_NAMES.get(target, "Unknown")
-        PETS.remove(target)
-        if target in PET_NAMES:
-            del PET_NAMES[target]
-        if target in PET_ACTIVE:
-            del PET_ACTIVE[target]
-        if target == TANK_PET:
-            TANK_PET = 0
-            API.SavePersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
-        save_pets()
-        update_pet_display()
-        update_tank_display()
-        API.SysMsg("Removed: " + name, 68)
-
-def clear_all_pets():
-    global PETS, PET_NAMES, PET_ACTIVE, TANK_PET
-    PETS = []
-    PET_NAMES = {}
-    PET_ACTIVE = {}
-    TANK_PET = 0
-    save_pets()
-    API.SavePersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
-    update_pet_display()
-    update_tank_display()
-    API.SysMsg("All pets cleared!", 68)
-
-def toggle_pet_active(index):
-    """Toggle a pet's active status for ORDER mode"""
-    if index < 0 or index >= len(PETS):
-        return
-    serial = PETS[index]
-    PET_ACTIVE[serial] = not PET_ACTIVE.get(serial, True)
-    save_pets()
-    update_pet_display()
-    name = PET_NAMES.get(serial, "Pet")
-    status = "ON" if PET_ACTIVE[serial] else "OFF"
-    API.SysMsg(name + " ORDER mode: " + status, 68 if PET_ACTIVE[serial] else 32)
-
-def make_pet_click_callback(index):
-    def callback():
-        global manual_heal_target
-        if index < len(PETS):
-            serial = PETS[index]
-            mob = API.FindMobile(serial)
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            mob = API.FindMobile(target)
             if mob:
-                name = PET_NAMES.get(serial, get_mob_name(mob))
-                
-                # Always send follow command first (instant)
-                API.Msg(name + " follow me")
-                API.HeadMsg("Follow!", serial, 68)
-                
-                # Also queue heal if needed
-                if mob.IsDead and USE_REZ:
-                    manual_heal_target = serial
-                    API.SysMsg(name + " follow + REZ queued", 38)
-                elif not mob.IsDead and (is_poisoned(mob) or get_hp_percent(mob) < 90):
-                    manual_heal_target = serial
-                    API.SysMsg(name + " follow + HEAL queued", 68)
-                else:
-                    API.SysMsg(name + " follow!", 68)
+                rez_friend_target = target
+                rez_friend_name = get_mob_name(mob, "Friend")
+                rez_friend_attempts = 0
+                rez_friend_active = True
+                API.SysMsg("Rezzing " + rez_friend_name + " continuously...", 68)
             else:
-                API.SysMsg("Pet not found!", 32)
-    return callback
+                API.SysMsg("Target not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+        clear_stray_cursor()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        clear_stray_cursor()
+
+# ============ HOTKEY CAPTURE SYSTEM ============
+def make_key_handler(key_name):
+    def handler():
+        global capturing_for, priority_heal_pet, last_selected_pet_index
+
+        if capturing_for is not None:
+            if key_name == "ESC":
+                # Restore button to current hotkey state
+                if capturing_for in ["pause", "kill", "guard", "follow", "stay"]:
+                    btn_key = capturing_for + "_hk_display"
+                    current_key = hotkeys.get(capturing_for, "")
+                    if btn_key in config_controls:
+                        config_controls[btn_key].SetText("[" + (current_key or "---") + "]")
+                        config_controls[btn_key].SetBackgroundHue(68 if current_key else 90)
+                elif capturing_for.startswith("pet"):
+                    pet_index = int(capturing_for[3])
+                    btn_key = "pet_hk_" + str(pet_index)
+                    current_key = pet_hotkeys[pet_index] if pet_index < len(pet_hotkeys) else ""
+                    if btn_key in config_controls:
+                        config_controls[btn_key].SetText("[" + (current_key or "---") + "]")
+                        config_controls[btn_key].SetBackgroundHue(68 if current_key else 90)
+
+                API.SysMsg("Hotkey capture cancelled", 90)
+                capturing_for = None
+                update_config_gump_state()
+                return
+
+            # Command hotkey capture
+            if capturing_for in ["pause", "kill", "guard", "follow", "stay"]:
+                hotkeys[capturing_for] = key_name
+                save_hotkey(capturing_for, key_name)
+
+                # Update button directly in config window
+                btn_key = capturing_for + "_hk_display"
+                if btn_key in config_controls:
+                    config_controls[btn_key].SetText("[" + key_name + "]")
+                    config_controls[btn_key].SetBackgroundHue(68)
+
+                update_config_gump_state()
+                API.SysMsg(capturing_for.capitalize() + " bound to: " + key_name, 68)
+                capturing_for = None
+                return
+
+            # Pet hotkey capture (NEW v2.2)
+            if capturing_for.startswith("pet"):
+                pet_index = int(capturing_for[3])  # Extract index from "pet0", "pet1", etc.
+                pet_hotkeys[pet_index] = key_name
+                save_pet_hotkeys()
+
+                # Update button directly in config window
+                btn_key = "pet_hk_" + str(pet_index)
+                if btn_key in config_controls:
+                    config_controls[btn_key].SetText("[" + key_name + "]")
+                    config_controls[btn_key].SetBackgroundHue(68)
+
+                update_pet_hotkey_main_display()
+                update_config_gump_state()
+                API.SysMsg("Pet " + str(pet_index + 1) + " bound to: " + key_name, 68)
+                capturing_for = None
+                return
+
+        # Not capturing - execute action if this key is bound
+        # Check command hotkeys
+        for cmd, bound_key in hotkeys.items():
+            if bound_key == key_name:
+                if cmd == "pause":
+                    toggle_pause()
+                elif cmd == "kill":
+                    all_kill_hotkey()
+                elif cmd == "guard":
+                    all_guard()
+                elif cmd == "follow":
+                    all_follow()
+                elif cmd == "stay":
+                    all_stay()
+                return
+
+        # Check pet hotkeys (NEW v2.2)
+        for i in range(5):
+            if pet_hotkeys[i] == key_name:
+                execute_pet_hotkey(i)
+                return
+
+    return handler
+
+def start_capture_pause():
+    global capturing_for
+    capturing_for = "pause"
+    if "pause_hk_display" in config_controls:
+        config_controls["pause_hk_display"].SetBackgroundHue(38)
+        config_controls["pause_hk_display"].SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Pause (ESC cancel)...", 38)
+
+def start_capture_kill():
+    global capturing_for
+    capturing_for = "kill"
+    if "kill_hk_display" in config_controls:
+        config_controls["kill_hk_display"].SetBackgroundHue(38)
+        config_controls["kill_hk_display"].SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Kill (ESC cancel)...", 38)
+
+def start_capture_guard():
+    global capturing_for
+    capturing_for = "guard"
+    if "guard_hk_display" in config_controls:
+        config_controls["guard_hk_display"].SetBackgroundHue(38)
+        config_controls["guard_hk_display"].SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Guard (ESC cancel)...", 38)
+
+def start_capture_follow():
+    global capturing_for
+    capturing_for = "follow"
+    if "follow_hk_display" in config_controls:
+        config_controls["follow_hk_display"].SetBackgroundHue(38)
+        config_controls["follow_hk_display"].SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Follow (ESC cancel)...", 38)
+
+def start_capture_stay():
+    global capturing_for
+    capturing_for = "stay"
+    if "stay_hk_display" in config_controls:
+        config_controls["stay_hk_display"].SetBackgroundHue(38)
+        config_controls["stay_hk_display"].SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Stay (ESC cancel)...", 38)
+
+# ============ PET HOTKEY CAPTURE (NEW v2.2) ============
+def start_capture_pet_hotkey(pet_index):
+    """Start listening for a key to bind to pet N (0-4)"""
+    global capturing_for
+    capturing_for = "pet" + str(pet_index)
+
+    btn_key = "pet_hk_" + str(pet_index)
+    if btn_key in config_controls:
+        config_controls[btn_key].SetBackgroundHue(38)
+        config_controls[btn_key].SetText("[Listening...]")
+
+    API.SysMsg("Press any key to bind to Pet " + str(pet_index + 1) + " (ESC cancels)...", 38)
+
+def clear_pet_hotkey(pet_index):
+    """Unbind hotkey from pet N (0-4)"""
+    global pet_hotkeys
+
+    old_key = pet_hotkeys[pet_index]
+    pet_hotkeys[pet_index] = ""
+    save_pet_hotkeys()
+    update_pet_hotkey_config_display()
+    update_pet_hotkey_main_display()
+    update_config_gump_state()
+
+    API.SysMsg("Pet " + str(pet_index + 1) + " hotkey cleared (was: " + old_key + ")", 90)
+
+def execute_pet_hotkey(pet_index):
+    """Execute pet hotkey action (normal press = follow + heal priority)"""
+    global priority_heal_pet, last_selected_pet_index
+
+    if pet_index >= len(PETS):
+        API.SysMsg("No pet in slot " + str(pet_index + 1) + "!", 43)
+        return
+
+    serial = PETS[pet_index]
+    mob = API.FindMobile(serial)
+
+    if not mob:
+        API.SysMsg("Pet not found!", 32)
+        return
+
+    name = PET_NAMES.get(serial, "Pet")
+
+    # Follow the pet
+    API.Msg(name + " follow me")
+
+    # Set as priority heal target
+    priority_heal_pet = serial
+    last_selected_pet_index = pet_index
+
+    # Update arrow indicators
+    update_pet_arrow_display()
+
+    API.SysMsg("Following " + name + " (priority heal enabled)", 68)
+
+def save_hotkey(cmd, key):
+    if cmd == "pause":
+        API.SavePersistentVar(PAUSE_HOTKEY_KEY, key, API.PersistentVar.Char)
+    elif cmd == "kill":
+        API.SavePersistentVar(KILL_HOTKEY_KEY, key, API.PersistentVar.Char)
+    elif cmd == "guard":
+        API.SavePersistentVar(GUARD_HOTKEY_KEY, key, API.PersistentVar.Char)
+    elif cmd == "follow":
+        API.SavePersistentVar(FOLLOW_HOTKEY_KEY, key, API.PersistentVar.Char)
+    elif cmd == "stay":
+        API.SavePersistentVar(STAY_HOTKEY_KEY, key, API.PersistentVar.Char)
+
+def load_hotkeys():
+    hotkeys["pause"] = API.GetPersistentVar(PAUSE_HOTKEY_KEY, "PAUSE", API.PersistentVar.Char)
+    hotkeys["kill"] = API.GetPersistentVar(KILL_HOTKEY_KEY, "TAB", API.PersistentVar.Char)
+    hotkeys["guard"] = API.GetPersistentVar(GUARD_HOTKEY_KEY, "1", API.PersistentVar.Char)
+    hotkeys["follow"] = API.GetPersistentVar(FOLLOW_HOTKEY_KEY, "2", API.PersistentVar.Char)
+    hotkeys["stay"] = API.GetPersistentVar(STAY_HOTKEY_KEY, "", API.PersistentVar.Char)
+
+def save_pet_hotkeys():
+    """Save pet hotkey bindings to persistence (NEW v2.2)"""
+    keys = [PET1_HOTKEY_KEY, PET2_HOTKEY_KEY, PET3_HOTKEY_KEY, PET4_HOTKEY_KEY, PET5_HOTKEY_KEY]
+    for i in range(5):
+        value = pet_hotkeys[i] if i < len(pet_hotkeys) else ""
+        API.SavePersistentVar(keys[i], value, API.PersistentVar.Char)
+
+def load_pet_hotkeys():
+    """Load pet hotkey bindings from persistence (NEW v2.2)"""
+    global pet_hotkeys
+
+    keys = [PET1_HOTKEY_KEY, PET2_HOTKEY_KEY, PET3_HOTKEY_KEY, PET4_HOTKEY_KEY, PET5_HOTKEY_KEY]
+    pet_hotkeys = []
+
+    for key in keys:
+        value = API.GetPersistentVar(key, "", API.PersistentVar.Char)
+        pet_hotkeys.append(value)
+
+def update_config_buttons():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
+
+def update_hotkey_label():
+    # Hotkey label removed from compact main UI (now only in config window)
+    pass
 
 # ============ DISPLAY UPDATES ============
-def get_health_bar(hp_pct, width=8):
-    filled = int((hp_pct / 100) * width)
-    empty = width - filled
-    return "|" * filled + "." * empty
-
 def update_pet_display():
-    for i, lbl in enumerate(pet_labels):
+    for i in range(MAX_PETS):
         if i < len(PETS):
             serial = PETS[i]
+            name = PET_NAMES.get(serial, "Pet")
             mob = API.FindMobile(serial)
-            is_active = PET_ACTIVE.get(serial, True)
 
             if mob:
-                name = get_mob_name(mob)[:6]
-                tank_marker = "T" if serial == TANK_PET else ""
-
-                if mob.IsDead:
-                    lbl.SetText(str(i+1) + tank_marker + "." + name + " [DEAD]")
-                    lbl.SetBackgroundHue(32)
-                else:
-                    hp_pct = get_hp_percent(mob)
-                    bar = get_health_bar(hp_pct)
-                    poison = "[P]" if is_poisoned(mob) else ""
-                    lbl.SetText(str(i+1) + tank_marker + "." + name + " " + bar + poison)
-
-                    if is_poisoned(mob):
-                        lbl.SetBackgroundHue(53)
-                    elif hp_pct < 50:
-                        lbl.SetBackgroundHue(32)
-                    elif hp_pct < 80:
-                        lbl.SetBackgroundHue(43)
-                    else:
-                        lbl.SetBackgroundHue(68)
+                hp_str = str(mob.Hits) + "/" + str(mob.HitsMax)
+                status = " [DEAD]" if mob.IsDead else ""
+                poison_mark = " [P]" if is_poisoned(mob) else ""
+                btn_text = str(i+1) + ". " + name + " (" + hp_str + ")" + poison_mark + status
+                hue = 32 if mob.IsDead else (53 if is_poisoned(mob) else 68)
             else:
-                lbl.SetText(str(i+1) + ". [Not Found]")
-                lbl.SetBackgroundHue(90)
+                btn_text = str(i+1) + ". " + name + " [???]"
+                hue = 90
 
-            # Update toggle button
-            if i < len(pet_toggles):
-                if is_active:
-                    pet_toggles[i].SetText("[ON]")
-                    pet_toggles[i].SetBackgroundHue(68)
-                else:
-                    pet_toggles[i].SetText("[--]")
-                    pet_toggles[i].SetBackgroundHue(32)
+            pet_labels[i].SetText(btn_text)
+            pet_labels[i].SetBackgroundHue(hue)
         else:
-            lbl.SetText(str(i+1) + ". ---")
-            lbl.SetBackgroundHue(90)
+            pet_labels[i].SetText(str(i+1) + ". ---")
+            pet_labels[i].SetBackgroundHue(90)
 
-            # Gray out toggle button
-            if i < len(pet_toggles):
-                pet_toggles[i].SetText("[--]")
-                pet_toggles[i].SetBackgroundHue(90)
+def update_pet_hotkey_main_display():
+    """Update hotkey display buttons on main UI (NEW v2.2)"""
+    try:
+        displays = [petHkDisplay1, petHkDisplay2, petHkDisplay3, petHkDisplay4, petHkDisplay5]
+
+        for i in range(5):
+            hotkey = pet_hotkeys[i] if i < len(pet_hotkeys) else ""
+
+            if hotkey:
+                text = "[" + hotkey + "]"
+                hue = 68  # Green = bound
+            else:
+                text = "[---]"
+                hue = 90  # Gray = unbound
+
+            displays[i].SetText(text)
+            displays[i].SetBackgroundHue(hue)
+    except:
+        pass
+
+def update_pet_arrow_display():
+    """Update arrow indicators to show pet active/skip status (NEW v2.2)"""
+    try:
+        arrows = [petArrow1, petArrow2, petArrow3, petArrow4, petArrow5]
+
+        for i in range(5):
+            if i < len(PETS):
+                serial = PETS[i]
+                is_active = PET_ACTIVE.get(serial, True)
+
+                if is_active:
+                    text = "[ON]"
+                    hue = 68  # Green = active
+                else:
+                    text = "[--]"
+                    hue = 32  # Red = skipped
+            else:
+                text = "[ ]"
+                hue = 90  # Gray = empty slot
+
+            arrows[i].SetText(text)
+            arrows[i].SetBackgroundHue(hue)
+    except:
+        pass
+
+def update_pet_hotkey_config_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
+
+def update_pet_order_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
 def update_tank_display():
-    if TANK_PET:
-        mob = API.FindMobile(TANK_PET)
-        if mob:
-            hp_pct = get_hp_percent(mob)
-            bar = get_health_bar(hp_pct, 6)
-            poison = "[P]" if is_poisoned(mob) else ""
-            if mob.IsDead:
-                tankLabel.SetText("Tank: " + get_mob_name(mob)[:6] + " [DEAD]")
-            else:
-                tankLabel.SetText("Tank: " + get_mob_name(mob)[:6] + " " + bar + poison)
-        else:
-            tankLabel.SetText("Tank: [Not Found]")
-    else:
-        tankLabel.SetText("Tank: [None]")
+    # No main UI display in v2.1 (removed)
+    pass
+
+def update_config_tank_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
 def update_vetkit_display():
-    if VET_KIT_GRAPHIC > 0:
-        if API.FindType(VET_KIT_GRAPHIC):
-            vetkitLabel.SetText("VetKit: Ready")
-        else:
-            vetkitLabel.SetText("VetKit: Not Found!")
-    else:
-        vetkitLabel.SetText("VetKit: [None]")
+    # No main UI display in v2.1 (removed)
+    pass
+
+def update_config_vetkit_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
+
+def update_config_pouch_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
 def update_bandage_display():
     count = get_bandage_count()
-    if count == 0:
-        bandageLabel.SetText("Bandages: NONE!")
-    elif count < 0:
+    if count == -1:
         bandageLabel.SetText("Bandages: ???")
-    elif count <= LOW_BANDAGE_WARNING:
-        bandageLabel.SetText("Bandages: " + str(count) + " LOW")
+    elif count == 0:
+        bandageLabel.SetText("Bandages: OUT!")
     else:
         bandageLabel.SetText("Bandages: " + str(count))
 
 def update_potion_display():
-    """Update potion count displays"""
-    heal_count = get_potion_count(POTION_HEAL)
-    cure_count = get_potion_count(POTION_CURE)
+    # No main UI display in v2.1 (removed)
+    pass
 
-    healPotionLabel.SetText("Heal:" + str(heal_count))
-    curePotionLabel.SetText("Cure:" + str(cure_count))
+def update_config_potion_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
-    # Update trapped pouch button color
-    if trapped_pouch_serial > 0:
-        setPouchBtn.SetBackgroundHue(68)  # Green if configured
-    else:
-        setPouchBtn.SetBackgroundHue(43)  # Yellow if not configured
+def update_rez_friend_display():
+    # No main UI display in v2.1 (removed)
+    pass
 
-def cleanup():
-    if PAUSE_HOTKEY:
-        try:
-            API.OnHotKey(PAUSE_HOTKEY)
-        except:
-            pass
-    if ALL_KILL_HOTKEY:
-        try:
-            API.OnHotKey(ALL_KILL_HOTKEY)
-        except:
-            pass
-    if GUARD_HOTKEY:
-        try:
-            API.OnHotKey(GUARD_HOTKEY)
-        except:
-            pass
-    if FOLLOW_HOTKEY:
-        try:
-            API.OnHotKey(FOLLOW_HOTKEY)
-        except:
-            pass
-    if STAY_HOTKEY:
-        try:
-            API.OnHotKey(STAY_HOTKEY)
-        except:
-            pass
+def update_config_healer_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
-def save_window_position():
-    """Save window position using last known position"""
-    global last_known_x, last_known_y
+def update_config_cmd_display():
+    """Legacy function - inline config panel removed in v2.2"""
+    pass
 
-    # Validate coordinates
-    if last_known_x < 0 or last_known_y < 0:
-        return
+# ============ PERSISTENCE ============
+def load_settings():
+    global USE_MAGERY, USE_REZ, HEAL_SELF, TANK_PET, VET_KIT_GRAPHIC
+    global TARGET_REDS, TARGET_GRAYS, ATTACK_MODE, SKIP_OUT_OF_RANGE
+    global USE_POTIONS, trapped_pouch_serial, use_trapped_pouch, auto_target
+    global is_expanded
 
-    API.SavePersistentVar(SETTINGS_KEY, str(last_known_x) + "," + str(last_known_y), API.PersistentVar.Char)
+    USE_MAGERY = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char) == "True"
+    USE_REZ = API.GetPersistentVar(REZ_KEY, "False", API.PersistentVar.Char) == "True"
+    HEAL_SELF = API.GetPersistentVar(HEALSELF_KEY, "True", API.PersistentVar.Char) == "True"
+    SKIP_OUT_OF_RANGE = API.GetPersistentVar(SKIPOOR_KEY, "True", API.PersistentVar.Char) == "True"
+
+    tank_str = API.GetPersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
+    try:
+        TANK_PET = int(tank_str)
+    except:
+        TANK_PET = 0
+
+    vetkit_str = API.GetPersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
+    try:
+        VET_KIT_GRAPHIC = int(vetkit_str)
+    except:
+        VET_KIT_GRAPHIC = 0
+
+    TARGET_REDS = API.GetPersistentVar(REDS_KEY, "False", API.PersistentVar.Char) == "True"
+    TARGET_GRAYS = API.GetPersistentVar(GRAYS_KEY, "False", API.PersistentVar.Char) == "True"
+    ATTACK_MODE = API.GetPersistentVar(MODE_KEY, "ALL", API.PersistentVar.Char)
+
+    USE_POTIONS = API.GetPersistentVar(POTION_KEY, "True", API.PersistentVar.Char) == "True"
+
+    pouch_str = API.GetPersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
+    try:
+        trapped_pouch_serial = int(pouch_str)
+    except:
+        trapped_pouch_serial = 0
+
+    use_trapped_pouch = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
+    auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
+
+    is_expanded = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char) == "True"
+
+    load_hotkeys()
+    load_pet_hotkeys()  # NEW v2.2
+    sync_pets_from_storage()
+
+    active_str = API.GetPersistentVar(PETACTIVE_KEY, "", API.PersistentVar.Char)
+    if active_str:
+        pairs = [x for x in active_str.split("|") if x]
+        for pair in pairs:
+            parts = pair.split(":")
+            if len(parts) == 2:
+                try:
+                    serial = int(parts[0])
+                    active = (parts[1] == "1")
+                    if serial in PETS:
+                        PET_ACTIVE[serial] = active
+                except:
+                    pass
 
 def onClosed():
-    cleanup()
-    cancel_heal()
-    cancel_friend_rez()
-    save_window_position()
+    global config_gump, last_known_x, last_known_y
+
+    # Always use tracked position - gump is being disposed so GetX/GetY returns 0
+    if last_known_x >= 0 and last_known_y >= 0:
+        API.SavePersistentVar(SETTINGS_KEY, str(last_known_x) + "," + str(last_known_y), API.PersistentVar.Char)
+        API.SysMsg("Saved position: " + str(last_known_x) + "," + str(last_known_y), 68)
+
+    active_pairs = []
+    for serial in PETS:
+        active_state = PET_ACTIVE.get(serial, True)
+        active_str = "1" if active_state else "0"
+        active_pairs.append(str(serial) + ":" + active_str)
+
+    if active_pairs:
+        API.SavePersistentVar(PETACTIVE_KEY, "|".join(active_pairs), API.PersistentVar.Char)
+
+    # Close config window if open
+    if config_gump is not None:
+        close_config_gump()
+
+    clear_stray_cursor()
+
+    # Stop the script when main window closes
     API.Stop()
 
-# ============ LOAD AND INIT ============
+# ============ LOAD SETTINGS ============
 load_settings()
-load_expanded_state()
 
 # ============ BUILD GUI ============
 gump = API.Gumps.CreateGump()
@@ -1807,333 +2576,203 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
-# Initialize last known position with loaded values
 last_known_x = lastX
 last_known_y = lastY
 
-# Determine initial height
+API.SysMsg("Loading main window at position: " + str(lastX) + "," + str(lastY), 68)
+
 initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
 
-gump.SetRect(lastX, lastY, WINDOW_WIDTH, initial_height)
+gump.SetRect(lastX, lastY, WINDOW_WIDTH_NORMAL, initial_height)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
+bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.4", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH)
+title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.2", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 title.SetPos(0, 5)
 gump.Add(title)
 
+# Config button - opens separate config window
+configBtn = API.Gumps.CreateSimpleButton("[C]", 20, 18)
+configBtn.SetPos(230, 3)
+configBtn.SetBackgroundHue(66)
+API.Gumps.AddControlOnClick(configBtn, toggle_config)
+gump.Add(configBtn)
+
 # Expand/collapse button
 expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
-expandBtn.SetPos(375, 3)
+expandBtn.SetPos(255, 3)
 expandBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
 # Bandage count (top center) - ALWAYS VISIBLE
-bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 9, "#AAFFAA", aligned="center", maxWidth=WINDOW_WIDTH)
+bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 9, "#AAFFAA", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 bandageLabel.SetPos(0, 24)
 gump.Add(bandageLabel)
 
-# ========== LEFT PANEL (HEALER) ==========
-leftX = 5
+# ========== COMPACT SINGLE-COLUMN LAYOUT ==========
+x = 5
 y = 42
-
-healerTitle = API.Gumps.CreateGumpTTFLabel("=== HEALER ===", 9, "#ff8800", aligned="center", maxWidth=195)
-healerTitle.SetPos(leftX, y)
-healerTitle.IsVisible = is_expanded
-gump.Add(healerTitle)
-
-y += 16
-btnW = 90
 btnH = 20
 
-mageryBtn = API.Gumps.CreateSimpleButton("[BAND]" if not USE_MAGERY else "[MAGE]", btnW, btnH)
-mageryBtn.SetPos(leftX, y)
-mageryBtn.SetBackgroundHue(68 if not USE_MAGERY else 66)
-mageryBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(mageryBtn, toggle_magery)
-gump.Add(mageryBtn)
-
-selfBtn = API.Gumps.CreateSimpleButton("[SELF:" + ("ON" if HEAL_SELF else "OFF") + "]", btnW, btnH)
-selfBtn.SetPos(leftX + 95, y)
-selfBtn.SetBackgroundHue(68 if HEAL_SELF else 90)
-selfBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(selfBtn, toggle_self)
-gump.Add(selfBtn)
-
-y += 22
-rezBtn = API.Gumps.CreateSimpleButton("[REZ:" + ("ON" if USE_REZ else "OFF") + "]", btnW, btnH)
-rezBtn.SetPos(leftX, y)
-rezBtn.SetBackgroundHue(38 if USE_REZ else 90)
-rezBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(rezBtn, toggle_rez)
-gump.Add(rezBtn)
-
-skipBtn = API.Gumps.CreateSimpleButton("[SKIP:" + ("ON" if SKIP_OUT_OF_RANGE else "OFF") + "]", btnW, btnH)
-skipBtn.SetPos(leftX + 95, y)
-skipBtn.SetBackgroundHue(53 if SKIP_OUT_OF_RANGE else 90)
-skipBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(skipBtn, toggle_skip)
-gump.Add(skipBtn)
-
-y += 24
-tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None]", 9, "#FFAAAA")
-tankLabel.SetPos(leftX, y)
-tankLabel.IsVisible = is_expanded
-gump.Add(tankLabel)
-
-y += 16
-setTankBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
-setTankBtn.SetPos(leftX, y)
-setTankBtn.SetBackgroundHue(38)
-setTankBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(setTankBtn, set_tank)
-gump.Add(setTankBtn)
-
-clrTankBtn = API.Gumps.CreateSimpleButton("[CLR]", 45, 18)
-clrTankBtn.SetPos(leftX + 50, y)
-clrTankBtn.SetBackgroundHue(90)
-clrTankBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(clrTankBtn, clear_tank)
-gump.Add(clrTankBtn)
-
-y += 22
-vetkitLabel = API.Gumps.CreateGumpTTFLabel("VetKit: [None]", 9, "#AAAAFF")
-vetkitLabel.SetPos(leftX, y)
-vetkitLabel.IsVisible = is_expanded
-gump.Add(vetkitLabel)
-
-y += 16
-setVetBtn = API.Gumps.CreateSimpleButton("[SET]", 45, 18)
-setVetBtn.SetPos(leftX, y)
-setVetBtn.SetBackgroundHue(68)
-setVetBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(setVetBtn, set_vetkit)
-gump.Add(setVetBtn)
-
-clrVetBtn = API.Gumps.CreateSimpleButton("[CLR]", 45, 18)
-clrVetBtn.SetPos(leftX + 50, y)
-clrVetBtn.SetBackgroundHue(90)
-clrVetBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(clrVetBtn, clear_vetkit)
-gump.Add(clrVetBtn)
-
-y += 24
-pauseBtn = API.Gumps.CreateSimpleButton("[PAUSE]", 90, btnH)
-pauseBtn.SetPos(leftX, y)
+# Status row: [PAUSE] [MODE] Status text
+pauseBtn = API.Gumps.CreateSimpleButton("[PAUSE]", 65, btnH)
+pauseBtn.SetPos(x, y)
 pauseBtn.SetBackgroundHue(90)
 pauseBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(pauseBtn, toggle_pause)
 gump.Add(pauseBtn)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
-statusLabel.SetPos(leftX + 95, y + 3)
-statusLabel.IsVisible = is_expanded
-gump.Add(statusLabel)
-
-# ========== RIGHT PANEL (COMMANDS) ==========
-rightX = 205
-y = 42
-
-cmdTitle = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#ff6666", aligned="center", maxWidth=195)
-cmdTitle.SetPos(rightX, y)
-cmdTitle.IsVisible = is_expanded
-gump.Add(cmdTitle)
-
-y += 16
-
-# Friend Rez (manual emergency action)
-rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 8, "#FFAAFF")
-rezFriendLabel.SetPos(rightX, y)
-rezFriendLabel.IsVisible = is_expanded
-gump.Add(rezFriendLabel)
-
-y += 16
-rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 185, 20)
-rezFriendBtn.SetPos(rightX, y)
-rezFriendBtn.SetBackgroundHue(38)
-rezFriendBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
-gump.Add(rezFriendBtn)
-
-y += 22
-redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if TARGET_REDS else "OFF") + "]", btnW, btnH)
-redsBtn.SetPos(rightX, y)
-redsBtn.SetBackgroundHue(32 if TARGET_REDS else 90)
-redsBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(redsBtn, toggle_reds)
-gump.Add(redsBtn)
-
-graysBtn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if TARGET_GRAYS else "OFF") + "]", btnW, btnH)
-graysBtn.SetPos(rightX + 95, y)
-graysBtn.SetBackgroundHue(53 if TARGET_GRAYS else 90)
-graysBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(graysBtn, toggle_grays)
-gump.Add(graysBtn)
-
-y += 22
-modeBtn = API.Gumps.CreateSimpleButton("[" + ATTACK_MODE + "]", btnW, btnH)
-modeBtn.SetPos(rightX, y)
+modeBtn = API.Gumps.CreateSimpleButton("[" + ATTACK_MODE + "]", 65, btnH)
+modeBtn.SetPos(x + 70, y)
 modeBtn.SetBackgroundHue(66 if ATTACK_MODE == "ORDER" else 68)
 modeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(modeBtn, toggle_mode)
 gump.Add(modeBtn)
 
-# Hotkey display
-hotkeyText = "Kill:" + (ALL_KILL_HOTKEY or "-") + " G:" + (GUARD_HOTKEY or "-") + " F:" + (FOLLOW_HOTKEY or "-")
-hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 8, "#888888")
-hotkeyLabel.SetPos(rightX + 95, y + 4)
-hotkeyLabel.IsVisible = is_expanded
-gump.Add(hotkeyLabel)
+statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
+statusLabel.SetPos(x + 145, y + 5)
+statusLabel.IsVisible = is_expanded
+gump.Add(statusLabel)
 
 y += 22
-# Bank buttons
-bankBtn = API.Gumps.CreateSimpleButton("[BANK]", 60, btnH)
-bankBtn.SetPos(rightX, y)
-bankBtn.SetBackgroundHue(68)
-bankBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(bankBtn, say_bank)
-gump.Add(bankBtn)
 
-balanceBtn = API.Gumps.CreateSimpleButton("[BALANCE]", 70, btnH)
-balanceBtn.SetPos(rightX + 65, y)
-balanceBtn.SetBackgroundHue(66)
-balanceBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(balanceBtn, say_balance)
-gump.Add(balanceBtn)
+# Action row 1: [REZ FRIEND] [ALL KILL]
+rezFriendBtn = API.Gumps.CreateSimpleButton("[REZ FRIEND]", 130, btnH)
+rezFriendBtn.SetPos(x, y)
+rezFriendBtn.SetBackgroundHue(38)
+rezFriendBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
+gump.Add(rezFriendBtn)
 
-# Manual command buttons
-y += 22
-allKillBtn = API.Gumps.CreateSimpleButton("[ALL KILL]", 90, btnH)
-allKillBtn.SetPos(rightX, y)
+allKillBtn = API.Gumps.CreateSimpleButton("[ALL KILL]", 135, btnH)
+allKillBtn.SetPos(x + 135, y)
 allKillBtn.SetBackgroundHue(32)
 allKillBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(allKillBtn, all_kill_manual)
 gump.Add(allKillBtn)
 
 y += 22
-followAllBtn = API.Gumps.CreateSimpleButton("[FOLLOW]", 60, btnH)
-followAllBtn.SetPos(rightX, y)
+
+# Command row: [FOLLOW] [GUARD] [STAY]
+followAllBtn = API.Gumps.CreateSimpleButton("[FOLLOW]", 85, btnH)
+followAllBtn.SetPos(x, y)
 followAllBtn.SetBackgroundHue(68)
 followAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(followAllBtn, all_follow)
 gump.Add(followAllBtn)
 
-guardAllBtn = API.Gumps.CreateSimpleButton("[GUARD]", 60, btnH)
-guardAllBtn.SetPos(rightX + 65, y)
+guardAllBtn = API.Gumps.CreateSimpleButton("[GUARD]", 90, btnH)
+guardAllBtn.SetPos(x + 90, y)
 guardAllBtn.SetBackgroundHue(68)
 guardAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(guardAllBtn, all_guard)
 gump.Add(guardAllBtn)
 
-stayAllBtn = API.Gumps.CreateSimpleButton("[STAY]", 55, btnH)
-stayAllBtn.SetPos(rightX + 130, y)
+stayAllBtn = API.Gumps.CreateSimpleButton("[STAY]", 85, btnH)
+stayAllBtn.SetPos(x + 185, y)
 stayAllBtn.SetBackgroundHue(53)
 stayAllBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(stayAllBtn, all_stay)
 gump.Add(stayAllBtn)
 
-# New features
-y += 22
-potionsBtn = API.Gumps.CreateSimpleButton("[POTIONS:" + ("ON" if USE_POTIONS else "OFF") + "]", btnW, btnH)
-potionsBtn.SetPos(rightX, y)
-potionsBtn.SetBackgroundHue(68 if USE_POTIONS else 90)
-potionsBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(potionsBtn, toggle_potions)
-gump.Add(potionsBtn)
+y += 24
 
-autoTargetBtn = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", btnW, btnH)
-autoTargetBtn.SetPos(rightX + 95, y)
-autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
-autoTargetBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
-gump.Add(autoTargetBtn)
-
-y += 22
-setPouchBtn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, btnH)
-setPouchBtn.SetPos(rightX, y)
-setPouchBtn.SetBackgroundHue(43)
-setPouchBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(setPouchBtn, on_set_trapped_pouch)
-gump.Add(setPouchBtn)
-
-usePouchBtn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 95, btnH)
-usePouchBtn.SetPos(rightX + 95, y)
-usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
-usePouchBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(usePouchBtn, toggle_use_trapped_pouch)
-gump.Add(usePouchBtn)
-
-# Potion counts
-y += 22
-healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal:0", 8, "#ffaa00")
-healPotionLabel.SetPos(rightX, y)
-healPotionLabel.IsVisible = is_expanded
-gump.Add(healPotionLabel)
-
-curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure:0", 8, "#ffff00")
-curePotionLabel.SetPos(rightX + 65, y)
-curePotionLabel.IsVisible = is_expanded
-gump.Add(curePotionLabel)
-
-# ========== BOTTOM PANEL (SHARED PETS) ==========
-y = 265
-petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS (click=follow/heal) ===", 9, "#00ffaa", aligned="center", maxWidth=WINDOW_WIDTH)
+# ========== PETS SECTION ==========
+petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 9, "#00ffaa", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 petsTitle.SetPos(0, y)
 petsTitle.IsVisible = is_expanded
 gump.Add(petsTitle)
 
 y += 16
+
+# Pet management buttons
+addBtn = API.Gumps.CreateSimpleButton("[ADD]", 60, 18)
+addBtn.SetPos(x, y)
+addBtn.SetBackgroundHue(68)
+addBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(addBtn, add_pet)
+gump.Add(addBtn)
+
+removeBtn = API.Gumps.CreateSimpleButton("[REMOVE]", 85, 18)
+removeBtn.SetPos(x + 65, y)
+removeBtn.SetBackgroundHue(32)
+removeBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(removeBtn, remove_pet)
+gump.Add(removeBtn)
+
+clearBtn = API.Gumps.CreateSimpleButton("[CLEAR]", 75, 18)
+clearBtn.SetPos(x + 155, y)
+clearBtn.SetBackgroundHue(90)
+clearBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(clearBtn, clear_all_pets)
+gump.Add(clearBtn)
+
+y += 20
+
+# Pet rows (compact: 200px pet + 30px hotkey + 30px arrow)
 pet_labels = []
-pet_toggles = []
+petHkDisplay1 = None
+petHkDisplay2 = None
+petHkDisplay3 = None
+petHkDisplay4 = None
+petHkDisplay5 = None
+petArrow1 = None
+petArrow2 = None
+petArrow3 = None
+petArrow4 = None
+petArrow5 = None
+
 for i in range(MAX_PETS):
-    lbl = API.Gumps.CreateSimpleButton(str(i+1) + ". ---", 340, 18)
-    lbl.SetPos(5, y + (i * 20))
+    row_y = y + (i * 18)
+
+    # Pet button (200px wide)
+    lbl = API.Gumps.CreateSimpleButton(str(i+1) + ". ---", 200, 18)
+    lbl.SetPos(x, row_y)
     lbl.SetBackgroundHue(90)
     lbl.IsVisible = is_expanded
     API.Gumps.AddControlOnClick(lbl, make_pet_click_callback(i))
     gump.Add(lbl)
     pet_labels.append(lbl)
 
-    # Add toggle button for ORDER mode
-    def make_toggle_callback(idx):
-        def callback():
-            toggle_pet_active(idx)
-        return callback
+    # Hotkey display button (30px)
+    hk_display = API.Gumps.CreateSimpleButton("[---]", 30, 18)
+    hk_display.SetPos(x + 205, row_y)
+    hk_display.SetBackgroundHue(90)
+    hk_display.IsVisible = is_expanded
+    gump.Add(hk_display)
 
-    toggleBtn = API.Gumps.CreateSimpleButton("[ON]", 45, 18)
-    toggleBtn.SetPos(350, y + (i * 20))
-    toggleBtn.SetBackgroundHue(68)
-    toggleBtn.IsVisible = is_expanded
-    API.Gumps.AddControlOnClick(toggleBtn, make_toggle_callback(i))
-    gump.Add(toggleBtn)
-    pet_toggles.append(toggleBtn)
+    if i == 0:
+        petHkDisplay1 = hk_display
+    elif i == 1:
+        petHkDisplay2 = hk_display
+    elif i == 2:
+        petHkDisplay3 = hk_display
+    elif i == 3:
+        petHkDisplay4 = hk_display
+    elif i == 4:
+        petHkDisplay5 = hk_display
 
-y += (MAX_PETS * 20) + 4
+    # Arrow indicator button (30px)
+    arrow = API.Gumps.CreateSimpleButton("[ ]", 30, 18)
+    arrow.SetPos(x + 240, row_y)
+    arrow.SetBackgroundHue(90)
+    arrow.IsVisible = is_expanded
+    gump.Add(arrow)
 
-# Pet management buttons
-addBtn = API.Gumps.CreateSimpleButton("[ADD]", 60, 18)
-addBtn.SetPos(5, y)
-addBtn.SetBackgroundHue(68)
-addBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(addBtn, add_pet)
-gump.Add(addBtn)
+    if i == 0:
+        petArrow1 = arrow
+    elif i == 1:
+        petArrow2 = arrow
+    elif i == 2:
+        petArrow3 = arrow
+    elif i == 3:
+        petArrow4 = arrow
+    elif i == 4:
+        petArrow5 = arrow
 
-removeBtn = API.Gumps.CreateSimpleButton("[DEL]", 60, 18)
-removeBtn.SetPos(70, y)
-removeBtn.SetBackgroundHue(32)
-removeBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(removeBtn, remove_pet)
-gump.Add(removeBtn)
-
-clearBtn = API.Gumps.CreateSimpleButton("[CLR ALL]", 70, 18)
-clearBtn.SetPos(135, y)
-clearBtn.SetBackgroundHue(90)
-clearBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(clearBtn, clear_all_pets)
-gump.Add(clearBtn)
 
 API.Gumps.AddGump(gump)
 
@@ -2141,28 +2780,39 @@ API.Gumps.AddGump(gump)
 if not is_expanded:
     collapse_window()
 
+# Update config button labels with loaded hotkeys
+update_config_buttons()
+
+# Update config displays
+update_config_healer_display()
+update_config_cmd_display()
+update_pet_order_display()
+
 # ============ REGISTER HOTKEYS ============
-if PAUSE_HOTKEY:
-    API.OnHotKey(PAUSE_HOTKEY, toggle_pause)
-if ALL_KILL_HOTKEY:
-    API.OnHotKey(ALL_KILL_HOTKEY, all_kill)
-if GUARD_HOTKEY:
-    API.OnHotKey(GUARD_HOTKEY, all_guard)
-if FOLLOW_HOTKEY:
-    API.OnHotKey(FOLLOW_HOTKEY, all_follow)
-if STAY_HOTKEY:
-    API.OnHotKey(STAY_HOTKEY, all_stay)
+API.SysMsg("Registering key handlers...", 53)
+
+registered_count = 0
+for key in ALL_KEYS:
+    try:
+        API.OnHotKey(key, make_key_handler(key))
+        registered_count += 1
+    except Exception as e:
+        pass
+
+API.SysMsg("Registered " + str(registered_count) + " keys", 68)
 
 # Initial display
 update_pet_display()
-update_tank_display()
-update_vetkit_display()
+update_pet_arrow_display()
+update_config_tank_display()
+update_config_vetkit_display()
 update_bandage_display()
-update_potion_display()
-update_rez_friend_display()
+update_config_potion_display()
+update_config_pouch_display()
+update_hotkey_label()
 
-API.SysMsg("Tamer Suite v2.4 loaded! NEW: Expand/Collapse (click [-]/[+] button)", 68)
-API.SysMsg("Kill:" + (ALL_KILL_HOTKEY or "-") + " Guard:" + (GUARD_HOTKEY or "-") + " Follow:" + (FOLLOW_HOTKEY or "-") + " Pause:" + (PAUSE_HOTKEY or "-"), 53)
+API.SysMsg("Tamer Suite v3.0 loaded! Separate config window ready", 68)
+API.SysMsg("Kill:" + (hotkeys["kill"] or "-") + " Guard:" + (hotkeys["guard"] or "-") + " Follow:" + (hotkeys["follow"] or "-") + " Pause:" + (hotkeys["pause"] or "-"), 53)
 
 # ============ MAIN LOOP (NON-BLOCKING) ============
 DISPLAY_INTERVAL = 0.3
@@ -2179,8 +2829,7 @@ while not API.StopRequested:
         # Check if current heal is done
         check_heal_complete()
 
-        # Periodically capture position (every 2 seconds)
-        # Skip if stop is requested to avoid "operation canceled" errors
+        # Periodically capture position (main window)
         if not API.StopRequested:
             current_time = time.time()
             if current_time - last_position_check > 2.0:
@@ -2189,7 +2838,18 @@ while not API.StopRequested:
                     last_known_x = gump.GetX()
                     last_known_y = gump.GetY()
                 except:
-                    pass  # Silently ignore if gump is disposed
+                    pass
+
+        # Periodically capture position (config window)
+        if config_gump is not None and not API.StopRequested:
+            current_time = time.time()
+            if current_time - config_last_position_check > 2.0:
+                config_last_position_check = current_time
+                try:
+                    config_last_known_x = config_gump.GetX()
+                    config_last_known_y = config_gump.GetY()
+                except:
+                    pass
 
         # Sync pets
         if time.time() > next_sync:
@@ -2199,12 +2859,12 @@ while not API.StopRequested:
         # Update displays
         if time.time() > next_display:
             update_pet_display()
-            update_tank_display()
-            update_vetkit_display()
+            update_pet_hotkey_main_display()  # NEW v2.2
+            update_pet_arrow_display()  # NEW v2.2
             update_bandage_display()
-            update_potion_display()
-            if rez_friend_active:
-                update_rez_friend_display()
+            if show_config:
+                update_config_potion_display()
+                update_pet_hotkey_config_display()  # NEW v2.2
             next_display = time.time() + DISPLAY_INTERVAL
 
         # Check alerts (even when paused)
@@ -2214,7 +2874,6 @@ while not API.StopRequested:
         if not PAUSED and rez_friend_active:
             statusLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
             attempt_friend_rez()
-            # Continue to next iteration - skip normal healing
             continue
 
         # HEALER LOGIC (non-blocking)
@@ -2232,9 +2891,6 @@ while not API.StopRequested:
         API.Pause(0.1)
 
     except Exception as e:
-        # Don't show "operation canceled" errors during shutdown
         if "operation canceled" not in str(e).lower() and not API.StopRequested:
             API.SysMsg("Error: " + str(e), 32)
         API.Pause(1)
-
-cleanup()
