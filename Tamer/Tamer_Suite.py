@@ -1849,6 +1849,7 @@ def on_config_closed():
     # Always use tracked position - gump is being disposed so GetX/GetY returns 0
     if config_last_known_x >= 0 and config_last_known_y >= 0:
         API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+        API.SysMsg("Config position saved: " + str(config_last_known_x) + "," + str(config_last_known_y), 68)
 
     # Clear references
     config_gump = None
