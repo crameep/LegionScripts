@@ -2589,7 +2589,7 @@ bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, WINDOW_WIDTH_NORMAL, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v2.2", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
+title = API.Gumps.CreateGumpTTFLabel("Tamer Suite v3.0", 16, "#00d4ff", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 title.SetPos(0, 5)
 gump.Add(title)
 
