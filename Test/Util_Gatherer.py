@@ -109,6 +109,10 @@ OUT_OF_REAGENTS_MESSAGES = [
 EMERGENCY_RECALL_BUTTON = 10  # Button for runebook emergency charges
 RUNEBOOK_GUMP_ID = 89  # Runebook gump ID
 
+# Captcha detection
+CAPTCHA_NUMBER_GUMP = 0x968740
+CAPTCHA_PICTA_GUMP = 0xd0c93672
+
 # Runebook
 RUNEBOOK_GRAPHIC = 0x22C5
 GUMP_WAIT_TIME = 3.0
@@ -307,6 +311,49 @@ def check_out_of_reagents():
         return False
     except Exception as e:
         return False
+
+def check_for_captcha():
+    """Check if a captcha gump is open"""
+    try:
+        if API.HasGump(CAPTCHA_NUMBER_GUMP):
+            return "number"
+        elif API.HasGump(CAPTCHA_PICTA_GUMP):
+            return "picta"
+        return None
+    except Exception as e:
+        return None
+
+def handle_captcha(captcha_type):
+    """Handle captcha detection - recall home and stop script"""
+    global PAUSED, STATE
+
+    API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
+    API.SysMsg("║   CAPTCHA DETECTED!                ║", HUE_RED)
+    API.SysMsg("║   Type: " + captcha_type.upper().ljust(27) + "║", HUE_RED)
+    API.SysMsg("║   Recalling home and stopping...   ║", HUE_RED)
+    API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
+
+    # Cancel any active pathfinding
+    if API.Pathfinding():
+        API.CancelPathfinding()
+
+    # Try to recall home
+    if not at_home:
+        API.SysMsg("Attempting recall home...", HUE_YELLOW)
+        if recall_home():
+            API.SysMsg("Recalled home successfully", HUE_GREEN)
+        else:
+            API.SysMsg("Recall failed - stopping anyway", HUE_RED)
+
+    # Stop the script
+    API.SysMsg("╔════════════════════════════════════╗", HUE_YELLOW)
+    API.SysMsg("║   SCRIPT STOPPING - SOLVE CAPTCHA! ║", HUE_YELLOW)
+    API.SysMsg("║   Restart script when ready        ║", HUE_YELLOW)
+    API.SysMsg("╚════════════════════════════════════╝", HUE_YELLOW)
+
+    PAUSED = True
+    STATE = "idle"
+    API.Stop()
 
 def emergency_recall_home():
     """Use runebook emergency charges when out of reagents"""
@@ -1723,6 +1770,12 @@ API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergenc
 try:
     while not API.StopRequested:
         API.ProcessCallbacks()  # CRITICAL: First for responsive hotkeys
+
+        # Check for captcha (highest priority - stops script immediately)
+        captcha = check_for_captcha()
+        if captcha:
+            handle_captcha(captcha)
+            break  # Exit main loop after captcha handling
 
         if PAUSED:
             API.Pause(0.1)
