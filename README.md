@@ -35,6 +35,28 @@ These scripts are created for personal use and shared with the community as-is. 
 
 ---
 
+## 🔧 LegionUtils v3.0 - Shared Utility Library
+
+**A comprehensive library of reusable utilities for eliminating code duplication across scripts.**
+
+**What is it?**
+- 1,920 lines of battle-tested utility code
+- 19 major classes/functions covering common patterns
+- Eliminates ~1,755-1,810 lines of duplicated code across scripts
+- Reduces token usage by ~40% per script
+
+**Documentation:**
+- 📑 [Complete Documentation](docs/INDEX.md) - Start here for everything
+- 🤖 [Refactor Agent](docs/agent/REFACTOR_AGENT_READY.md) - Analyze scripts for refactoring opportunities
+- 📖 [Implementation Guides](docs/phases/) - Phase 1, 2, 3 step-by-step guides
+- 📊 [Deep Dive Report](docs/reference/DEEP_DIVE_REPORT.md) - 40+ page analysis
+
+**Location:** The v3.0 library is in `refactors/LegionUtils.py` (the root `LegionUtils.py` is an older version).
+
+**Status:** ✅ All 3 phases complete (2026-01-27)
+
+---
+
 ## Tamer Scripts
 
 ### Tamer_Suite.py
