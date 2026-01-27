@@ -907,64 +907,50 @@ checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
 
-# Initialize HotkeyManager FIRST - DON'T pass buttons to avoid conflicts
-API.SysMsg("DEBUG: Creating HotkeyManager at " + str(time.time()), 88)
+# Initialize HotkeyManager - don't pass buttons, we handle UI manually
 hotkeys = HotkeyManager()
 bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, None, "B")
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
-API.SysMsg("DEBUG: Hotkeys created, bank_hk.key=" + bank_hk.current_hotkey + " check_hk.key=" + check_hk.current_hotkey, 88)
 
-# Wrap bind to add debug output
+# Wrap bind to update button text after capture
 bank_original_bind = bank_hk.bind
 check_original_bind = check_hk.bind
 
-def bank_debug_bind(key_name):
-    API.SysMsg("DEBUG: bank_hk.bind() called with key=" + key_name, 88)
+def bank_bind_with_ui_update(key_name):
     bank_original_bind(key_name)
-    API.SysMsg("DEBUG: bank_hk.bind() completed, new key=" + bank_hk.current_hotkey, 88)
-    # Update button text manually since we didn't pass button to HotkeyManager
+    # Update button text manually
     bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
     bankHotkeyBtn.SetBackgroundHue(68)
 
-def check_debug_bind(key_name):
-    API.SysMsg("DEBUG: check_hk.bind() called with key=" + key_name, 88)
+def check_bind_with_ui_update(key_name):
     check_original_bind(key_name)
-    API.SysMsg("DEBUG: check_hk.bind() completed, new key=" + check_hk.current_hotkey, 88)
-    # Update button text manually since we didn't pass button to HotkeyManager
+    # Update button text manually
     checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
     checkHotkeyBtn.SetBackgroundHue(68)
 
-bank_hk.bind = bank_debug_bind
-check_hk.bind = check_debug_bind
-API.SysMsg("DEBUG: Wrapped bind methods with debug output", 88)
+bank_hk.bind = bank_bind_with_ui_update
+check_hk.bind = check_bind_with_ui_update
 
-# Debug wrapper to see if button click works
-def debug_bank_capture():
-    API.SysMsg("DEBUG: Bank button clicked at " + str(time.time()), 88)
-    API.SysMsg("DEBUG: bank_hk.capturing before = " + str(bank_hk.capturing), 88)
+# Button click handlers to start capture
+def start_bank_capture():
     bank_hk.start_capture()
-    API.SysMsg("DEBUG: bank_hk.capturing after = " + str(bank_hk.capturing), 88)
-    # Manually update button since we didn't pass it to HotkeyManager
-    if bank_hk.capturing:
-        bankHotkeyBtn.SetText("[Listening...]")
-        bankHotkeyBtn.SetBackgroundHue(38)
+    # Manually update button for capture mode
+    bankHotkeyBtn.SetText("[Listening...]")
+    bankHotkeyBtn.SetBackgroundHue(38)
 
-def debug_check_capture():
-    API.SysMsg("DEBUG: Check button clicked at " + str(time.time()), 88)
-    API.SysMsg("DEBUG: check_hk.capturing before = " + str(check_hk.capturing), 88)
+def start_check_capture():
     check_hk.start_capture()
-    API.SysMsg("DEBUG: check_hk.capturing after = " + str(check_hk.capturing), 88)
-    # Manually update button since we didn't pass it to HotkeyManager
-    if check_hk.capturing:
-        checkHotkeyBtn.SetText("[Listening...]")
-        checkHotkeyBtn.SetBackgroundHue(38)
+    # Manually update button for capture mode
+    checkHotkeyBtn.SetText("[Listening...]")
+    checkHotkeyBtn.SetBackgroundHue(38)
 
-API.SysMsg("DEBUG: About to wire button callbacks at " + str(time.time()), 88)
-# Wire button clicks to our debug wrappers
-API.Gumps.AddControlOnClick(bankHotkeyBtn, debug_bank_capture)
-API.SysMsg("DEBUG: Bank callback wired at " + str(time.time()), 88)
-API.Gumps.AddControlOnClick(checkHotkeyBtn, debug_check_capture)
-API.SysMsg("DEBUG: Check callback wired at " + str(time.time()), 88)
+# Set initial button text to show current hotkeys
+bankHotkeyBtn.SetText("[" + (bank_hk.current_hotkey if bank_hk.current_hotkey else "---") + "]BANK")
+checkHotkeyBtn.SetText("[" + (check_hk.current_hotkey if check_hk.current_hotkey else "---") + "]CHECK")
+
+# Wire button clicks to start capture
+API.Gumps.AddControlOnClick(bankHotkeyBtn, start_bank_capture)
+API.Gumps.AddControlOnClick(checkHotkeyBtn, start_check_capture)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
@@ -1026,12 +1012,13 @@ gump.Add(doneBtn)
 
 API.Gumps.AddGump(gump)
 
-# FIXED: Create combined handlers that check BOTH bindings
-# Since API.OnHotKey only allows one handler per key, we need a wrapper
+# Register combined handlers for all keys
+# Since API.OnHotKey only allows one handler per key, we create a combined handler
+# that checks both bindings (bank and check) for capture or execution
 def make_combined_handler(key_name):
     """Create handler that checks all bindings for this key"""
     def handler():
-        # First check if ANY binding is capturing
+        # Check if any binding is capturing
         for binding in [bank_hk, check_hk]:
             if binding.capturing:
                 if key_name == "ESC":
@@ -1050,7 +1037,7 @@ def make_combined_handler(key_name):
                 binding.bind(key_name)
                 return
 
-        # Not capturing - check if key matches any binding's hotkey
+        # Not capturing - check if key matches any binding's hotkey and execute
         if key_name == bank_hk.current_hotkey:
             move_satchel_to_bank()
         elif key_name == check_hk.current_hotkey:
@@ -1058,7 +1045,7 @@ def make_combined_handler(key_name):
 
     return handler
 
-API.SysMsg("Registering combined hotkey handlers...", 68)
+# Register combined handler for all possible keys
 for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
             "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
             "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
@@ -1068,12 +1055,10 @@ for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", 
             "ESC"]:
     API.OnHotKey(key, make_combined_handler(key))
 
-API.SysMsg("Hotkey handlers registered!", 68)
-
 update_display()
 
 API.SysMsg("Gold Manager v4.0 (LegionUtils) loaded!", 68)
-API.SysMsg("Bank: " + bank_hk.key + " | Check: " + check_hk.key + " | [M]=mode [R]=reset [C]=config", 43)
+API.SysMsg("Bank: " + bank_hk.current_hotkey + " | Check: " + check_hk.current_hotkey + " | Click buttons to rebind | [M]=mode [R]=reset [C]=config", 43)
 if satchel_serial > 0:
     API.SysMsg("Container: 0x" + format(satchel_serial, 'X'), 66)
 else:
