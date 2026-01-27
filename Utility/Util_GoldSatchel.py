@@ -1026,21 +1026,49 @@ gump.Add(doneBtn)
 
 API.Gumps.AddGump(gump)
 
-# Register all hotkeys
-API.SysMsg("DEBUG: About to call register_all()", 88)
-API.SysMsg("DEBUG: bank_hk object = " + str(bank_hk), 88)
-API.SysMsg("DEBUG: Number of bindings = " + str(len(hotkeys.bindings)), 88)
-API.SysMsg("DEBUG: Binding names = " + str(list(hotkeys.bindings.keys())), 88)
+# FIXED: Create combined handlers that check BOTH bindings
+# Since API.OnHotKey only allows one handler per key, we need a wrapper
+def make_combined_handler(key_name):
+    """Create handler that checks all bindings for this key"""
+    def handler():
+        # First check if ANY binding is capturing
+        for binding in [bank_hk, check_hk]:
+            if binding.capturing:
+                if key_name == "ESC":
+                    # Cancel capture
+                    binding.capturing = False
+                    API.SysMsg("Hotkey capture cancelled", 90)
+                    # Update button manually
+                    if binding == bank_hk:
+                        bankHotkeyBtn.SetText("[" + (bank_hk.current_hotkey if bank_hk.current_hotkey else "---") + "]BANK")
+                        bankHotkeyBtn.SetBackgroundHue(68 if bank_hk.current_hotkey else 90)
+                    else:
+                        checkHotkeyBtn.SetText("[" + (check_hk.current_hotkey if check_hk.current_hotkey else "---") + "]CHECK")
+                        checkHotkeyBtn.SetBackgroundHue(68 if check_hk.current_hotkey else 90)
+                    return
+                # Bind to this key
+                binding.bind(key_name)
+                return
 
-# Manually test one handler
-test_handler = bank_hk.make_handler("Q")
-API.SysMsg("DEBUG: Created test handler for Q: " + str(test_handler), 88)
-API.SysMsg("DEBUG: Registering Q manually with our test handler", 88)
-API.OnHotKey("Q", test_handler)
-API.SysMsg("DEBUG: Q handler registered - try pressing Q after clicking Bank", 88)
+        # Not capturing - check if key matches any binding's hotkey
+        if key_name == bank_hk.current_hotkey:
+            move_satchel_to_bank()
+        elif key_name == check_hk.current_hotkey:
+            make_check()
 
-# Don't call register_all yet - let's test with just Q first
-# hotkeys.register_all()
+    return handler
+
+API.SysMsg("Registering combined hotkey handlers...", 68)
+for key in ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+            "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+            "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
+            "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
+            "ESC"]:
+    API.OnHotKey(key, make_combined_handler(key))
+
+API.SysMsg("Hotkey handlers registered!", 68)
 
 update_display()
 
