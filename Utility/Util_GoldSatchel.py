@@ -914,6 +914,30 @@ bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, Non
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
 API.SysMsg("DEBUG: Hotkeys created, bank_hk.key=" + bank_hk.current_hotkey + " check_hk.key=" + check_hk.current_hotkey, 88)
 
+# Wrap bind to add debug output
+bank_original_bind = bank_hk.bind
+check_original_bind = check_hk.bind
+
+def bank_debug_bind(key_name):
+    API.SysMsg("DEBUG: bank_hk.bind() called with key=" + key_name, 88)
+    bank_original_bind(key_name)
+    API.SysMsg("DEBUG: bank_hk.bind() completed, new key=" + bank_hk.current_hotkey, 88)
+    # Update button text manually since we didn't pass button to HotkeyManager
+    bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
+    bankHotkeyBtn.SetBackgroundHue(68)
+
+def check_debug_bind(key_name):
+    API.SysMsg("DEBUG: check_hk.bind() called with key=" + key_name, 88)
+    check_original_bind(key_name)
+    API.SysMsg("DEBUG: check_hk.bind() completed, new key=" + check_hk.current_hotkey, 88)
+    # Update button text manually since we didn't pass button to HotkeyManager
+    checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
+    checkHotkeyBtn.SetBackgroundHue(68)
+
+bank_hk.bind = bank_debug_bind
+check_hk.bind = check_debug_bind
+API.SysMsg("DEBUG: Wrapped bind methods with debug output", 88)
+
 # Debug wrapper to see if button click works
 def debug_bank_capture():
     API.SysMsg("DEBUG: Bank button clicked at " + str(time.time()), 88)
