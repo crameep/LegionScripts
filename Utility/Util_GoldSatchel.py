@@ -58,8 +58,8 @@ DEBUG = False
 WINDOW_WIDTH_NORMAL = 165   # Was 155, increased for wider hotkey buttons
 WINDOW_WIDTH_CONFIG = 195   # Was 190, proportional increase
 COLLAPSED_HEIGHT = 24
-NORMAL_HEIGHT = 118
-CONFIG_HEIGHT = 266  # Normal height + config panel (148px - added wand/loot buttons)
+NORMAL_HEIGHT = 144  # Was 118, increased for action buttons row
+CONFIG_HEIGHT = 292  # Normal height + config panel (148px - added wand/loot buttons)
 
 # Button dimensions
 HOTKEY_BTN_WIDTH = 78       # Was 70, increased to prevent truncation
@@ -113,6 +113,8 @@ retargetBtn = None
 resetBtn = None
 configBtn = None  # NEW - toggle config panel
 expandBtn = None
+bankActionBtn = None  # NEW v4.0 - click to bank
+checkActionBtn = None  # NEW v4.0 - click to check
 bankHotkeyBtn = None  # NEW - integrated hotkey button
 checkHotkeyBtn = None  # NEW - integrated hotkey button
 incomeModeBtn = None
@@ -567,6 +569,8 @@ def expand_window():
     incomeModeBtn.IsVisible = True
     resetIncomeBtn.IsVisible = True
     sessionLabel.IsVisible = True
+    bankActionBtn.IsVisible = True
+    checkActionBtn.IsVisible = True
     bankHotkeyBtn.IsVisible = True
     checkHotkeyBtn.IsVisible = True
 
@@ -607,6 +611,8 @@ def collapse_window():
     incomeModeBtn.IsVisible = False
     resetIncomeBtn.IsVisible = False
     sessionLabel.IsVisible = False
+    bankActionBtn.IsVisible = False
+    checkActionBtn.IsVisible = False
     bankHotkeyBtn.IsVisible = False
     checkHotkeyBtn.IsVisible = False
 
@@ -892,14 +898,30 @@ sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 y += 16
-# ============ INTEGRATED HOTKEY BUTTONS (HotkeyManager) ============
+# ============ ACTION BUTTONS (click to execute) ============
+bankActionBtn = API.Gumps.CreateSimpleButton("[BANK]", HOTKEY_BTN_WIDTH, 24)
+bankActionBtn.SetPos(leftMargin, y)
+bankActionBtn.SetBackgroundHue(66)  # Blue-green
+bankActionBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(bankActionBtn, move_satchel_to_bank)
+gump.Add(bankActionBtn)
+
+checkActionBtn = API.Gumps.CreateSimpleButton("[CHECK]", HOTKEY_BTN_WIDTH, 24)
+checkActionBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
+checkActionBtn.SetBackgroundHue(66)  # Blue-green
+checkActionBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(checkActionBtn, make_check)
+gump.Add(checkActionBtn)
+
+y += 26
+# ============ HOTKEY CONFIG BUTTONS (click to rebind) ============
 # Create buttons first
-bankHotkeyBtn = API.Gumps.CreateSimpleButton("[BANK: B]", HOTKEY_BTN_WIDTH, 24)
+bankHotkeyBtn = API.Gumps.CreateSimpleButton("[BANK: B]", HOTKEY_BTN_WIDTH, 20)
 bankHotkeyBtn.SetPos(leftMargin, y)
 bankHotkeyBtn.IsVisible = is_expanded
 gump.Add(bankHotkeyBtn)
 
-checkHotkeyBtn = API.Gumps.CreateSimpleButton("[CHECK: C]", HOTKEY_BTN_WIDTH, 24)
+checkHotkeyBtn = API.Gumps.CreateSimpleButton("[CHECK: C]", HOTKEY_BTN_WIDTH, 20)
 checkHotkeyBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
 checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
