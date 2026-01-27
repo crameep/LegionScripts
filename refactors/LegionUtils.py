@@ -57,7 +57,11 @@
 #   - ErrorManager class
 #   - Basic GUI utilities
 # ============================================================
-# API and time are expected to be in global scope (imported by calling script)
+# LegionUtils needs its own imports
+import time
+
+# Note: API is expected to be in global scope (imported by calling script before LegionUtils)
+# But time needs to be imported here for internal use
 
 # ============ CONSTANTS ============
 BANDAGE_GRAPHIC = 0x0E21
