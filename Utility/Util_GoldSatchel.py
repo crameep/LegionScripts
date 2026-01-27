@@ -914,6 +914,18 @@ bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, Non
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
 API.SysMsg("DEBUG: Hotkeys created (no buttons passed)", 88)
 
+# Add debug handler to test if ANY key press is detected
+def debug_key_handler():
+    API.SysMsg("DEBUG: Q key pressed! bank_hk.capturing=" + str(bank_hk.capturing), 88)
+    if bank_hk.capturing:
+        API.SysMsg("DEBUG: Should be capturing Q now!", 88)
+    else:
+        API.SysMsg("DEBUG: Not in capture mode", 88)
+
+API.SysMsg("DEBUG: Registering debug Q handler", 88)
+API.OnHotKey("Q", debug_key_handler)
+API.SysMsg("DEBUG: Debug Q handler registered", 88)
+
 # Debug wrapper to see if button click works
 def debug_bank_capture():
     API.SysMsg("DEBUG: Bank button clicked at " + str(time.time()), 88)
