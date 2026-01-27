@@ -912,19 +912,7 @@ API.SysMsg("DEBUG: Creating HotkeyManager at " + str(time.time()), 88)
 hotkeys = HotkeyManager()
 bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, None, "B")
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
-API.SysMsg("DEBUG: Hotkeys created (no buttons passed)", 88)
-
-# Add debug handler to test if ANY key press is detected
-def debug_key_handler():
-    API.SysMsg("DEBUG: Q key pressed! bank_hk.capturing=" + str(bank_hk.capturing), 88)
-    if bank_hk.capturing:
-        API.SysMsg("DEBUG: Should be capturing Q now!", 88)
-    else:
-        API.SysMsg("DEBUG: Not in capture mode", 88)
-
-API.SysMsg("DEBUG: Registering debug Q handler", 88)
-API.OnHotKey("Q", debug_key_handler)
-API.SysMsg("DEBUG: Debug Q handler registered", 88)
+API.SysMsg("DEBUG: Hotkeys created, bank_hk.key=" + bank_hk.current_hotkey + " check_hk.key=" + check_hk.current_hotkey, 88)
 
 # Debug wrapper to see if button click works
 def debug_bank_capture():
@@ -1015,7 +1003,21 @@ gump.Add(doneBtn)
 API.Gumps.AddGump(gump)
 
 # Register all hotkeys
+API.SysMsg("DEBUG: About to call register_all()", 88)
 hotkeys.register_all()
+API.SysMsg("DEBUG: register_all() completed", 88)
+
+# Add debug handler to test if ANY key press is detected (AFTER register_all)
+def debug_key_handler():
+    API.SysMsg("DEBUG: Q key pressed! bank_hk.capturing=" + str(bank_hk.capturing), 88)
+    if bank_hk.capturing:
+        API.SysMsg("DEBUG: In capture mode, should bind now!", 88)
+    else:
+        API.SysMsg("DEBUG: Not in capture mode, executing action", 88)
+
+API.SysMsg("DEBUG: Registering separate Q handler for testing", 88)
+API.OnHotKey("Q", debug_key_handler)
+API.SysMsg("DEBUG: Test Q handler registered", 88)
 
 update_display()
 
