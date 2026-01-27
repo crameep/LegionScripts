@@ -750,43 +750,6 @@ def toggle_income_mode():
     mode_names = ["Compact", "Full", "Detailed"]
     API.SysMsg("Income display: " + mode_names[income_display_mode], 68)
 
-def on_bank_key_captured():
-    """Called after bank hotkey is captured - update button text"""
-    if bankHotkeyBtn:
-        if bank_hk.capturing:
-            bankHotkeyBtn.SetText("[Listening...]")
-            bankHotkeyBtn.SetBackgroundHue(38)  # Purple
-        else:
-            if bank_hk.current_hotkey:
-                bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
-                bankHotkeyBtn.SetBackgroundHue(68)  # Green
-            else:
-                bankHotkeyBtn.SetText("[---]BANK")
-                bankHotkeyBtn.SetBackgroundHue(90)  # Gray
-
-def on_check_key_captured():
-    """Called after check hotkey is captured - update button text"""
-    if checkHotkeyBtn:
-        if check_hk.capturing:
-            checkHotkeyBtn.SetText("[Listening...]")
-            checkHotkeyBtn.SetBackgroundHue(38)  # Purple
-        else:
-            if check_hk.current_hotkey:
-                checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
-                checkHotkeyBtn.SetBackgroundHue(68)  # Green
-            else:
-                checkHotkeyBtn.SetText("[---]CHECK")
-                checkHotkeyBtn.SetBackgroundHue(90)  # Gray
-
-def start_bank_capture():
-    """Start bank hotkey capture with custom button updates"""
-    bank_hk.start_capture()
-    on_bank_key_captured()
-
-def start_check_capture():
-    """Start check hotkey capture with custom button updates"""
-    check_hk.start_capture()
-    on_check_key_captured()
 
 # ============ DISPLAY UPDATES ============
 def update_display():
@@ -944,33 +907,45 @@ checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
 
-# Initialize HotkeyManager (don't pass button refs - we'll update manually)
+# Initialize HotkeyManager - PASS BUTTONS so capture works properly
 hotkeys = HotkeyManager()
-bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, None, "B")
-check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
+bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
+check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
 
-# Wrap bind methods to call our custom update functions
-bank_original_bind = bank_hk.bind
-check_original_bind = check_hk.bind
+# Wrap update_button to customize text format
+bank_original_update = bank_hk.update_button
+check_original_update = check_hk.update_button
 
-def bank_custom_bind(key_name):
-    bank_original_bind(key_name)
-    on_bank_key_captured()
+def bank_custom_update():
+    # Call original update (handles capturing state and colors)
+    bank_original_update()
+    # Customize text format if not capturing
+    if not bank_hk.capturing and bankHotkeyBtn:
+        if bank_hk.current_hotkey:
+            bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
+        else:
+            bankHotkeyBtn.SetText("[---]BANK")
 
-def check_custom_bind(key_name):
-    check_original_bind(key_name)
-    on_check_key_captured()
+def check_custom_update():
+    # Call original update (handles capturing state and colors)
+    check_original_update()
+    # Customize text format if not capturing
+    if not check_hk.capturing and checkHotkeyBtn:
+        if check_hk.current_hotkey:
+            checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
+        else:
+            checkHotkeyBtn.SetText("[---]CHECK")
 
-bank_hk.bind = bank_custom_bind
-check_hk.bind = check_custom_bind
+bank_hk.update_button = bank_custom_update
+check_hk.update_button = check_custom_update
 
 # Set initial button text
-on_bank_key_captured()
-on_check_key_captured()
+bank_hk.update_button()
+check_hk.update_button()
 
-# Wire button clicks to START CAPTURE (original behavior)
-API.Gumps.AddControlOnClick(bankHotkeyBtn, start_bank_capture)
-API.Gumps.AddControlOnClick(checkHotkeyBtn, start_check_capture)
+# Wire button clicks to START CAPTURE
+API.Gumps.AddControlOnClick(bankHotkeyBtn, bank_hk.start_capture)
+API.Gumps.AddControlOnClick(checkHotkeyBtn, check_hk.start_capture)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
