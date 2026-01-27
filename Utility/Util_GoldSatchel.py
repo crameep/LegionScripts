@@ -6,8 +6,9 @@
 # Automatically moves gold from your backpack to a designated
 # container, and banks container gold when needed.
 #
-# NEW v3.2: Salvaging mechanic!
-#   - Auto-salvage items in loot bag with Wand of Dust (30s interval)
+# NEW v4.0: LegionUtils refactor + smart salvaging!
+#   - Refactored with LegionUtils v3.0 (17% line reduction)
+#   - Smart salvaging: Only salvages when 80%+ weight (with 30s cooldown)
 #   - Config buttons to target wand and loot bag
 #   - [R] button on main window to reset income counter (not banked total)
 #
@@ -405,18 +406,35 @@ def move_satchel_to_bank():
         debug_msg("Error in move_satchel_to_bank: " + str(e))
 
 # ============ SALVAGING FUNCTIONS ============
+def should_salvage():
+    """Check if we should salvage based on weight and cooldown"""
+    # Must have wand and loot bag configured
+    if wand_serial == 0 or loot_bag_serial == 0:
+        return False
+
+    # Skip during combat
+    if is_in_combat():
+        return False
+
+    # Check cooldown (prevent spam)
+    if not salvage_cooldown.is_ready():
+        return False
+
+    # Check weight threshold (80% capacity)
+    try:
+        current_weight = API.Player.Weight
+        max_weight = API.Player.MaxWeight
+
+        if max_weight > 0:
+            weight_pct = (current_weight / max_weight) * 100
+            return weight_pct >= 80  # Salvage at 80% capacity
+        return False
+    except:
+        return False
+
 def salvage_loot_bag():
     """Use wand of dust on loot bag - game auto-salvages all items in bag"""
     try:
-        # Skip salvaging during combat
-        if is_in_combat():
-            debug_msg("Skipping salvage - in combat")
-            return
-
-        # Check if wand and loot bag are set
-        if wand_serial == 0 or loot_bag_serial == 0:
-            return
-
         wand = API.FindItem(wand_serial)
         if not wand:
             return
@@ -442,6 +460,14 @@ def salvage_loot_bag():
             # Target the loot bag
             API.Target(loot_bag_serial)
             API.Pause(2.0)  # Wait for salvage to complete
+
+            # Calculate weight after salvage for feedback
+            try:
+                weight_pct = int((API.Player.Weight / API.Player.MaxWeight) * 100)
+                API.SysMsg("Salvaged loot bag (Weight: " + str(weight_pct) + "%)", 68)
+            except:
+                API.SysMsg("Salvaged loot bag", 68)
+
             debug_msg("Auto-salvaged loot bag")
         else:
             debug_msg("Target cursor didn't appear")
@@ -957,9 +983,9 @@ API.SysMsg("Bank: " + bank_hk.key + " | Check: " + check_hk.key + " | [M]=mode [
 if satchel_serial > 0:
     API.SysMsg("Container: 0x" + format(satchel_serial, 'X'), 66)
 else:
-    API.SysMsg("Click [C] config button, then [TARGET] to set your container", 43)
+    API.SysMsg("Click [C] config button, then [Container] to set your container", 43)
 if wand_serial > 0 and loot_bag_serial > 0:
-    API.SysMsg("Salvaging enabled: Wand 0x" + format(wand_serial, 'X') + " | Loot 0x" + format(loot_bag_serial, 'X'), 66)
+    API.SysMsg("Auto-salvage: When 80%+ weight (30s cooldown)", 66)
 
 # ============ MAIN LOOP ============
 DISPLAY_UPDATE_INTERVAL = 0.5
@@ -977,9 +1003,8 @@ while not API.StopRequested:
             move_gold_to_satchel()
             next_scan = time.time() + SCAN_INTERVAL
 
-        # Salvage loot bag every SALVAGE_INTERVAL seconds
-        if salvage_cooldown.is_ready():
-            debug_msg("Starting salvage cycle")
+        # Salvage loot bag when heavy (80%+ weight) and cooldown ready
+        if should_salvage():
             salvage_loot_bag()
             salvage_cooldown.use()
 
