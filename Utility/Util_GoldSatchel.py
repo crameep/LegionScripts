@@ -1028,9 +1028,19 @@ API.Gumps.AddGump(gump)
 
 # Register all hotkeys
 API.SysMsg("DEBUG: About to call register_all()", 88)
-hotkeys.register_all()
-API.SysMsg("DEBUG: register_all() completed - HotkeyManager handlers registered for all keys", 88)
-API.SysMsg("DEBUG: Now press Q after clicking Bank button - HotkeyManager should handle it", 88)
+API.SysMsg("DEBUG: bank_hk object = " + str(bank_hk), 88)
+API.SysMsg("DEBUG: Number of bindings = " + str(len(hotkeys.bindings)), 88)
+API.SysMsg("DEBUG: Binding names = " + str(list(hotkeys.bindings.keys())), 88)
+
+# Manually test one handler
+test_handler = bank_hk.make_handler("Q")
+API.SysMsg("DEBUG: Created test handler for Q: " + str(test_handler), 88)
+API.SysMsg("DEBUG: Registering Q manually with our test handler", 88)
+API.OnHotKey("Q", test_handler)
+API.SysMsg("DEBUG: Q handler registered - try pressing Q after clicking Bank", 88)
+
+# Don't call register_all yet - let's test with just Q first
+# hotkeys.register_all()
 
 update_display()
 
