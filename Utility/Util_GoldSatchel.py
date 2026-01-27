@@ -908,26 +908,31 @@ checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
 
 # Initialize HotkeyManager - PASS BUTTONS so capture works properly
+API.SysMsg("DEBUG: Creating HotkeyManager at " + str(time.time()), 88)
 hotkeys = HotkeyManager()
 bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
+API.SysMsg("DEBUG: Hotkeys created, bank button = " + str(bank_hk.button), 88)
 
 # Debug wrapper to see if button click works
 def debug_bank_capture():
-    API.SysMsg("DEBUG: Bank button clicked, starting capture", 88)
+    API.SysMsg("DEBUG: Bank button clicked at " + str(time.time()), 88)
     API.SysMsg("DEBUG: bank_hk.capturing before = " + str(bank_hk.capturing), 88)
     bank_hk.start_capture()
     API.SysMsg("DEBUG: bank_hk.capturing after = " + str(bank_hk.capturing), 88)
 
 def debug_check_capture():
-    API.SysMsg("DEBUG: Check button clicked, starting capture", 88)
+    API.SysMsg("DEBUG: Check button clicked at " + str(time.time()), 88)
     API.SysMsg("DEBUG: check_hk.capturing before = " + str(check_hk.capturing), 88)
     check_hk.start_capture()
     API.SysMsg("DEBUG: check_hk.capturing after = " + str(check_hk.capturing), 88)
 
+API.SysMsg("DEBUG: About to wire button callbacks at " + str(time.time()), 88)
 # Wire button clicks to START CAPTURE
 API.Gumps.AddControlOnClick(bankHotkeyBtn, debug_bank_capture)
+API.SysMsg("DEBUG: Bank callback wired at " + str(time.time()), 88)
 API.Gumps.AddControlOnClick(checkHotkeyBtn, debug_check_capture)
+API.SysMsg("DEBUG: Check callback wired at " + str(time.time()), 88)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
