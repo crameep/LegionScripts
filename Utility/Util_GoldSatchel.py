@@ -907,12 +907,12 @@ checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
 
-# Initialize HotkeyManager - PASS BUTTONS so capture works properly
+# Initialize HotkeyManager FIRST - DON'T pass buttons to avoid conflicts
 API.SysMsg("DEBUG: Creating HotkeyManager at " + str(time.time()), 88)
 hotkeys = HotkeyManager()
-bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
-check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
-API.SysMsg("DEBUG: Hotkeys created, bank button = " + str(bank_hk.button), 88)
+bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, None, "B")
+check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
+API.SysMsg("DEBUG: Hotkeys created (no buttons passed)", 88)
 
 # Debug wrapper to see if button click works
 def debug_bank_capture():
@@ -920,15 +920,23 @@ def debug_bank_capture():
     API.SysMsg("DEBUG: bank_hk.capturing before = " + str(bank_hk.capturing), 88)
     bank_hk.start_capture()
     API.SysMsg("DEBUG: bank_hk.capturing after = " + str(bank_hk.capturing), 88)
+    # Manually update button since we didn't pass it to HotkeyManager
+    if bank_hk.capturing:
+        bankHotkeyBtn.SetText("[Listening...]")
+        bankHotkeyBtn.SetBackgroundHue(38)
 
 def debug_check_capture():
     API.SysMsg("DEBUG: Check button clicked at " + str(time.time()), 88)
     API.SysMsg("DEBUG: check_hk.capturing before = " + str(check_hk.capturing), 88)
     check_hk.start_capture()
     API.SysMsg("DEBUG: check_hk.capturing after = " + str(check_hk.capturing), 88)
+    # Manually update button since we didn't pass it to HotkeyManager
+    if check_hk.capturing:
+        checkHotkeyBtn.SetText("[Listening...]")
+        checkHotkeyBtn.SetBackgroundHue(38)
 
 API.SysMsg("DEBUG: About to wire button callbacks at " + str(time.time()), 88)
-# Wire button clicks to START CAPTURE
+# Wire button clicks to our debug wrappers
 API.Gumps.AddControlOnClick(bankHotkeyBtn, debug_bank_capture)
 API.SysMsg("DEBUG: Bank callback wired at " + str(time.time()), 88)
 API.Gumps.AddControlOnClick(checkHotkeyBtn, debug_check_capture)
