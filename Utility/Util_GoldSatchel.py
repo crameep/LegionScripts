@@ -1,10 +1,15 @@
 # ============================================================
-# Gold Manager v3.1 (UI_STANDARDS)
+# Gold Manager v3.2 (UI_STANDARDS)
 # by Coryigon for UO Unchained
 # ============================================================
 #
 # Automatically moves gold from your backpack to a designated
 # container, and banks container gold when needed.
+#
+# NEW v3.2: Salvaging mechanic!
+#   - Auto-salvage items in loot bag with Wand of Dust (30s interval)
+#   - Config buttons to target wand and loot bag
+#   - [R] button on main window to reset income counter (not banked total)
 #
 # NEW v3.1: Fixes and improvements!
 #   - Fixed hotkey button truncation (78px wide buttons)
@@ -22,14 +27,30 @@
 # ============================================================
 import API
 import time
+import sys
 
-__version__ = "3.1"
+# Add LegionUtils to path
+sys.path.append(r"G:\Ultima Online\TazUO-Launcher.win-x64\TazUO\LegionScripts\CoryCustom\refactors")
+from LegionUtils import (
+    # Phase 1: Foundation utilities
+    format_gold_compact, is_in_combat, get_item_safe,
+    cancel_all_targets, request_target,
+    load_bool, save_bool, load_int, save_int,
+    # Phase 2: Standalone utilities
+    ErrorManager, WindowPositionTracker, CooldownTracker,
+    get_item_count,
+    # Phase 4: Complex systems
+    HotkeyManager
+)
+
+__version__ = "4.0"  # Refactored with LegionUtils v3.0
 
 # ============ USER SETTINGS ============
 GOLD_GRAPHIC = 0x0EED
 CHECK_GRAPHIC = 0x14F0
 SCAN_INTERVAL = 2.0
 MOVE_PAUSE = 0.65
+SALVAGE_INTERVAL = 30.0  # Salvage loot bag every 30 seconds
 DEBUG = False
 
 # ============ GUI DIMENSIONS ============
@@ -37,7 +58,7 @@ WINDOW_WIDTH_NORMAL = 165   # Was 155, increased for wider hotkey buttons
 WINDOW_WIDTH_CONFIG = 195   # Was 190, proportional increase
 COLLAPSED_HEIGHT = 24
 NORMAL_HEIGHT = 118
-CONFIG_HEIGHT = 218  # Normal height + config panel (100px)
+CONFIG_HEIGHT = 266  # Normal height + config panel (148px - added wand/loot buttons)
 
 # Button dimensions
 HOTKEY_BTN_WIDTH = 78       # Was 70, increased to prevent truncation
@@ -51,22 +72,9 @@ EXPANDED_KEY = "GoldSatchel_Expanded"
 BANK_HOTKEY_KEY = "GoldSatchel_BankHotkey"
 CHECK_HOTKEY_KEY = "GoldSatchel_CheckHotkey"
 INCOME_MODE_KEY = "GoldSatchel_IncomeMode"
-
-# ============ HOTKEY STATE ============
-bank_hotkey = "B"
-check_hotkey = "C"
-listening_for_action = None  # "bank", "check", or None
-
-# ============ ALL POSSIBLE KEYS ============
-ALL_KEYS = [
-    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
-    "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
-    "ESC",  # For canceling hotkey capture
-]
+WAND_KEY = "GoldSatchel_WandSerial"
+LOOT_BAG_KEY = "GoldSatchel_LootBagSerial"
+SHARED_COMBAT_KEY = "SharedCombat_Active"  # Shared combat flag from Tamer Suite
 
 # ============ RUNTIME STATE ============
 satchel_serial = 0
@@ -75,9 +83,14 @@ is_expanded = True
 show_config = False  # Config panel visibility
 session_gold = 0
 last_scan_time = 0
-last_error_time = 0
-last_error_msg = ""
-ERROR_COOLDOWN = 5.0
+
+# Error management
+errors = ErrorManager(cooldown=5.0)
+
+# Salvaging
+wand_serial = 0
+loot_bag_serial = 0
+salvage_cooldown = CooldownTracker(SALVAGE_INTERVAL)
 
 # Income tracking
 session_start_time = 0
@@ -102,8 +115,11 @@ expandBtn = None
 bankHotkeyBtn = None  # NEW - integrated hotkey button
 checkHotkeyBtn = None  # NEW - integrated hotkey button
 incomeModeBtn = None
+resetIncomeBtn = None  # NEW v3.2 - reset income counter
 configBg = None  # NEW - config panel background
 doneBtn = None  # NEW - close config panel
+targetWandBtn = None  # NEW v3.2 - target wand button
+targetLootBtn = None  # NEW v3.2 - target loot bag button
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -142,47 +158,20 @@ def get_gold_item():
 
 def get_satchel():
     """Returns the container item if valid, None otherwise"""
-    if satchel_serial == 0:
-        return None
-
-    satchel = API.FindItem(satchel_serial)
-    if not satchel:
-        return None
-
-    return satchel
+    return get_item_safe(satchel_serial)
 
 def count_all_gold():
     """Count total gold in backpack + satchel for income tracking"""
-    total = 0
-
     try:
-        backpack = API.Player.Backpack
-        if not backpack:
-            return 0
+        # Count gold in backpack (non-recursive - only root level)
+        backpack_gold = get_item_count(GOLD_GRAPHIC, recursive=False)
 
-        # Count gold in backpack (loose gold)
-        backpack_items = API.ItemsInContainer(backpack.Serial, False)  # Non-recursive for backpack root
-        backpack_gold = 0
-        if backpack_items:
-            for item in backpack_items:
-                if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
-                    amount = getattr(item, 'Amount', 1)
-                    backpack_gold += amount
-
-        # Count gold in satchel (if set)
+        # Count gold in satchel (non-recursive)
         satchel_gold = 0
         if satchel_serial > 0:
-            satchel = get_satchel()
-            if satchel:
-                satchel_items = API.ItemsInContainer(satchel_serial, False)
-                if satchel_items:
-                    for item in satchel_items:
-                        if hasattr(item, 'Graphic') and item.Graphic == GOLD_GRAPHIC:
-                            amount = getattr(item, 'Amount', 1)
-                            satchel_gold += amount
+            satchel_gold = get_item_count(GOLD_GRAPHIC, container_serial=satchel_serial, recursive=False)
 
-        total = backpack_gold + satchel_gold
-        return total
+        return backpack_gold + satchel_gold
     except Exception as e:
         debug_msg("Error counting gold: " + str(e))
         return 0
@@ -232,48 +221,24 @@ def get_income_rates():
 
     return (gold_per_min, gold_per_10min, gold_per_hour)
 
-def format_gold_compact(amount):
-    """Format gold in compact form: 1234 -> 1.2k, 123456 -> 123k"""
-    if amount < 1000:
-        return str(int(amount))
-    elif amount < 10000:
-        # 1000-9999: show 1 decimal, but strip .0
-        val = round(amount / 1000.0, 1)
-        if val == int(val):  # If it's a whole number like 2.0
-            return str(int(val)) + "k"
-        else:
-            return "{:.1f}".format(val) + "k"  # Force exactly 1 decimal place
-    elif amount < 1000000:
-        # 10000+: no decimals (12k, 123k)
-        return str(int(amount / 1000)) + "k"
-    else:
-        # Million+: show 1 decimal, but strip .0
-        val = round(amount / 1000000.0, 1)
-        if val == int(val):
-            return str(int(val)) + "m"
-        else:
-            return "{:.1f}".format(val) + "m"  # Force exactly 1 decimal place
-
 def move_gold_to_satchel():
     """Move one gold pile from backpack to container"""
-    global last_error_time, last_error_msg
-
     if not enabled:
-        clear_error()
+        errors.clear_error()
         return
 
     if satchel_serial == 0:
-        set_error("No container set!")
+        errors.set_error("No container set!")
         return
 
     satchel = get_satchel()
     if not satchel:
-        set_error("Container not found!")
+        errors.set_error("Container not found!")
         return
 
     gold_item = get_gold_item()
     if not gold_item:
-        clear_error()
+        errors.clear_error()
         return
 
     try:
@@ -290,14 +255,14 @@ def move_gold_to_satchel():
 
         check_item = get_gold_item()
         if check_item and check_item.Serial == gold_serial:
-            set_error("Move failed - container may be full")
+            errors.set_error("Move failed - container may be full")
             return
 
         API.SysMsg("Moved " + str(amount) + " gold", 68)
-        clear_error()
+        errors.clear_error()
 
     except Exception as e:
-        set_error("Move failed: " + str(e))
+        errors.set_error("Move failed: " + str(e))
         debug_msg("Error moving gold: " + str(e))
 
 def make_check():
@@ -439,89 +404,51 @@ def move_satchel_to_bank():
         API.SysMsg("Error banking gold: " + str(e), 32)
         debug_msg("Error in move_satchel_to_bank: " + str(e))
 
-def set_error(msg):
-    global last_error_time, last_error_msg
-
-    if msg != last_error_msg or (time.time() - last_error_time) > ERROR_COOLDOWN:
-        last_error_msg = msg
-        last_error_time = time.time()
-        if msg:
-            API.SysMsg(msg, 32)
-
-def clear_error():
-    global last_error_msg
-    last_error_msg = ""
-
-# ============ HOTKEY SYSTEM ============
-def make_key_handler(key_name):
-    """Create a callback for a specific key"""
-    def handler():
-        global listening_for_action, bank_hotkey, check_hotkey
-
-        # If we're listening for a key assignment
-        if listening_for_action is not None:
-            # ESC cancels listening mode
-            if key_name == "ESC":
-                if listening_for_action == "bank":
-                    update_hotkey_buttons()
-                    API.SysMsg("Cancelled - kept " + bank_hotkey, 53)
-                elif listening_for_action == "check":
-                    update_hotkey_buttons()
-                    API.SysMsg("Cancelled - kept " + check_hotkey, 53)
-                listening_for_action = None
-                return
-
-            # Assign the key
-            if listening_for_action == "bank":
-                # Warn if duplicate
-                if key_name == check_hotkey:
-                    API.SysMsg("Warning: " + key_name + " already used for Make Check", 43)
-                bank_hotkey = key_name
-                API.SavePersistentVar(BANK_HOTKEY_KEY, bank_hotkey, API.PersistentVar.Char)
-                API.SysMsg("Bank bound to: " + key_name, 68)
-            elif listening_for_action == "check":
-                # Warn if duplicate
-                if key_name == bank_hotkey:
-                    API.SysMsg("Warning: " + key_name + " already used for Bank", 43)
-                check_hotkey = key_name
-                API.SavePersistentVar(CHECK_HOTKEY_KEY, check_hotkey, API.PersistentVar.Char)
-                API.SysMsg("Make Check bound to: " + key_name, 68)
-
-            update_hotkey_buttons()
-            listening_for_action = None
+# ============ SALVAGING FUNCTIONS ============
+def salvage_loot_bag():
+    """Use wand of dust on loot bag - game auto-salvages all items in bag"""
+    try:
+        # Skip salvaging during combat
+        if is_in_combat():
+            debug_msg("Skipping salvage - in combat")
             return
 
-        # Not listening - execute the action if this key is bound
-        if key_name == bank_hotkey:
-            move_satchel_to_bank()
-        elif key_name == check_hotkey:
-            make_check()
+        # Check if wand and loot bag are set
+        if wand_serial == 0 or loot_bag_serial == 0:
+            return
 
-    return handler
+        wand = API.FindItem(wand_serial)
+        if not wand:
+            return
 
-def start_capture_bank_hotkey():
-    """Start listening for bank hotkey"""
-    global listening_for_action
-    listening_for_action = "bank"
-    bankHotkeyBtn.SetBackgroundHue(38)  # Purple
-    bankHotkeyBtn.SetText("[Listening...]")
-    API.SysMsg("Press key for Bank hotkey (ESC to cancel)...", 38)
+        loot_bag = API.FindItem(loot_bag_serial)
+        if not loot_bag:
+            return
 
-def start_capture_check_hotkey():
-    """Start listening for check hotkey"""
-    global listening_for_action
-    listening_for_action = "check"
-    checkHotkeyBtn.SetBackgroundHue(38)  # Purple
-    checkHotkeyBtn.SetText("[Listening...]")
-    API.SysMsg("Press key for Check hotkey (ESC to cancel)...", 38)
+        # Clear any existing targets
+        cancel_all_targets()
 
-def update_hotkey_buttons():
-    """Update hotkey button labels based on current bindings"""
-    bankHotkeyBtn.SetText("[BANK: " + bank_hotkey + "]")
-    bankHotkeyBtn.SetBackgroundHue(68)  # Green when bound
+        # Use the wand (this will bring up a target cursor)
+        API.UseObject(wand_serial, False)
+        API.Pause(0.5)  # Wait for target cursor to appear
 
-    checkHotkeyBtn.SetText("[CHECK: " + check_hotkey + "]")
-    checkHotkeyBtn.SetBackgroundHue(68)  # Green when bound
+        # Wait for target cursor to be active, then target the bag
+        max_wait = 0
+        while not API.HasTarget() and max_wait < 20:  # Wait up to 2 seconds
+            API.Pause(0.1)
+            max_wait += 1
+
+        if API.HasTarget():
+            # Target the loot bag
+            API.Target(loot_bag_serial)
+            API.Pause(2.0)  # Wait for salvage to complete
+            debug_msg("Auto-salvaged loot bag")
+        else:
+            debug_msg("Target cursor didn't appear")
+
+    except Exception as e:
+        debug_msg("Error salvaging: " + str(e))
+        API.SysMsg("Salvage error: " + str(e), 32)
 
 # ============ CONFIG PANEL ============
 def toggle_config():
@@ -542,6 +469,8 @@ def show_config_panel():
     enableBtn.IsVisible = True
     retargetBtn.IsVisible = True
     resetBtn.IsVisible = True
+    targetWandBtn.IsVisible = True
+    targetLootBtn.IsVisible = True
     doneBtn.IsVisible = True
 
     # Update config button appearance
@@ -570,6 +499,8 @@ def hide_config_panel():
     enableBtn.IsVisible = False
     retargetBtn.IsVisible = False
     resetBtn.IsVisible = False
+    targetWandBtn.IsVisible = False
+    targetLootBtn.IsVisible = False
     doneBtn.IsVisible = False
 
     # Update config button appearance
@@ -608,6 +539,7 @@ def expand_window():
     satchelLabel.IsVisible = True
     incomeLabel.IsVisible = True
     incomeModeBtn.IsVisible = True
+    resetIncomeBtn.IsVisible = True
     sessionLabel.IsVisible = True
     bankHotkeyBtn.IsVisible = True
     checkHotkeyBtn.IsVisible = True
@@ -621,6 +553,8 @@ def expand_window():
         enableBtn.IsVisible = True
         retargetBtn.IsVisible = True
         resetBtn.IsVisible = True
+        targetWandBtn.IsVisible = True
+        targetLootBtn.IsVisible = True
         doneBtn.IsVisible = True
         # Position title buttons for wide window
         configBtn.SetPos(145, 3)
@@ -645,6 +579,7 @@ def collapse_window():
     satchelLabel.IsVisible = False
     incomeLabel.IsVisible = False
     incomeModeBtn.IsVisible = False
+    resetIncomeBtn.IsVisible = False
     sessionLabel.IsVisible = False
     bankHotkeyBtn.IsVisible = False
     checkHotkeyBtn.IsVisible = False
@@ -654,6 +589,8 @@ def collapse_window():
     enableBtn.IsVisible = False
     retargetBtn.IsVisible = False
     resetBtn.IsVisible = False
+    targetWandBtn.IsVisible = False
+    targetLootBtn.IsVisible = False
     doneBtn.IsVisible = False
 
     # Calculate width based on config state
@@ -684,7 +621,7 @@ def load_expanded_state():
 def toggle_enabled():
     global enabled
     enabled = not enabled
-    API.SavePersistentVar(ENABLED_KEY, str(enabled), API.PersistentVar.Char)
+    save_bool(ENABLED_KEY, enabled)
     update_display()
     API.SysMsg("Gold Manager: " + ("ENABLED" if enabled else "DISABLED"), 68 if enabled else 32)
 
@@ -693,33 +630,26 @@ def retarget_satchel():
 
     API.SysMsg("Target your gold container...", 68)
 
-    if API.HasTarget():
-        API.CancelTarget()
-    API.CancelPreTarget()
+    target = request_target(timeout=10)
+    if target:
+        item = API.FindItem(target)
+        if not item:
+            API.SysMsg("Invalid target!", 32)
+            return
 
-    try:
-        target = API.RequestTarget(timeout=10)
-        if target:
-            item = API.FindItem(target)
-            if not item:
-                API.SysMsg("Invalid target!", 32)
-                return
+        is_container = getattr(item, 'IsContainer', False)
 
-            is_container = getattr(item, 'IsContainer', False)
+        if not is_container:
+            API.SysMsg("Warning: Target may not be a container", 43)
 
-            if not is_container:
-                API.SysMsg("Warning: Target may not be a container", 43)
-
-            satchel_serial = target
-            API.SavePersistentVar(SATCHEL_KEY, str(satchel_serial), API.PersistentVar.Char)
-            debug_msg("Container serial set to: " + str(satchel_serial))
-            clear_error()
-            update_display()
-            API.SysMsg("Gold container set! Serial: 0x" + format(satchel_serial, 'X'), 68)
-        else:
-            API.SysMsg("Targeting cancelled", 53)
-    except Exception as e:
-        API.SysMsg("Error targeting: " + str(e), 32)
+        satchel_serial = target
+        save_int(SATCHEL_KEY, satchel_serial)
+        debug_msg("Container serial set to: " + str(satchel_serial))
+        errors.clear_error()
+        update_display()
+        API.SysMsg("Gold container set! Serial: 0x" + format(satchel_serial, 'X'), 68)
+    else:
+        API.SysMsg("Targeting cancelled", 53)
 
 def reset_session():
     global session_gold, total_income, last_known_gold, session_start_time
@@ -730,6 +660,60 @@ def reset_session():
     update_display()
     API.SysMsg("Counters reset (banked + income)", 68)
 
+def reset_income():
+    """Reset only the income counter, not the banked total"""
+    global total_income, last_known_gold, session_start_time
+    total_income = 0
+    last_known_gold = count_all_gold()  # Reset baseline to current gold
+    session_start_time = time.time()
+    update_display()
+    API.SysMsg("Income counter reset", 68)
+
+def retarget_wand():
+    """Target the wand of dust"""
+    global wand_serial
+
+    API.SysMsg("Target your Wand of Dust...", 68)
+
+    target = request_target(timeout=10)
+    if target:
+        item = API.FindItem(target)
+        if not item:
+            API.SysMsg("Invalid target!", 32)
+            return
+
+        wand_serial = target
+        save_int(WAND_KEY, wand_serial)
+        debug_msg("Wand serial set to: " + str(wand_serial))
+        API.SysMsg("Wand of Dust set! Serial: 0x" + format(wand_serial, 'X'), 68)
+    else:
+        API.SysMsg("Targeting cancelled", 53)
+
+def retarget_loot_bag():
+    """Target the loot bag for salvaging"""
+    global loot_bag_serial
+
+    API.SysMsg("Target your loot bag...", 68)
+
+    target = request_target(timeout=10)
+    if target:
+        item = API.FindItem(target)
+        if not item:
+            API.SysMsg("Invalid target!", 32)
+            return
+
+        is_container = getattr(item, 'IsContainer', False)
+
+        if not is_container:
+            API.SysMsg("Warning: Target may not be a container", 43)
+
+        loot_bag_serial = target
+        save_int(LOOT_BAG_KEY, loot_bag_serial)
+        debug_msg("Loot bag serial set to: " + str(loot_bag_serial))
+        API.SysMsg("Loot bag set! Serial: 0x" + format(loot_bag_serial, 'X'), 68)
+    else:
+        API.SysMsg("Targeting cancelled", 53)
+
 def toggle_income_mode():
     """Cycle through income display modes: compact -> full -> detailed"""
     global income_display_mode
@@ -739,15 +723,6 @@ def toggle_income_mode():
 
     mode_names = ["Compact", "Full", "Detailed"]
     API.SysMsg("Income display: " + mode_names[income_display_mode], 68)
-
-def on_closed():
-    try:
-        if gump:
-            x = gump.GetX()
-            y = gump.GetY()
-            API.SavePersistentVar(SETTINGS_KEY, str(x) + "," + str(y), API.PersistentVar.Char)
-    except:
-        pass
 
 # ============ DISPLAY UPDATES ============
 def update_display():
@@ -798,29 +773,15 @@ def update_display():
         API.SysMsg("Error updating display: " + str(e), 32)
 
 # ============ INITIALIZATION ============
-try:
-    satchel_str = API.GetPersistentVar(SATCHEL_KEY, "0", API.PersistentVar.Char)
-    satchel_serial = int(satchel_str) if satchel_str.isdigit() else 0
-except Exception as e:
-    debug_msg("Failed to load satchel serial: " + str(e))
-    satchel_serial = 0
-
-try:
-    enabled_str = API.GetPersistentVar(ENABLED_KEY, "True", API.PersistentVar.Char)
-    enabled = (enabled_str == "True")
-except Exception as e:
-    debug_msg("Failed to load enabled state: " + str(e))
-    enabled = True
-
-# Load hotkeys
-bank_hotkey = API.GetPersistentVar(BANK_HOTKEY_KEY, "B", API.PersistentVar.Char)
-check_hotkey = API.GetPersistentVar(CHECK_HOTKEY_KEY, "C", API.PersistentVar.Char)
+satchel_serial = load_int(SATCHEL_KEY, 0)
+enabled = load_bool(ENABLED_KEY, True)
 
 # Load income display mode
-try:
-    income_display_mode = int(API.GetPersistentVar(INCOME_MODE_KEY, "0", API.PersistentVar.Char))
-except:
-    income_display_mode = 0
+income_display_mode = load_int(INCOME_MODE_KEY, 0)
+
+# Load wand and loot bag serials
+wand_serial = load_int(WAND_KEY, 0)
+loot_bag_serial = load_int(LOOT_BAG_KEY, 0)
 
 # Initialize session timer
 session_start_time = time.time()
@@ -828,20 +789,16 @@ session_start_time = time.time()
 load_expanded_state()
 
 # ============ BUILD GUI ============
-window_x = 100
-window_y = 100
-
-savedPos = API.GetPersistentVar(SETTINGS_KEY, str(window_x) + "," + str(window_y), API.PersistentVar.Char)
-posXY = savedPos.split(',')
-lastX = int(posXY[0])
-lastY = int(posXY[1])
-
 initial_width = WINDOW_WIDTH_NORMAL
 initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
 
 gump = API.Gumps.CreateGump()
-gump.SetRect(lastX, lastY, initial_width, initial_height)
-API.Gumps.AddControlOnDisposed(gump, on_closed)
+
+# Window position tracking
+pos_tracker = WindowPositionTracker(gump, SETTINGS_KEY, 100, 100)
+gump.SetRect(pos_tracker.last_x, pos_tracker.last_y, initial_width, initial_height)
+
+API.Gumps.AddControlOnDisposed(gump, lambda: pos_tracker.save())
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, initial_width, initial_height)
@@ -880,12 +837,21 @@ satchelLabel.IsVisible = is_expanded
 gump.Add(satchelLabel)
 
 y += 14
-# Income display with mode toggle button
+# Income display with mode toggle button and reset button
 incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 13, "#00ff88")
 incomeLabel.SetPos(leftMargin, y)
 incomeLabel.IsVisible = is_expanded
 gump.Add(incomeLabel)
 
+# Reset income button
+resetIncomeBtn = API.Gumps.CreateSimpleButton("[R]", 20, 14)
+resetIncomeBtn.SetPos(WINDOW_WIDTH_NORMAL - 46, y - 1)
+resetIncomeBtn.SetBackgroundHue(53)  # Yellow-purple
+resetIncomeBtn.IsVisible = is_expanded
+API.Gumps.AddControlOnClick(resetIncomeBtn, reset_income)
+gump.Add(resetIncomeBtn)
+
+# Income mode toggle button
 incomeModeBtn = API.Gumps.CreateSimpleButton("[M]", INCOME_BTN_WIDTH, 14)
 incomeModeBtn.SetPos(WINDOW_WIDTH_NORMAL - 24, y - 1)
 incomeModeBtn.SetBackgroundHue(66)
@@ -900,28 +866,32 @@ sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 y += 16
-# ============ INTEGRATED HOTKEY BUTTONS ============
-# Bank button with integrated hotkey
+# ============ INTEGRATED HOTKEY BUTTONS (HotkeyManager) ============
+# Create buttons first
 bankHotkeyBtn = API.Gumps.CreateSimpleButton("[BANK: B]", HOTKEY_BTN_WIDTH, 24)
 bankHotkeyBtn.SetPos(leftMargin, y)
-bankHotkeyBtn.SetBackgroundHue(68)  # Green
 bankHotkeyBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(bankHotkeyBtn, start_capture_bank_hotkey)
 gump.Add(bankHotkeyBtn)
 
-# Check button with integrated hotkey
 checkHotkeyBtn = API.Gumps.CreateSimpleButton("[CHECK: C]", HOTKEY_BTN_WIDTH, 24)
 checkHotkeyBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
-checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(checkHotkeyBtn, start_capture_check_hotkey)
 gump.Add(checkHotkeyBtn)
+
+# Initialize HotkeyManager
+hotkeys = HotkeyManager()
+bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
+check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
+
+# Wire button clicks to start capture
+API.Gumps.AddControlOnClick(bankHotkeyBtn, bank_hk.start_capture)
+API.Gumps.AddControlOnClick(checkHotkeyBtn, check_hk.start_capture)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
 
 configBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
-configBg.SetRect(0, config_y, WINDOW_WIDTH_CONFIG, 100)
+configBg.SetRect(0, config_y, WINDOW_WIDTH_CONFIG, 148)  # Increased height for new buttons
 configBg.IsVisible = False
 gump.Add(configBg)
 
@@ -936,7 +906,7 @@ enableBtn.IsVisible = False
 API.Gumps.AddControlOnClick(enableBtn, toggle_enabled)
 gump.Add(enableBtn)
 
-retargetBtn = API.Gumps.CreateSimpleButton("[TARGET]", btnW, btnH)
+retargetBtn = API.Gumps.CreateSimpleButton("[Container]", btnW, btnH)
 retargetBtn.SetPos(leftMargin + 90, config_y)
 retargetBtn.SetBackgroundHue(66)
 retargetBtn.IsVisible = False
@@ -952,6 +922,22 @@ API.Gumps.AddControlOnClick(resetBtn, reset_session)
 gump.Add(resetBtn)
 
 config_y += 24
+# Wand and Loot Bag targeting buttons
+targetWandBtn = API.Gumps.CreateSimpleButton("[Dust Wand]", btnW, btnH)
+targetWandBtn.SetPos(leftMargin, config_y)
+targetWandBtn.SetBackgroundHue(66)
+targetWandBtn.IsVisible = False
+API.Gumps.AddControlOnClick(targetWandBtn, retarget_wand)
+gump.Add(targetWandBtn)
+
+targetLootBtn = API.Gumps.CreateSimpleButton("[Loot Bag]", btnW, btnH)
+targetLootBtn.SetPos(leftMargin + 90, config_y)
+targetLootBtn.SetBackgroundHue(66)
+targetLootBtn.IsVisible = False
+API.Gumps.AddControlOnClick(targetLootBtn, retarget_loot_bag)
+gump.Add(targetLootBtn)
+
+config_y += 24
 doneBtn = API.Gumps.CreateSimpleButton("[DONE]", 180, 22)
 doneBtn.SetPos(leftMargin, config_y)
 doneBtn.SetBackgroundHue(90)
@@ -961,26 +947,19 @@ gump.Add(doneBtn)
 
 API.Gumps.AddGump(gump)
 
-# Update button labels to show current bindings
-update_hotkey_buttons()
+# Register all hotkeys
+hotkeys.register_all()
 
 update_display()
 
-# Register all possible keys
-registered_count = 0
-for key in ALL_KEYS:
-    try:
-        API.OnHotKey(key, make_key_handler(key))
-        registered_count += 1
-    except:
-        pass
-
-API.SysMsg("Gold Manager v3.1 loaded! (" + str(registered_count) + " keys)", 68)
-API.SysMsg("Bank: " + bank_hotkey + " | Check: " + check_hotkey + " | [M]=mode [C]=config", 43)
+API.SysMsg("Gold Manager v4.0 (LegionUtils) loaded!", 68)
+API.SysMsg("Bank: " + bank_hk.key + " | Check: " + check_hk.key + " | [M]=mode [R]=reset [C]=config", 43)
 if satchel_serial > 0:
     API.SysMsg("Container: 0x" + format(satchel_serial, 'X'), 66)
 else:
     API.SysMsg("Click [C] config button, then [TARGET] to set your container", 43)
+if wand_serial > 0 and loot_bag_serial > 0:
+    API.SysMsg("Salvaging enabled: Wand 0x" + format(wand_serial, 'X') + " | Loot 0x" + format(loot_bag_serial, 'X'), 66)
 
 # ============ MAIN LOOP ============
 DISPLAY_UPDATE_INTERVAL = 0.5
@@ -997,6 +976,12 @@ while not API.StopRequested:
         if enabled and time.time() >= next_scan:
             move_gold_to_satchel()
             next_scan = time.time() + SCAN_INTERVAL
+
+        # Salvage loot bag every SALVAGE_INTERVAL seconds
+        if salvage_cooldown.is_ready():
+            debug_msg("Starting salvage cycle")
+            salvage_loot_bag()
+            salvage_cooldown.use()
 
         if time.time() >= next_display:
             update_display()

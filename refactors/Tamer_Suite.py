@@ -1,11 +1,16 @@
 # ============================================================
-# Tamer Suite v3.0
+# Tamer Suite v3.1-REFACTORED (LegionUtils)
 # by Coryigon for UO Unchained
 # ============================================================
 #
 # The all-in-one tamer script. Combines pet healing and commands
 # into a single window with a non-blocking design - your hotkeys
 # stay responsive even during long actions like resurrections.
+#
+# NEW v3.1: REFACTORED with LegionUtils!
+#   - Uses shared library for common utilities
+#   - ~300+ lines removed (replaced with library calls)
+#   - Cleaner code, easier to maintain
 #
 # v3.0 Changes (Separate Config Window):
 #   - MAJOR: Config window now opens as separate 520x450px window
@@ -49,8 +54,13 @@
 # ============================================================
 import API
 import time
+import sys
 
-__version__ = "3.0"
+# Import LegionUtils library
+sys.path.append(r"G:\Ultima Online\TazUO-Launcher.win-x64\TazUO\LegionScripts\CoryCustom\refactors")
+from LegionUtils import *
+
+__version__ = "3.1-refactor"
 
 # ============ USER SETTINGS ============
 # Item graphics
@@ -188,7 +198,7 @@ ATTACK_MODE = "ALL"  # "ALL" or "ORDER"
 
 # Potions
 USE_POTIONS = True
-potion_cooldown_end = 0
+potion_cooldown = CooldownTracker(cooldown_seconds=10.0)  # Using LegionUtils CooldownTracker
 
 # Trapped Pouch
 trapped_pouch_serial = 0
@@ -272,70 +282,20 @@ ALL_KEYS = [
 ]
 
 # ============ UTILITY FUNCTIONS ============
-def is_poisoned(mob):
-    if not mob:
-        return False
-    try:
-        if hasattr(mob, 'Poisoned') and mob.Poisoned:
-            return True
-        if hasattr(mob, 'IsPoisoned') and mob.IsPoisoned:
-            return True
-        return False
-    except:
-        return False
-
-def is_player_poisoned():
-    try:
-        player = API.Player
-        if player.Poisoned:
-            return True
-        if hasattr(player, 'IsPoisoned') and player.IsPoisoned:
-            return True
-        return False
-    except:
-        return False
-
-def is_player_dead():
-    try:
-        return API.Player.IsDead
-    except:
-        return False
-
-def get_mob_name(mob, default="Unknown"):
-    if not mob:
-        return default
-    try:
-        return mob.Name if mob.Name else default
-    except:
-        return default
-
-def get_hp_percent(mob):
-    if not mob:
-        return 0
-    try:
-        if mob.HitsMax > 0:
-            return int((mob.Hits / mob.HitsMax) * 100)
-        return 100
-    except:
-        return 100
-
-def get_distance(mob):
-    if not mob:
-        return 999
-    try:
-        return mob.Distance if hasattr(mob, 'Distance') else 999
-    except:
-        return 999
-
-def get_bandage_count():
-    try:
-        if API.FindType(BANDAGE):
-            if hasattr(API.Found, 'Amount'):
-                return API.Found.Amount
-            return -1
-        return 0
-    except:
-        return -1
+# Most utility functions now provided by LegionUtils:
+# - is_poisoned(mob)
+# - is_player_poisoned()
+# - is_player_dead()
+# - get_mob_name(mob, default)
+# - get_hp_percent(mob)
+# - get_distance(mob)
+# - get_bandage_count()
+# - get_potion_count(graphic)
+# - is_player_paralyzed()
+# - play_sound_alert(sound_id)
+# - cancel_all_targets()
+# - is_in_combat()
+# - set_combat_state(in_combat)
 
 def check_bandages():
     global out_of_bandages_warned, out_of_bandages_cooldown
@@ -395,47 +355,14 @@ def clear_stray_cursor():
     except:
         pass
 
-def cancel_all_targets():
-    clear_stray_cursor()
-    API.Pause(0.1)
-
-def get_potion_count(graphic):
-    """Count total potions of given graphic in backpack"""
-    try:
-        backpack = API.Player.Backpack
-        if not backpack:
-            return 0
-
-        backpack_serial = backpack.Serial if hasattr(backpack, 'Serial') else 0
-        if backpack_serial == 0:
-            return 0
-
-        items = API.ItemsInContainer(backpack_serial, True)
-        if not items:
-            return 0
-
-        total = 0
-        for item in items:
-            if hasattr(item, 'Graphic') and item.Graphic == graphic:
-                if hasattr(item, 'Amount'):
-                    total += item.Amount
-                else:
-                    total += 1
-
-        return total
-    except:
-        return 0
-
-def potion_ready():
-    """Check if 10s cooldown expired"""
-    return time.time() >= potion_cooldown_end
+# cancel_all_targets() now in LegionUtils
+# get_potion_count(graphic) now in LegionUtils
+# is_player_paralyzed() now in LegionUtils
 
 def drink_potion(graphic, label):
-    """Use potion, start cooldown"""
-    global potion_cooldown_end
-
-    if not potion_ready():
-        remaining = int(potion_cooldown_end - time.time())
+    """Use potion with cooldown tracking"""
+    if not potion_cooldown.is_ready():
+        remaining = int(potion_cooldown.time_remaining())
         API.SysMsg("Potion on cooldown: " + str(remaining) + "s", 43)
         return False
 
@@ -449,25 +376,11 @@ def drink_potion(graphic, label):
 
     try:
         API.UseObject(potion, False)
-        potion_cooldown_end = time.time() + POTION_COOLDOWN
+        potion_cooldown.use()  # Start cooldown using LegionUtils CooldownTracker
         statusLabel.SetText(label + "!")
         return True
     except Exception as e:
         API.SysMsg("Potion error: " + str(e), 32)
-        return False
-
-def is_player_paralyzed():
-    """Check if player is paralyzed"""
-    try:
-        player = API.Player
-        if hasattr(player, 'IsParalyzed') and player.IsParalyzed:
-            return True
-        if hasattr(player, 'Paralyzed') and player.Paralyzed:
-            return True
-        if hasattr(player, 'Frozen') and player.Frozen:
-            return True
-        return False
-    except:
         return False
 
 def use_trapped_pouch():
@@ -548,77 +461,66 @@ def handle_auto_target():
             if API.WaitForTarget(timeout=TARGET_TIMEOUT):
                 API.Target(next_enemy.Serial)
                 current_attack_target = next_enemy.Serial
-                update_combat_flag()
+                set_combat_state(True)  # Using LegionUtils
                 API.HeadMsg("NEXT!", next_enemy.Serial, 68)
                 API.SysMsg("Auto-targeting: " + get_mob_name(next_enemy), 68)
         else:
             current_attack_target = 0
-            update_combat_flag()
+            set_combat_state(False)  # Using LegionUtils
 
 # ============ SHARED PET STORAGE (READ/WRITE) ============
 def save_pets_to_storage():
+    """Save local pet list to shared storage using LegionUtils"""
     global last_known_pets_str
-    if len(PETS) == 0:
-        API.SavePersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
-        last_known_pets_str = ""
-        return
 
-    pairs = []
+    # Convert local PETS/PET_NAMES/PET_ACTIVE to dict format for LegionUtils
+    pet_dict = {}
     for serial in PETS:
-        name = PET_NAMES.get(serial, "Pet")
-        active_state = PET_ACTIVE.get(serial, True)
-        active_str = "1" if active_state else "0"
-        pairs.append(name + ":" + str(serial) + ":" + active_str)
+        pet_dict[serial] = {
+            "name": PET_NAMES.get(serial, "Pet"),
+            "active": PET_ACTIVE.get(serial, True)
+        }
 
-    new_str = "|".join(pairs)
-    if new_str != last_known_pets_str:
-        API.SavePersistentVar(SHARED_PETS_KEY, new_str, API.PersistentVar.Char)
-        last_known_pets_str = new_str
+    # Use LegionUtils to save (it handles empty dict case)
+    save_shared_pets(pet_dict)
 
-def update_combat_flag():
-    """Update shared combat flag based on current attack target"""
-    in_combat = current_attack_target != 0
-    API.SavePersistentVar(SHARED_COMBAT_KEY, str(in_combat), API.PersistentVar.Char)
+    # Update tracking string for change detection
+    if len(PETS) == 0:
+        last_known_pets_str = ""
+    else:
+        pairs = []
+        for serial in PETS:
+            name = PET_NAMES.get(serial, "Pet")
+            active_str = "1" if PET_ACTIVE.get(serial, True) else "0"
+            pairs.append(name + ":" + str(serial) + ":" + active_str)
+        last_known_pets_str = "|".join(pairs)
 
-def is_in_combat():
-    """Check if any script reports being in combat"""
-    return API.GetPersistentVar(SHARED_COMBAT_KEY, "False", API.PersistentVar.Char) == "True"
+# set_combat_state() now in LegionUtils
+# is_in_combat() now in LegionUtils
 
 def sync_pets_from_storage():
+    """Load shared pet list from storage using LegionUtils"""
     global PETS, PET_NAMES, PET_ACTIVE, last_known_pets_str
-    stored = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
 
+    # Check if storage has changed (avoid unnecessary work)
+    stored = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
     if stored == last_known_pets_str:
         return
 
     last_known_pets_str = stored
 
-    if not stored:
-        PETS = []
-        PET_NAMES = {}
-        PET_ACTIVE = {}
-        return
+    # Load using LegionUtils
+    pet_dict = get_shared_pets()
 
+    # Convert dict format to local PETS/PET_NAMES/PET_ACTIVE structure
     PETS = []
     PET_NAMES = {}
     PET_ACTIVE = {}
 
-    pairs = [x for x in stored.split("|") if x]
-    for pair in pairs:
-        parts = pair.split(":")
-        if len(parts) >= 2:
-            name = parts[0]
-            try:
-                serial = int(parts[1])
-                active = True
-                if len(parts) >= 3:
-                    active = (parts[2] == "1")
-
-                PETS.append(serial)
-                PET_NAMES[serial] = name
-                PET_ACTIVE[serial] = active
-            except:
-                pass
+    for serial, info in pet_dict.items():
+        PETS.append(serial)
+        PET_NAMES[serial] = info.get("name", "Pet")
+        PET_ACTIVE[serial] = info.get("active", True)
 
 # ============ HEALING ACTIONS ============
 def get_next_heal_action():
@@ -628,7 +530,7 @@ def get_next_heal_action():
                 return None
         player = API.Player
         if player.Hits < (player.HitsMax - SELF_HEAL_THRESHOLD):
-            if USE_POTIONS and potion_ready():
+            if USE_POTIONS and potion_cooldown.is_ready():
                 if drink_potion(POTION_HEAL, "Heal"):
                     return None
             return (API.Player.Serial, "heal_self", SELF_DELAY, True)
@@ -727,7 +629,6 @@ def get_next_heal_action():
 
 def start_heal_action(target, action_type, duration, is_self):
     global HEAL_STATE, heal_start_time, heal_target, heal_duration, heal_action_type
-    global out_of_bandages_warned, out_of_bandages_cooldown
 
     if action_type == "vetkit":
         if not API.FindType(VET_KIT_GRAPHIC):
@@ -770,10 +671,7 @@ def start_heal_action(target, action_type, duration, is_self):
                     heal_action_type = action_type
                     statusLabel.SetText("Healing Self")
                 else:
-                    if not out_of_bandages_warned:
-                        API.SysMsg("Bandage not found!", 43)
-                        out_of_bandages_warned = True
-                        out_of_bandages_cooldown = time.time()
+                    API.SysMsg("Bandage not found!", 43)
             finally:
                 API.CancelPreTarget()
         except Exception as e:
@@ -805,10 +703,7 @@ def start_heal_action(target, action_type, duration, is_self):
                     name = get_mob_name(mob)
                     statusLabel.SetText("Rezzing: " + name)
                 else:
-                    if not out_of_bandages_warned:
-                        API.SysMsg("Bandage not found!", 43)
-                        out_of_bandages_warned = True
-                        out_of_bandages_cooldown = time.time()
+                    API.SysMsg("Bandage not found!", 43)
             finally:
                 API.CancelPreTarget()
         except Exception as e:
@@ -862,10 +757,7 @@ def start_heal_action(target, action_type, duration, is_self):
                         name = get_mob_name(mob)
                         statusLabel.SetText("Curing: " + name)
                     else:
-                        if not out_of_bandages_warned:
-                            API.SysMsg("Bandage not found!", 43)
-                            out_of_bandages_warned = True
-                            out_of_bandages_cooldown = time.time()
+                        API.SysMsg("Bandage not found!", 43)
                 finally:
                     API.CancelPreTarget()
             except Exception as e:
@@ -919,10 +811,7 @@ def start_heal_action(target, action_type, duration, is_self):
                         name = get_mob_name(mob)
                         statusLabel.SetText("Healing: " + name)
                     else:
-                        if not out_of_bandages_warned:
-                            API.SysMsg("Bandage not found!", 43)
-                            out_of_bandages_warned = True
-                            out_of_bandages_cooldown = time.time()
+                        API.SysMsg("Bandage not found!", 43)
                 finally:
                     API.CancelPreTarget()
             except Exception as e:
@@ -953,7 +842,6 @@ def check_heal_complete():
 # ============ FRIEND REZ LOGIC ============
 def attempt_friend_rez():
     global rez_friend_active, rez_friend_attempts
-    global out_of_bandages_warned, out_of_bandages_cooldown
 
     if rez_friend_target == 0:
         rez_friend_active = False
@@ -996,10 +884,7 @@ def attempt_friend_rez():
                 rez_friend_attempts += 1
                 API.Pause(REZ_FRIEND_DELAY)
             else:
-                if not out_of_bandages_warned:
-                    API.SysMsg("Bandage not found for friend rez!", 43)
-                    out_of_bandages_warned = True
-                    out_of_bandages_cooldown = time.time()
+                API.SysMsg("Bandage not found for friend rez!", 43)
         finally:
             API.CancelPreTarget()
     except Exception as e:
@@ -1030,7 +915,7 @@ def all_kill_manual():
             target = API.RequestTarget(timeout=TARGET_TIMEOUT)
             if target:
                 current_attack_target = target
-                update_combat_flag()
+                set_combat_state(current_attack_target != 0)
                 execute_order_mode("all kill", target)
             else:
                 API.SysMsg("Target cancelled", 43)
@@ -1065,7 +950,7 @@ def all_kill_hotkey():
                     API.SysMsg("No target selected", 32)
                     return
                 current_attack_target = target
-                update_combat_flag()
+                set_combat_state(current_attack_target != 0)
                 execute_order_mode("all kill", target)
             except:
                 API.SysMsg("Target cancelled", 43)
@@ -1074,7 +959,7 @@ def all_kill_hotkey():
         return
 
     current_attack_target = enemy.Serial
-    update_combat_flag()
+    set_combat_state(current_attack_target != 0)
 
     if not should_use_order_mode():
         API.Msg("all kill")
@@ -1388,10 +1273,8 @@ def build_config_gump():
     # Clear button references
     config_controls = {}
 
-    # Load saved position or use default (offset from main window)
-    saved_pos = API.GetPersistentVar(CONFIG_XY_KEY, "150,150", API.PersistentVar.Char)
-    pos_parts = saved_pos.split(',')
-    cfg_x, cfg_y = int(pos_parts[0]), int(pos_parts[1])
+    # Load saved position or use default (offset from main window) - using LegionUtils
+    cfg_x, cfg_y = load_window_position(CONFIG_XY_KEY, 150, 150)
 
     # Initialize position tracking
     config_last_known_x = cfg_x
@@ -2784,11 +2667,8 @@ load_settings()
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
-savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
-posXY = savedPos.split(',')
-lastX = int(posXY[0])
-lastY = int(posXY[1])
-
+# Load window position from storage (using LegionUtils)
+lastX, lastY = load_window_position(SETTINGS_KEY, 100, 100)
 last_known_x = lastX
 last_known_y = lastY
 
@@ -3092,20 +2972,9 @@ while not API.StopRequested:
         # HEALER LOGIC (non-blocking)
         if not PAUSED and HEAL_STATE == "idle":
             # Skip healing if we're in bandage cooldown (out of bandages recently)
-            if out_of_bandages_cooldown > 0:
-                # Check if bandages are back in stock
-                if API.FindType(BANDAGE):
-                    # Bandages found - reset cooldown
-                    out_of_bandages_warned = False
-                    out_of_bandages_cooldown = 0
-                    # Continue to healing logic
-                    action = get_next_heal_action()
-                    if action:
-                        target, action_type, duration, is_self = action
-                        start_heal_action(target, action_type, duration, is_self)
-                elif time.time() - out_of_bandages_cooldown > 5.0:
-                    # Still no bandages after 5s - extend cooldown to prevent spam
-                    out_of_bandages_cooldown = time.time()
+            if out_of_bandages_cooldown > 0 and time.time() - out_of_bandages_cooldown < 5.0:
+                # Wait 5 seconds before trying to heal again after running out
+                pass
             else:
                 action = get_next_heal_action()
                 if action:
