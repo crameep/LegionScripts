@@ -58,8 +58,8 @@ DEBUG = False
 WINDOW_WIDTH_NORMAL = 165   # Was 155, increased for wider hotkey buttons
 WINDOW_WIDTH_CONFIG = 195   # Was 190, proportional increase
 COLLAPSED_HEIGHT = 24
-NORMAL_HEIGHT = 144  # Was 118, increased for action buttons row
-CONFIG_HEIGHT = 292  # Normal height + config panel (148px - added wand/loot buttons)
+NORMAL_HEIGHT = 118
+CONFIG_HEIGHT = 290  # Normal height + config panel (172px - added wand/loot/rebind buttons)
 
 # Button dimensions
 HOTKEY_BTN_WIDTH = 78       # Was 70, increased to prevent truncation
@@ -113,16 +113,16 @@ retargetBtn = None
 resetBtn = None
 configBtn = None  # NEW - toggle config panel
 expandBtn = None
-bankActionBtn = None  # NEW v4.0 - click to bank
-checkActionBtn = None  # NEW v4.0 - click to check
-bankHotkeyBtn = None  # NEW - integrated hotkey button
-checkHotkeyBtn = None  # NEW - integrated hotkey button
+bankHotkeyBtn = None  # NEW - integrated hotkey button (click to execute)
+checkHotkeyBtn = None  # NEW - integrated hotkey button (click to execute)
 incomeModeBtn = None
 resetIncomeBtn = None  # NEW v3.2 - reset income counter
 configBg = None  # NEW - config panel background
 doneBtn = None  # NEW - close config panel
 targetWandBtn = None  # NEW v3.2 - target wand button
 targetLootBtn = None  # NEW v3.2 - target loot bag button
+rebindBankBtn = None  # NEW - rebind bank hotkey button
+rebindCheckBtn = None  # NEW - rebind check hotkey button
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -497,6 +497,8 @@ def show_config_panel():
     enableBtn.IsVisible = True
     retargetBtn.IsVisible = True
     resetBtn.IsVisible = True
+    rebindBankBtn.IsVisible = True
+    rebindCheckBtn.IsVisible = True
     targetWandBtn.IsVisible = True
     targetLootBtn.IsVisible = True
     doneBtn.IsVisible = True
@@ -527,6 +529,8 @@ def hide_config_panel():
     enableBtn.IsVisible = False
     retargetBtn.IsVisible = False
     resetBtn.IsVisible = False
+    rebindBankBtn.IsVisible = False
+    rebindCheckBtn.IsVisible = False
     targetWandBtn.IsVisible = False
     targetLootBtn.IsVisible = False
     doneBtn.IsVisible = False
@@ -569,8 +573,6 @@ def expand_window():
     incomeModeBtn.IsVisible = True
     resetIncomeBtn.IsVisible = True
     sessionLabel.IsVisible = True
-    bankActionBtn.IsVisible = True
-    checkActionBtn.IsVisible = True
     bankHotkeyBtn.IsVisible = True
     checkHotkeyBtn.IsVisible = True
 
@@ -583,6 +585,8 @@ def expand_window():
         enableBtn.IsVisible = True
         retargetBtn.IsVisible = True
         resetBtn.IsVisible = True
+        rebindBankBtn.IsVisible = True
+        rebindCheckBtn.IsVisible = True
         targetWandBtn.IsVisible = True
         targetLootBtn.IsVisible = True
         doneBtn.IsVisible = True
@@ -611,8 +615,6 @@ def collapse_window():
     incomeModeBtn.IsVisible = False
     resetIncomeBtn.IsVisible = False
     sessionLabel.IsVisible = False
-    bankActionBtn.IsVisible = False
-    checkActionBtn.IsVisible = False
     bankHotkeyBtn.IsVisible = False
     checkHotkeyBtn.IsVisible = False
 
@@ -621,6 +623,8 @@ def collapse_window():
     enableBtn.IsVisible = False
     retargetBtn.IsVisible = False
     resetBtn.IsVisible = False
+    rebindBankBtn.IsVisible = False
+    rebindCheckBtn.IsVisible = False
     targetWandBtn.IsVisible = False
     targetLootBtn.IsVisible = False
     doneBtn.IsVisible = False
@@ -755,6 +759,46 @@ def toggle_income_mode():
 
     mode_names = ["Compact", "Full", "Detailed"]
     API.SysMsg("Income display: " + mode_names[income_display_mode], 68)
+
+def update_bank_button_text():
+    """Update bank button to show current hotkey"""
+    if bankHotkeyBtn:
+        bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
+
+def update_check_button_text():
+    """Update check button to show current hotkey"""
+    if checkHotkeyBtn:
+        checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
+
+def rebind_bank():
+    """Start bank hotkey capture and update button text when done"""
+    # Store original bind method
+    original_bind = bank_hk.bind
+
+    def custom_bind(key_name):
+        # Call original bind
+        original_bind(key_name)
+        # Update main screen button text
+        update_bank_button_text()
+
+    # Temporarily replace bind method
+    bank_hk.bind = custom_bind
+    bank_hk.start_capture()
+
+def rebind_check():
+    """Start check hotkey capture and update button text when done"""
+    # Store original bind method
+    original_bind = check_hk.bind
+
+    def custom_bind(key_name):
+        # Call original bind
+        original_bind(key_name)
+        # Update main screen button text
+        update_check_button_text()
+
+    # Temporarily replace bind method
+    check_hk.bind = custom_bind
+    check_hk.start_capture()
 
 # ============ DISPLAY UPDATES ============
 def update_display():
@@ -898,48 +942,38 @@ sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
 
 y += 16
-# ============ ACTION BUTTONS (click to execute) ============
-bankActionBtn = API.Gumps.CreateSimpleButton("[BANK]", HOTKEY_BTN_WIDTH, 24)
-bankActionBtn.SetPos(leftMargin, y)
-bankActionBtn.SetBackgroundHue(66)  # Blue-green
-bankActionBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(bankActionBtn, move_satchel_to_bank)
-gump.Add(bankActionBtn)
-
-checkActionBtn = API.Gumps.CreateSimpleButton("[CHECK]", HOTKEY_BTN_WIDTH, 24)
-checkActionBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
-checkActionBtn.SetBackgroundHue(66)  # Blue-green
-checkActionBtn.IsVisible = is_expanded
-API.Gumps.AddControlOnClick(checkActionBtn, make_check)
-gump.Add(checkActionBtn)
-
-y += 26
-# ============ HOTKEY CONFIG BUTTONS (click to rebind) ============
+# ============ ACTION BUTTONS (click to execute, show hotkey) ============
 # Create buttons first
-bankHotkeyBtn = API.Gumps.CreateSimpleButton("[BANK: B]", HOTKEY_BTN_WIDTH, 20)
+bankHotkeyBtn = API.Gumps.CreateSimpleButton("[B]BANK", HOTKEY_BTN_WIDTH, 24)
 bankHotkeyBtn.SetPos(leftMargin, y)
+bankHotkeyBtn.SetBackgroundHue(68)  # Green
 bankHotkeyBtn.IsVisible = is_expanded
 gump.Add(bankHotkeyBtn)
 
-checkHotkeyBtn = API.Gumps.CreateSimpleButton("[CHECK: C]", HOTKEY_BTN_WIDTH, 20)
+checkHotkeyBtn = API.Gumps.CreateSimpleButton("[C]CHECK", HOTKEY_BTN_WIDTH, 24)
 checkHotkeyBtn.SetPos(leftMargin + HOTKEY_BTN_WIDTH + 2, y)
+checkHotkeyBtn.SetBackgroundHue(68)  # Green
 checkHotkeyBtn.IsVisible = is_expanded
 gump.Add(checkHotkeyBtn)
 
-# Initialize HotkeyManager
+# Initialize HotkeyManager (don't pass button refs - we'll update manually)
 hotkeys = HotkeyManager()
-bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
-check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
+bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, None, "B")
+check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, None, "C")
 
-# Wire button clicks to start capture
-API.Gumps.AddControlOnClick(bankHotkeyBtn, bank_hk.start_capture)
-API.Gumps.AddControlOnClick(checkHotkeyBtn, check_hk.start_capture)
+# Update button text to show configured hotkeys
+bankHotkeyBtn.SetText("[" + bank_hk.current_hotkey + "]BANK")
+checkHotkeyBtn.SetText("[" + check_hk.current_hotkey + "]CHECK")
+
+# Wire button clicks to EXECUTE the action (not start capture)
+API.Gumps.AddControlOnClick(bankHotkeyBtn, move_satchel_to_bank)
+API.Gumps.AddControlOnClick(checkHotkeyBtn, make_check)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
 
 configBg = API.Gumps.CreateGumpColorBox(0.8, "#2a2a3e")
-configBg.SetRect(0, config_y, WINDOW_WIDTH_CONFIG, 148)  # Increased height for new buttons
+configBg.SetRect(0, config_y, WINDOW_WIDTH_CONFIG, 172)  # Increased height for rebind buttons
 configBg.IsVisible = False
 gump.Add(configBg)
 
@@ -968,6 +1002,22 @@ resetBtn.SetBackgroundHue(53)
 resetBtn.IsVisible = False
 API.Gumps.AddControlOnClick(resetBtn, reset_session)
 gump.Add(resetBtn)
+
+config_y += 24
+# Hotkey rebinding buttons
+rebindBankBtn = API.Gumps.CreateSimpleButton("[Rebind Bank]", btnW, btnH)
+rebindBankBtn.SetPos(leftMargin, config_y)
+rebindBankBtn.SetBackgroundHue(90)
+rebindBankBtn.IsVisible = False
+API.Gumps.AddControlOnClick(rebindBankBtn, rebind_bank)
+gump.Add(rebindBankBtn)
+
+rebindCheckBtn = API.Gumps.CreateSimpleButton("[Rebind Check]", btnW, btnH)
+rebindCheckBtn.SetPos(leftMargin + 90, config_y)
+rebindCheckBtn.SetBackgroundHue(90)
+rebindCheckBtn.IsVisible = False
+API.Gumps.AddControlOnClick(rebindCheckBtn, rebind_check)
+gump.Add(rebindCheckBtn)
 
 config_y += 24
 # Wand and Loot Bag targeting buttons
