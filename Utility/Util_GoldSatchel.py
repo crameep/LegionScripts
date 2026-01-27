@@ -912,9 +912,22 @@ hotkeys = HotkeyManager()
 bank_hk = hotkeys.add("bank", BANK_HOTKEY_KEY, "Bank", move_satchel_to_bank, bankHotkeyBtn, "B")
 check_hk = hotkeys.add("check", CHECK_HOTKEY_KEY, "Make Check", make_check, checkHotkeyBtn, "C")
 
+# Debug wrapper to see if button click works
+def debug_bank_capture():
+    API.SysMsg("DEBUG: Bank button clicked, starting capture", 88)
+    API.SysMsg("DEBUG: bank_hk.capturing before = " + str(bank_hk.capturing), 88)
+    bank_hk.start_capture()
+    API.SysMsg("DEBUG: bank_hk.capturing after = " + str(bank_hk.capturing), 88)
+
+def debug_check_capture():
+    API.SysMsg("DEBUG: Check button clicked, starting capture", 88)
+    API.SysMsg("DEBUG: check_hk.capturing before = " + str(check_hk.capturing), 88)
+    check_hk.start_capture()
+    API.SysMsg("DEBUG: check_hk.capturing after = " + str(check_hk.capturing), 88)
+
 # Wire button clicks to START CAPTURE
-API.Gumps.AddControlOnClick(bankHotkeyBtn, bank_hk.start_capture)
-API.Gumps.AddControlOnClick(checkHotkeyBtn, check_hk.start_capture)
+API.Gumps.AddControlOnClick(bankHotkeyBtn, debug_bank_capture)
+API.Gumps.AddControlOnClick(checkHotkeyBtn, debug_check_capture)
 
 # ============ CONFIG PANEL (hidden by default, shown when [C] clicked) ============
 config_y = 118
