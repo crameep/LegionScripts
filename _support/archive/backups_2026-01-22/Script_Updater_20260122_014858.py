@@ -1,5 +1,5 @@
 # ============================================================
-# Script Updater v1.8.1
+# Script Updater v1.5.3
 # by Coryigon for TazUO Legion Scripts
 # ============================================================
 #
@@ -10,7 +10,6 @@
 #   - Check for script updates from GitHub repository
 #   - Compare local vs remote versions (semantic versioning)
 #   - Backup scripts before updating (_backups directory)
-#   - Auto-cleanup old backups (keeps last 5 per script)
 #   - Restore previous versions from backup
 #   - Scrollable list with checkboxes for selective updates
 #   - Category indicators: [Tamer], [Mage], [Dexer], [Utility]
@@ -23,24 +22,21 @@ import API
 import time
 import re
 import os
-from datetime import datetime
 try:
     import urllib.request
 except ImportError:
     import urllib2 as urllib_request  # Fallback for older Python
 
-__version__ = "1.9.0"
+__version__ = "1.5.3"
 
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
 GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/"
-BACKUP_DATE = datetime.now().strftime("%Y-%m-%d")
-BACKUP_DIR = os.path.join("_support", "archive", "backups_" + BACKUP_DATE)
+BACKUP_DIR = "_backups"
 DOWNLOAD_TIMEOUT = 5  # seconds
-MAX_BACKUPS_PER_SCRIPT = 5  # Keep only this many backups per script (auto-cleanup old ones)
 
-# Directories to exclude from recursion (Test excluded conditionally via show_test_scripts toggle)
-EXCLUDED_DIRS_BASE = ["__pycache__", ".git", ".github", "_support", ".claude"]
+# Directories to exclude from recursion
+EXCLUDED_DIRS = ["__pycache__", ".git", ".github", "_backups", "Test"]
 
 # Scripts to manage - dynamically loaded from GitHub
 MANAGED_SCRIPTS = []  # List of (category, relative_path) tuples
@@ -62,7 +58,6 @@ STATUS_ERROR = "ERROR"
 
 # ============ PERSISTENCE KEYS ============
 SETTINGS_KEY = "Updater_WindowXY"
-SHOW_TEST_KEY = "Updater_ShowTest"
 
 # ============ STATE MACHINE ============
 # States: IDLE, CHECKING, BACKING_UP, DOWNLOADING, WRITING, ERROR
@@ -80,10 +75,6 @@ script_data = {}  # Dict: {relative_path: {local_version, remote_version, status
 checking_all = False
 backup_path = ""
 updater_was_updated = False  # Track if Script_Updater.py was updated (needs restart)
-last_known_x = 100
-last_known_y = 100
-last_position_check = 0
-show_test_scripts = False  # Toggle to show/hide Test folder scripts
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -116,24 +107,14 @@ def ensure_backup_dir():
 def parse_version(script_path):
     """Parse __version__ from a script file. Returns version string or None."""
     try:
-        API.SysMsg("DEBUG PARSE: Opening " + script_path, 88)
-        # Explicitly use UTF-8 encoding to handle any encoding issues
-        with open(script_path, 'r', encoding='utf-8') as f:
+        with open(script_path, 'r') as f:
             content = f.read()
-            API.SysMsg("DEBUG PARSE: Read " + str(len(content)) + " chars", 88)
             # Regex: __version__ = "1.0" or __version__ = '1.0'
             match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
             if match:
-                version = match.group(1)
-                API.SysMsg("DEBUG PARSE: Found version " + version, 88)
-                return version
-            else:
-                API.SysMsg("DEBUG PARSE: No version match found", HUE_YELLOW)
-                # Show first 500 chars to diagnose
-                preview = content[:500].replace('\n', '\\n').replace('\r', '\\r')
-                API.SysMsg("DEBUG PARSE: Content preview: " + preview[:200], 88)
-    except Exception as e:
-        API.SysMsg("DEBUG PARSE: Exception: " + str(e), HUE_RED)
+                return match.group(1)
+    except:
+        pass
     return None
 
 def compare_versions(v1, v2):
@@ -176,24 +157,16 @@ def get_local_version(relative_path):
     try:
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
-        API.SysMsg("DEBUG LOCAL: Checking " + relative_path, 88)
-        API.SysMsg("DEBUG LOCAL: Full path = " + path, 88)
-        API.SysMsg("DEBUG LOCAL: Exists = " + str(os.path.exists(path)), 88)
         if os.path.exists(path):
-            file_size = os.path.getsize(path)
-            API.SysMsg("DEBUG LOCAL: File size = " + str(file_size), 88)
-            version = parse_version(path)
-            API.SysMsg("DEBUG LOCAL: Version = " + (version or "NOT FOUND"), 88)
-            return version
-    except Exception as e:
-        API.SysMsg("DEBUG LOCAL: Exception: " + str(e), HUE_RED)
+            return parse_version(path)
+    except:
+        pass
     return None
 
 def download_script(relative_path):
     """Download script content from GitHub. Returns (success, content_or_error)"""
     url = GITHUB_BASE_URL + relative_path
     try:
-        API.SysMsg("DEBUG DOWNLOAD: " + url, 88)
         debug_msg("Downloading: " + url)
         try:
             # Python 3 style
@@ -207,14 +180,10 @@ def download_script(relative_path):
             response = urllib2.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
             content = response.read()
 
-        API.SysMsg("DEBUG DOWNLOAD: Got " + str(len(content)) + " bytes", 88)
-        if len(content) < 100:
-            API.SysMsg("DEBUG DOWNLOAD: Content preview: " + content[:100], 88)
         debug_msg("Downloaded " + str(len(content)) + " bytes")
         return (True, content)
     except Exception as e:
         error = str(e)
-        API.SysMsg("DEBUG DOWNLOAD: ERROR - " + error, HUE_RED)
         debug_msg("Download error: " + error)
         return (False, error)
 
@@ -255,10 +224,6 @@ def backup_script(relative_path):
             dst.write(content)
 
         debug_msg("Backed up to: " + backup_path)
-
-        # Clean up old backups
-        cleanup_old_backups(filename)
-
         return (True, backup_path)
     except Exception as e:
         return (False, str(e))
@@ -269,41 +234,17 @@ def write_script(relative_path, content):
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
 
-        API.SysMsg("DEBUG WRITE: path=" + path, 88)
-        API.SysMsg("DEBUG WRITE: content length=" + str(len(content)), 88)
-
         # Ensure directory exists
         dir_path = os.path.dirname(path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path)
-            API.SysMsg("DEBUG WRITE: Created dir " + dir_path, 88)
 
-        # Write with explicit UTF-8 encoding and Unix line endings (newline='\n')
-        # This prevents Windows from converting LF to CRLF which can cause parsing issues
-        with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        with open(path, 'w') as f:
             f.write(content)
-
-        # Verify file was written
-        if os.path.exists(path):
-            file_size = os.path.getsize(path)
-            API.SysMsg("DEBUG WRITE: File exists, size=" + str(file_size), 88)
-
-            # Verify it can be parsed
-            try:
-                test_version = parse_version(path)
-                if test_version:
-                    API.SysMsg("DEBUG WRITE: Verified version: " + test_version, HUE_GREEN)
-                else:
-                    API.SysMsg("DEBUG WRITE: WARNING - No version found after write!", HUE_YELLOW)
-            except:
-                pass
-        else:
-            API.SysMsg("DEBUG WRITE: ERROR - File doesn't exist after write!", HUE_RED)
 
         debug_msg("Wrote " + str(len(content)) + " bytes to " + relative_path)
         return (True, None)
     except Exception as e:
-        API.SysMsg("DEBUG WRITE: Exception: " + str(e), HUE_RED)
         return (False, str(e))
 
 def list_backups(filename):
@@ -338,106 +279,6 @@ def list_backups(filename):
     except:
         return []
 
-def cleanup_old_backups(filename):
-    """Delete old backups, keeping only the most recent MAX_BACKUPS_PER_SCRIPT"""
-    try:
-        backups = list_backups(filename)
-
-        if len(backups) <= MAX_BACKUPS_PER_SCRIPT:
-            return  # Nothing to clean up
-
-        # Delete backups beyond the limit
-        backups_to_delete = backups[MAX_BACKUPS_PER_SCRIPT:]
-        deleted_count = 0
-
-        for backup_path, timestamp in backups_to_delete:
-            try:
-                os.remove(backup_path)
-                deleted_count += 1
-                debug_msg("Deleted old backup: " + os.path.basename(backup_path))
-            except Exception as e:
-                debug_msg("Failed to delete backup: " + str(e))
-
-        if deleted_count > 0:
-            debug_msg("Cleaned up " + str(deleted_count) + " old backups for " + filename)
-    except Exception as e:
-        debug_msg("Error during backup cleanup: " + str(e))
-
-def cleanup_all_backups():
-    """Clean up all existing backups on startup, keeping only MAX_BACKUPS_PER_SCRIPT per script"""
-    try:
-        script_dir = get_script_dir()
-        backup_dir = os.path.join(script_dir, BACKUP_DIR)
-
-        if not os.path.exists(backup_dir):
-            return  # No backups to clean
-
-        # Group backups by script name
-        script_backups = {}  # {script_name: [(path, timestamp), ...]}
-
-        for backup_file in os.listdir(backup_dir):
-            if not backup_file.endswith('.py'):
-                continue
-
-            # Extract base script name from filename like "Script_20260122_143055.py"
-            # Split by underscore and find where the date pattern starts
-            parts = backup_file.replace('.py', '').split('_')
-
-            # Find the script name (everything before the date pattern YYYYMMDD)
-            script_name = None
-            for i in range(len(parts)):
-                # Check if this part looks like a date (8 digits)
-                if len(parts[i]) == 8 and parts[i].isdigit():
-                    # Script name is everything before this index
-                    script_name = '_'.join(parts[:i]) + '.py'
-                    break
-
-            if not script_name:
-                continue
-
-            # Get timestamp from filename
-            try:
-                if len(parts) >= 2:
-                    date_str = parts[-2]  # YYYYMMDD
-                    time_str = parts[-1]  # HHMMSS
-                    timestamp = date_str + "_" + time_str
-                else:
-                    timestamp = "unknown"
-            except:
-                timestamp = "unknown"
-
-            backup_path = os.path.join(backup_dir, backup_file)
-
-            if script_name not in script_backups:
-                script_backups[script_name] = []
-            script_backups[script_name].append((backup_path, timestamp))
-
-        # Clean up each script's backups
-        total_deleted = 0
-        for script_name, backups in script_backups.items():
-            if len(backups) <= MAX_BACKUPS_PER_SCRIPT:
-                continue
-
-            # Sort by timestamp (newest first)
-            backups.sort(key=lambda x: x[1], reverse=True)
-
-            # Delete old backups
-            backups_to_delete = backups[MAX_BACKUPS_PER_SCRIPT:]
-            for backup_path, timestamp in backups_to_delete:
-                try:
-                    os.remove(backup_path)
-                    total_deleted += 1
-                    debug_msg("Deleted old backup: " + os.path.basename(backup_path))
-                except Exception as e:
-                    debug_msg("Failed to delete backup: " + str(e))
-
-        if total_deleted > 0:
-            API.SysMsg("Cleaned up " + str(total_deleted) + " old backups (keeping " + str(MAX_BACKUPS_PER_SCRIPT) + " per script)", HUE_GREEN)
-            debug_msg("Backup cleanup complete: " + str(total_deleted) + " files deleted")
-
-    except Exception as e:
-        debug_msg("Error during all-backups cleanup: " + str(e))
-
 def restore_backup(backup_path, filename):
     """Restore a backup file. Returns (success, error_or_none)"""
     try:
@@ -463,11 +304,6 @@ def fetch_github_script_list():
         debug_msg("Fetching script list from GitHub API...")
 
         script_list = []
-
-        # Build exclusion list based on show_test_scripts toggle
-        excluded_dirs = list(EXCLUDED_DIRS_BASE)
-        if not show_test_scripts:
-            excluded_dirs.append("Test")
 
         def fetch_directory(api_url, path_prefix=""):
             """Recursively fetch contents from a directory"""
@@ -498,7 +334,7 @@ def fetch_github_script_list():
                         category = path_prefix.rstrip('/') if path_prefix else ""
                         script_list.append((category, relative_path))
 
-                elif item_type == 'dir' and item_name not in excluded_dirs:
+                elif item_type == 'dir' and item_name not in EXCLUDED_DIRS:
                     # Recursively fetch from subdirectory
                     sub_url = item.get('url', '')
                     if sub_url:
@@ -521,11 +357,6 @@ def discover_local_scripts():
         script_dir = get_script_dir()
         script_list = []
 
-        # Build exclusion list based on show_test_scripts toggle
-        excluded_dirs = list(EXCLUDED_DIRS_BASE)
-        if not show_test_scripts:
-            excluded_dirs.append("Test")
-
         def scan_directory(dir_path, path_prefix=""):
             """Recursively scan directory"""
             try:
@@ -537,7 +368,7 @@ def discover_local_scripts():
                         category = path_prefix.rstrip('/') if path_prefix else ""
                         script_list.append((category, relative_path))
 
-                    elif os.path.isdir(item_path) and item_name not in excluded_dirs:
+                    elif os.path.isdir(item_path) and item_name not in EXCLUDED_DIRS:
                         sub_path_prefix = path_prefix + item_name + "/"
                         scan_directory(item_path, sub_path_prefix)
             except:
@@ -578,8 +409,8 @@ def init_script_data():
         script_data[relative_path]['local_version'] = local_ver
         if local_ver:
             script_data[relative_path]['status'] = STATUS_OK
-            # Don't auto-select on initialization - user will check for updates first
-            script_data[relative_path]['selected'] = False
+            # Auto-select scripts that are installed locally
+            script_data[relative_path]['selected'] = True
 
 # ============ STATE MACHINE ACTIONS ============
 def start_check_updates(selected_only=False):
@@ -647,8 +478,6 @@ def process_checking():
         if not local_ver:
             # Script doesn't exist locally
             script_data[relative_path]['status'] = STATUS_NEW
-            # Auto-select new scripts
-            script_data[relative_path]['selected'] = True
         elif not remote_ver:
             # Can't find remote version
             script_data[relative_path]['status'] = STATUS_NA
@@ -658,16 +487,16 @@ def process_checking():
             cmp = compare_versions(local_ver, remote_ver)
             if cmp == -1:
                 script_data[relative_path]['status'] = STATUS_UPDATE
-                # Auto-select scripts that have updates available
+                # Auto-select scripts that are installed and have updates
                 script_data[relative_path]['selected'] = True
             elif cmp == 0:
                 script_data[relative_path]['status'] = STATUS_OK
-                # Don't auto-select scripts that are already up-to-date
-                script_data[relative_path]['selected'] = False
+                # Auto-select scripts that are already installed
+                script_data[relative_path]['selected'] = True
             else:
                 script_data[relative_path]['status'] = STATUS_OK  # Local is newer
-                # Don't auto-select scripts that are already up-to-date
-                script_data[relative_path]['selected'] = False
+                # Auto-select scripts that are already installed
+                script_data[relative_path]['selected'] = True
 
         script_data[relative_path]['error'] = None
     else:
@@ -866,26 +695,6 @@ def on_restore_backup():
     # For now, just show message
     API.SysMsg("Restore feature: Use file manager to copy from _backups/", HUE_YELLOW)
 
-def toggle_show_test():
-    """Toggle showing Test folder scripts"""
-    global show_test_scripts
-
-    if STATE != "IDLE":
-        API.SysMsg("Please wait until current operation finishes", HUE_YELLOW)
-        return
-
-    show_test_scripts = not show_test_scripts
-    API.SavePersistentVar(SHOW_TEST_KEY, str(show_test_scripts), API.PersistentVar.Char)
-
-    # Update button
-    color = HUE_BLUE if show_test_scripts else HUE_GRAY
-    text = "[SHOW TEST:" + ("ON" if show_test_scripts else "OFF") + "]"
-    showTestBtn.SetBackgroundHue(color)
-    showTestBtn.SetText(text)
-
-    API.SysMsg("Test scripts: " + ("SHOWN" if show_test_scripts else "HIDDEN"), color)
-    API.SysMsg("Please RESTART Script_Updater to reload the script list", HUE_YELLOW)
-
 def toggle_script_selection(index):
     """Toggle selection checkbox for a script"""
     if index < 0 or index >= len(MANAGED_SCRIPTS):
@@ -957,24 +766,15 @@ def cleanup():
 def onClosed():
     """GUI closed callback"""
     cleanup()
-    # Save window position using last known position
+    # Save window position
     try:
-        # Validate coordinates
-        if last_known_x >= 0 and last_known_y >= 0:
-            pos = str(last_known_x) + "," + str(last_known_y)
-            API.SavePersistentVar(SETTINGS_KEY, pos, API.PersistentVar.Char)
+        API.SavePersistentVar(SETTINGS_KEY, str(gump.GetX()) + "," + str(gump.GetY()), API.PersistentVar.Char)
     except:
         pass
     API.Stop()
 
 # ============ INITIALIZATION ============
-# Load show_test_scripts setting before initializing script data
-show_test_scripts = API.GetPersistentVar(SHOW_TEST_KEY, "False", API.PersistentVar.Char) == "True"
-
 init_script_data()
-
-# Clean up old backups on startup
-cleanup_all_backups()
 
 # ============ BUILD GUI ============
 gump = API.Gumps.CreateGump()
@@ -986,17 +786,9 @@ posXY = savedPos.split(',')
 lastX = int(posXY[0])
 lastY = int(posXY[1])
 
-# Initialize last known position with loaded values
-last_known_x = lastX
-last_known_y = lastY
-
-# Window size - dynamic height based on script count
+# Window size
 win_width = 580
-# Calculate height: header(68) + rows(22 each) + buttons(28+28) + status(25) + padding(20)
-min_height = 450
-calculated_height = 68 + (len(MANAGED_SCRIPTS) * 22) + 28 + 28 + 25 + 20
-max_height = 700  # Don't make window too tall
-win_height = max(min_height, min(calculated_height, max_height))
+win_height = 450
 gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
@@ -1005,14 +797,12 @@ bg.SetRect(0, 0, win_width, win_height)
 gump.Add(bg)
 
 # Title
-test_indicator = " [TEST: ON]" if show_test_scripts else ""
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff", aligned="center", maxWidth=win_width)
+title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__, 16, "#00d4ff", aligned="center", maxWidth=win_width)
 title.SetPos(0, 5)
 gump.Add(title)
 
-# Instructions with script count
-script_count_text = str(len(MANAGED_SCRIPTS)) + " scripts"
-instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
+# Instructions
+instructions = API.Gumps.CreateGumpTTFLabel("Check scripts for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
 instructions.SetPos(0, 28)
 gump.Add(instructions)
 
@@ -1068,16 +858,8 @@ restoreBtn.SetBackgroundHue(HUE_GRAY)
 API.Gumps.AddControlOnClick(restoreBtn, on_restore_backup)
 gump.Add(restoreBtn)
 
-# Show Test toggle button (second row)
-y += 28
-showTestBtn = API.Gumps.CreateSimpleButton("[SHOW TEST:" + ("ON" if show_test_scripts else "OFF") + "]", 140, 22)
-showTestBtn.SetPos(10, y)
-showTestBtn.SetBackgroundHue(HUE_BLUE if show_test_scripts else HUE_GRAY)
-API.Gumps.AddControlOnClick(showTestBtn, toggle_show_test)
-gump.Add(showTestBtn)
-
 # Status bar
-y += 25
+y += 30
 statusBg = API.Gumps.CreateGumpColorBox(0.9, "#000000")
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
@@ -1109,28 +891,14 @@ while not API.StopRequested:
             update_status_display()
             next_display = time.time() + DISPLAY_INTERVAL
 
-        # Periodically update last known position (every 2 seconds)
-        # Skip if stop is requested to avoid "operation canceled" errors
-        if not API.StopRequested:
-            current_time = time.time()
-            if current_time - last_position_check > 2.0:
-                last_position_check = current_time
-                try:
-                    last_known_x = gump.GetX()
-                    last_known_y = gump.GetY()
-                except:
-                    pass  # Silently ignore if gump is disposed
-
         # Short pause - loop runs ~10x/second
         API.Pause(0.1)
 
     except Exception as e:
-        # Don't show "operation canceled" errors during shutdown
-        if "operation canceled" not in str(e).lower() and not API.StopRequested:
-            API.SysMsg("Error: " + str(e), HUE_RED)
-            STATE = "IDLE"
-            status_message = "Error: " + str(e)
-            update_status_display()
+        API.SysMsg("Error: " + str(e), HUE_RED)
+        STATE = "IDLE"
+        status_message = "Error: " + str(e)
+        update_status_display()
         API.Pause(1)
 
 cleanup()

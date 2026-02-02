@@ -1,0 +1,406 @@
+# ============================================================
+# LegionUtils - Common Utilities for TazUO Legion Scripts
+# by Coryigon for UO Unchained
+# ============================================================
+#
+# Shared library of common patterns used across scripts.
+# Import this to reduce code duplication and token usage.
+#
+# Usage:
+#   import API
+#   import time
+#   import sys
+#   sys.path.append(r"path\to\refactors")
+#   from LegionUtils import *
+#
+# NOTE: Scripts must import API and time BEFORE importing LegionUtils
+#
+# ============================================================
+# API and time are expected to be in global scope (imported by calling script)
+
+# ============ CONSTANTS ============
+BANDAGE_GRAPHIC = 0x0E21
+GOLD_GRAPHIC = 0x0EED
+CHECK_GRAPHIC = 0x14F0
+HEAL_POTION_GRAPHIC = 0x0F0C
+CURE_POTION_GRAPHIC = 0x0F07
+
+# Shared persistence keys
+SHARED_COMBAT_KEY = "SharedCombat_Active"
+SHARED_PETS_KEY = "SharedPets_List"
+
+# All possible hotkey bindings
+ALL_HOTKEYS = [
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "NUMPAD0", "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4",
+    "NUMPAD5", "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9",
+    "ESC",
+]
+
+# ============ COMBAT STATE ============
+def is_in_combat():
+    """Check if any script reports being in combat"""
+    return API.GetPersistentVar(SHARED_COMBAT_KEY, "False", API.PersistentVar.Char) == "True"
+
+def set_combat_state(in_combat):
+    """Set shared combat state for all scripts"""
+    API.SavePersistentVar(SHARED_COMBAT_KEY, str(in_combat), API.PersistentVar.Char)
+
+# ============ MOBILE UTILITIES ============
+def get_mobile_safe(serial):
+    """Safely get mobile by serial, returns None if not found or dead"""
+    if serial == 0:
+        return None
+    mob = API.Mobiles.FindMobile(serial)
+    if not mob:
+        return None
+    if mob.IsDead:
+        return None
+    return mob
+
+def get_hp_percent(mob):
+    """Get mobile HP percentage, safe against division by zero"""
+    if not mob:
+        return 100
+    max_hp = mob.HitsMax if hasattr(mob, 'HitsMax') else 1
+    if max_hp <= 0:
+        return 100
+    return (mob.Hits / mob.HitsMax * 100) if hasattr(mob, 'Hits') else 100
+
+def is_poisoned(mob):
+    """Check if mobile is poisoned (handles both attribute names)"""
+    if not mob:
+        return False
+    return getattr(mob, 'IsPoisoned', False) or getattr(mob, 'Poisoned', False)
+
+def get_distance(mob):
+    """Get distance to mobile, safe default if unavailable"""
+    try:
+        return mob.Distance if hasattr(mob, 'Distance') else 999
+    except:
+        return 999
+
+def get_mob_name(mob, default="Unknown"):
+    """Get mobile name or default"""
+    if not mob:
+        return default
+    return getattr(mob, 'Name', default)
+
+def is_player_poisoned():
+    """Check if player is poisoned"""
+    return is_poisoned(API.Player)
+
+def is_player_dead():
+    """Check if player is dead"""
+    try:
+        return API.Player.IsDead
+    except:
+        return False
+
+def is_player_paralyzed():
+    """Check if player is paralyzed by checking if NotorietyFlag == 1"""
+    try:
+        return API.Player.NotorietyFlag == 1
+    except:
+        return False
+
+# ============ ITEM UTILITIES ============
+def get_item_safe(serial):
+    """Safely get item by serial, returns None if not found"""
+    if serial == 0:
+        return None
+    return API.FindItem(serial)
+
+def has_bandages():
+    """Check if player has bandages"""
+    return API.FindType(BANDAGE_GRAPHIC)
+
+def get_bandage_count():
+    """Get number of bandages in backpack"""
+    try:
+        if API.FindType(BANDAGE_GRAPHIC):
+            if hasattr(API.Found, 'Amount'):
+                return API.Found.Amount
+            return -1
+        return 0
+    except:
+        return -1
+
+def get_potion_count(graphic):
+    """Get number of potions of specific type in backpack"""
+    try:
+        if API.FindType(graphic):
+            if hasattr(API.Found, 'Amount'):
+                return API.Found.Amount
+            return -1
+        return 0
+    except:
+        return -1
+
+# ============ TARGETING UTILITIES ============
+def cancel_all_targets():
+    """Cancel all active targeting states"""
+    if API.HasTarget():
+        API.CancelTarget()
+    API.CancelPreTarget()
+
+def target_with_pretarget(serial, target_type="beneficial"):
+    """Standard pre-target pattern"""
+    cancel_all_targets()
+    API.PreTarget(serial, target_type)
+    API.Pause(0.1)
+
+def request_target(timeout=10):
+    """Request a target from the user (blocking)
+
+    Returns:
+        serial: The targeted serial, or None if cancelled/timeout
+    """
+    cancel_all_targets()
+    try:
+        return API.RequestTarget(timeout=timeout)
+    except:
+        return None
+
+# ============ PERSISTENCE UTILITIES ============
+def save_bool(key, value, scope=None):
+    """Save boolean to persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    API.SavePersistentVar(key, str(value), scope)
+
+def load_bool(key, default=True, scope=None):
+    """Load boolean from persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    return API.GetPersistentVar(key, str(default), scope) == "True"
+
+def save_int(key, value, scope=None):
+    """Save integer to persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    API.SavePersistentVar(key, str(value), scope)
+
+def load_int(key, default=0, scope=None):
+    """Load integer from persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    try:
+        return int(API.GetPersistentVar(key, str(default), scope))
+    except:
+        return default
+
+def save_float(key, value, scope=None):
+    """Save float to persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    API.SavePersistentVar(key, str(value), scope)
+
+def load_float(key, default=0.0, scope=None):
+    """Load float from persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    try:
+        return float(API.GetPersistentVar(key, str(default), scope))
+    except:
+        return default
+
+def save_list(key, items, separator="|", scope=None):
+    """Save list to persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    API.SavePersistentVar(key, separator.join(str(x) for x in items), scope)
+
+def load_list(key, separator="|", scope=None):
+    """Load list from persistent storage"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    stored = API.GetPersistentVar(key, "", scope)
+    if not stored:
+        return []
+    return [x for x in stored.split(separator) if x]
+
+def save_window_position(key, gump, scope=None):
+    """Save window position from gump"""
+    if scope is None:
+        scope = API.PersistentVar.Char
+    if gump:
+        try:
+            x = gump.GetX()
+            y = gump.GetY()
+            API.SavePersistentVar(key, str(x) + "," + str(y), scope)
+        except:
+            pass
+
+def load_window_position(key, default_x=100, default_y=100, scope=None):
+    """Load window position
+
+    Returns:
+        tuple: (x, y) coordinates
+    """
+    if scope is None:
+        scope = API.PersistentVar.Char
+    saved_pos = API.GetPersistentVar(key, str(default_x) + "," + str(default_y), scope)
+    try:
+        pos_parts = saved_pos.split(',')
+        return (int(pos_parts[0]), int(pos_parts[1]))
+    except:
+        return (default_x, default_y)
+
+# ============ PET MANAGEMENT ============
+def get_shared_pets():
+    """Load shared pet list from storage
+
+    Returns:
+        dict: {serial: {"name": str, "active": bool}}
+    """
+    stored = API.GetPersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
+    if not stored:
+        return {}
+
+    pets = {}
+    for entry in stored.split("|"):
+        if not entry:
+            continue
+        parts = entry.split(":")
+        if len(parts) >= 3:
+            name = parts[0]
+            serial = int(parts[1]) if parts[1].isdigit() else 0
+            active = parts[2] == "1"
+            if serial > 0:
+                pets[serial] = {"name": name, "active": active}
+    return pets
+
+def save_shared_pets(pet_dict):
+    """Save shared pet list to storage
+
+    Args:
+        pet_dict: {serial: {"name": str, "active": bool}}
+    """
+    if not pet_dict:
+        API.SavePersistentVar(SHARED_PETS_KEY, "", API.PersistentVar.Char)
+        return
+
+    pairs = []
+    for serial, info in pet_dict.items():
+        name = info.get("name", "Pet")
+        active = info.get("active", True)
+        active_str = "1" if active else "0"
+        pairs.append(name + ":" + str(serial) + ":" + active_str)
+
+    API.SavePersistentVar(SHARED_PETS_KEY, "|".join(pairs), API.PersistentVar.Char)
+
+# ============ GUI UTILITIES ============
+def create_toggle_button(text, width, height, is_on):
+    """Create a toggle button with standard colors"""
+    btn = API.Gumps.CreateSimpleButton(text, width, height)
+    btn.SetBackgroundHue(68 if is_on else 32)  # Green/Red
+    return btn
+
+def update_toggle_button(btn, is_on):
+    """Update toggle button appearance"""
+    if btn:
+        btn.SetBackgroundHue(68 if is_on else 32)
+
+# ============ ERROR MESSAGE MANAGEMENT ============
+class ErrorManager:
+    """Manages error messages with cooldowns to prevent spam"""
+    def __init__(self, cooldown=5.0):
+        self.last_error_time = 0
+        self.last_error_msg = ""
+        self.cooldown = cooldown
+
+    def set_error(self, msg):
+        """Show error message if cooldown has passed"""
+        if msg != self.last_error_msg or (time.time() - self.last_error_time) > self.cooldown:
+            self.last_error_msg = msg
+            self.last_error_time = time.time()
+            if msg:
+                API.SysMsg(msg, 32)
+
+    def clear_error(self):
+        """Clear error state"""
+        self.last_error_msg = ""
+
+    def has_error(self):
+        """Check if there's an active error"""
+        return bool(self.last_error_msg)
+
+# ============ COOLDOWN MANAGEMENT ============
+class CooldownTracker:
+    """Tracks cooldowns for actions (potions, vet kit, etc)"""
+    def __init__(self, cooldown_seconds=10.0):
+        self.last_use_time = 0
+        self.cooldown = cooldown_seconds
+
+    def is_ready(self):
+        """Check if action is off cooldown"""
+        return (time.time() - self.last_use_time) >= self.cooldown
+
+    def use(self):
+        """Mark action as used, starting cooldown"""
+        self.last_use_time = time.time()
+
+    def time_remaining(self):
+        """Get seconds remaining on cooldown"""
+        elapsed = time.time() - self.last_use_time
+        remaining = self.cooldown - elapsed
+        return max(0, remaining)
+
+# ============ DEBUG UTILITIES ============
+DEBUG_MODE = False
+
+def set_debug(enabled):
+    """Enable/disable debug messages"""
+    global DEBUG_MODE
+    DEBUG_MODE = enabled
+
+def debug_msg(text):
+    """Print debug message if debug mode enabled"""
+    if DEBUG_MODE:
+        API.SysMsg("DEBUG: " + text, 88)
+
+# ============ SOUND UTILITIES ============
+def play_sound_alert(sound_id):
+    """Play sound alert if supported by API"""
+    try:
+        if hasattr(API, 'PlaySound'):
+            API.PlaySound(sound_id)
+    except:
+        pass
+
+# ============ FORMATTING UTILITIES ============
+def format_gold_compact(amount):
+    """Format gold in compact form: 1234 -> 1.2k, 123456 -> 123k"""
+    if amount < 1000:
+        return str(int(amount))
+    elif amount < 10000:
+        val = round(amount / 1000.0, 1)
+        if val == int(val):
+            return str(int(val)) + "k"
+        else:
+            return "{:.1f}".format(val) + "k"
+    elif amount < 1000000:
+        return str(int(amount / 1000)) + "k"
+    else:
+        val = round(amount / 1000000.0, 1)
+        if val == int(val):
+            return str(int(val)) + "m"
+        else:
+            return "{:.1f}".format(val) + "m"
+
+def format_time_elapsed(seconds):
+    """Format elapsed time: 125 -> '2m 5s', 3665 -> '1h 1m'"""
+    if seconds < 60:
+        return str(int(seconds)) + "s"
+    elif seconds < 3600:
+        mins = int(seconds / 60)
+        secs = int(seconds % 60)
+        return str(mins) + "m " + str(secs) + "s"
+    else:
+        hours = int(seconds / 3600)
+        mins = int((seconds % 3600) / 60)
+        return str(hours) + "h " + str(mins) + "m"

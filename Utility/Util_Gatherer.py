@@ -1,0 +1,1450 @@
+# Util_Gatherer.py - REFACTORED
+# Mining/Lumberjacking gatherer with AOE harvesting, auto-dump, and combat handling
+# Version 2.0 - Uses GatherFramework and LegionUtils
+#
+# SETUP:
+# 1. Set your harvesting tool (pickaxe/hatchet/shovel)
+# 2. Set your home runebook and slot
+# 3. Set your resource storage bin
+#
+# FEATURES:
+# - AOE self-targeting harvest
+# - Auto-convert logs to boards (for lumberjacking)
+# - Auto-recall home when weight reaches threshold
+# - Auto-pathfind to storage bin and dump resources
+# - Three movement modes: Random, Spiral, Stationary
+# - Combat detection with flee on low HP
+# - Hotkeys: F1 (pause), F2 (emergency recall), TAB (cycle movement)
+
+import API
+import time
+import random
+import math
+import sys
+import os
+
+# Add parent directory (CoryCustom root) to path for library imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from GatherFramework import (
+    TravelSystem, StorageSystem, WeightManager, StateMachine,
+    CombatSystem, Harvester, SessionStats,
+    HUE_GREEN, HUE_RED, HUE_YELLOW, HUE_GRAY, HUE_PURPLE, HUE_ORANGE
+)
+from LegionUtils import (
+    save_int, load_int, save_bool, load_bool,
+    save_window_position, load_window_position,
+    get_item_safe, cancel_all_targets,
+    format_time_elapsed, ErrorManager,
+    get_item_count, WindowPositionTracker
+)
+
+# ============ CONSTANTS ============
+
+# Tool graphics
+PICKAXE_GRAPHIC = 0x0E86
+SHOVEL_GRAPHIC = 0x0F39
+HATCHET_GRAPHIC = 0x0F43
+AXE_GRAPHIC = 0x0F49
+DOUBLE_AXE_GRAPHIC = 0x0F4B
+TOOL_GRAPHICS = [PICKAXE_GRAPHIC, SHOVEL_GRAPHIC, HATCHET_GRAPHIC, AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]
+
+# Resource graphics
+ORE_GRAPHIC = 0x19B9  # Iron ore pile
+INGOT_GRAPHIC = 0x1BF2  # Iron ingots
+
+# All log types (regular, oak, ash, yew, heartwood, bloodwood, frostwood)
+LOG_GRAPHICS = [0x1BDD, 0x1BE0, 0x1BE1, 0x1BE2, 0x1BE3, 0x1BE4, 0x1BE5]
+BOARD_GRAPHIC = 0x1BD7  # Boards (all types convert to this)
+
+RESOURCE_GRAPHICS = [ORE_GRAPHIC, INGOT_GRAPHIC, BOARD_GRAPHIC] + LOG_GRAPHICS
+
+# Storage shelf settings
+STORAGE_SHELF_GUMP_ID = 111922706  # Gump ID for resource storage bin
+STORAGE_SHELF_FILL_BUTTON = 121  # Button ID for "fill from backpack"
+AUTO_CONVERT_LOGS = True  # Automatically convert logs to boards after gathering
+
+# Timings
+GATHER_DELAY = 2.5  # Seconds to complete gather action
+MOVE_DELAY = 1.0  # Seconds to complete movement
+COMBAT_CHECK_INTERVAL = 1.0  # Check for hostiles every second
+DISPLAY_UPDATE_INTERVAL = 0.5  # Update UI twice per second
+CONVERT_DELAY = 1.5  # Time to wait for log conversion
+
+# Combat settings
+FLEE_HP_THRESHOLD = 50  # Recall home if HP drops below this %
+COMBAT_DISTANCE = 10  # Detect enemies within this range
+
+# Weight settings
+DEFAULT_WEIGHT_THRESHOLD = 80  # Return home at 80% capacity
+
+# Movement settings
+MOVE_ON_DEPLETION_ONLY = True  # Only move when resources depleted (recommended for AOE)
+GATHERS_PER_MOVE = 999  # Disabled when MOVE_ON_DEPLETION_ONLY is True
+RANDOM_MOVE_STEPS_MIN = 6  # Minimum tiles to move randomly
+RANDOM_MOVE_STEPS_MAX = 10  # Maximum tiles to move randomly (AOE needs distance)
+
+# Journal messages
+DEPLETION_MESSAGES = [
+    "There's not enough wood here to harvest",
+    "There is no ore here to mine",
+    "You can't mine there",
+    "Target cannot be seen",
+    "You cannot mine so close to another player",
+    "Try mining elsewhere",
+    "You have no line of sight to that location",
+    "That is too far away",
+    "You can't use an axe on that",
+    "You can't mine that",
+    "not enough ore",
+    "not enough wood"
+]
+
+SUCCESS_MESSAGES = [
+    "You chop some",
+    "You dig some",
+    "You loosen some",
+    "and put them in your backpack",
+    "and put it in your backpack"
+]
+
+# Captcha detection
+CAPTCHA_NUMBER_GUMP = 0x968740
+CAPTCHA_PICTA_GUMP = 0xd0c93672
+
+# ============ PERSISTENCE KEYS ============
+KEY_PREFIX = "Gatherer_"
+KEY_TOOL = KEY_PREFIX + "ToolSerial"
+KEY_RUNEBOOK = KEY_PREFIX + "HomeRunebook"
+KEY_RUNEBOOK_SLOT = KEY_PREFIX + "HomeSlot"
+KEY_STORAGE = KEY_PREFIX + "StorageSerial"
+KEY_MOVEMENT_MODE = KEY_PREFIX + "MovementMode"
+KEY_WEIGHT_THRESHOLD = KEY_PREFIX + "WeightThreshold"
+KEY_HOTKEY_PAUSE = KEY_PREFIX + "HotkeyPause"
+KEY_HOTKEY_ESC = KEY_PREFIX + "HotkeyEsc"
+KEY_WINDOW_POS = KEY_PREFIX + "WindowXY"
+KEY_NUM_SPOTS = KEY_PREFIX + "NumGatheringSpots"
+KEY_CURRENT_SPOT = KEY_PREFIX + "CurrentSpotIndex"
+
+# ============ RUNTIME STATE ============
+
+# Pause control
+PAUSED = False
+
+# Gather tracking
+gather_count = 0  # How many times we've gathered since last move
+failed_gather_count = 0  # Failed gather attempts at current spot
+MAX_FAILED_GATHERS = 2  # Move after this many failed attempts (no resources)
+
+# Resource tracking
+ore_count = 0
+log_count = 0
+session_ore = 0
+session_logs = 0
+session_dumps = 0
+
+# Combat tracking
+current_enemy = None
+last_combat_check = 0
+
+# Movement
+movement_mode = "random"  # Modes: random, spiral, stationary
+spiral_direction = 0  # For spiral pattern: 0=N, 1=E, 2=S, 3=W
+spiral_steps = 8  # Steps in current direction (start at 8 for AOE coverage)
+spiral_steps_taken = 0  # Steps taken in current direction
+spiral_turns = 0  # Turns completed
+
+# Tool/Setup
+tool_serial = 0
+num_gathering_spots = 1  # How many gathering spots in runebook (slots 2, 3, 4, etc.)
+
+# Hotkeys
+hotkey_pause = "F1"
+hotkey_esc = "F2"
+
+# Display
+last_display_update = 0
+
+# Emergency charge tracking
+used_emergency_charge = False
+
+# ============ FRAMEWORK OBJECTS ============
+travel = None
+storage = None
+weight_mgr = None
+state = None
+combat = None
+harvester = None
+stats = None
+pos_tracker = None
+
+# ============ GUI REFERENCES ============
+gump = None
+controls = {}
+
+# ============ UTILITY FUNCTIONS ============
+
+def get_tool():
+    """Get the configured harvesting tool"""
+    return get_item_safe(tool_serial)
+
+def get_tool_name(tool):
+    """Get friendly name for tool"""
+    if not tool:
+        return "None"
+    graphic = tool.Graphic
+    if graphic == PICKAXE_GRAPHIC:
+        return "Pickaxe"
+    elif graphic == SHOVEL_GRAPHIC:
+        return "Shovel"
+    elif graphic == HATCHET_GRAPHIC:
+        return "Hatchet"
+    elif graphic in [AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]:
+        return "Axe"
+    else:
+        return "Tool"
+
+def count_resources(graphic):
+    """Count resources in backpack by graphic - uses LegionUtils"""
+    return get_item_count(graphic)
+
+def update_resource_counts():
+    """Update ore and log counts"""
+    global ore_count, log_count
+    ore_count = count_resources(ORE_GRAPHIC) + count_resources(INGOT_GRAPHIC)
+
+    # Count all log types
+    log_count = count_resources(BOARD_GRAPHIC)
+    for log_graphic in LOG_GRAPHICS:
+        log_count += count_resources(log_graphic)
+
+def check_for_captcha():
+    """Check if a captcha gump is open"""
+    try:
+        if API.HasGump(CAPTCHA_NUMBER_GUMP):
+            return "number"
+        elif API.HasGump(CAPTCHA_PICTA_GUMP):
+            return "picta"
+        return None
+    except Exception as e:
+        # Only log unexpected errors, not normal operation
+        API.SysMsg("Captcha check error: " + str(e), HUE_YELLOW)
+        return None
+
+def handle_captcha(captcha_type):
+    """Handle captcha detection - recall home and stop script"""
+    global PAUSED
+
+    API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
+    API.SysMsg("║   CAPTCHA DETECTED!                ║", HUE_RED)
+    API.SysMsg("║   Type: " + captcha_type.upper().ljust(27) + "║", HUE_RED)
+    API.SysMsg("║   Recalling home and stopping...   ║", HUE_RED)
+    API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
+
+    # Cancel any active pathfinding
+    if API.Pathfinding():
+        API.CancelPathfinding()
+
+    # Try to recall home
+    if not travel.at_home:
+        API.SysMsg("Attempting recall home...", HUE_YELLOW)
+        if travel.recall_home():
+            API.SysMsg("Recalled home successfully", HUE_GREEN)
+        else:
+            API.SysMsg("Recall failed - stopping anyway", HUE_RED)
+
+    # Stop the script
+    API.SysMsg("╔════════════════════════════════════╗", HUE_YELLOW)
+    API.SysMsg("║   SCRIPT STOPPING - SOLVE CAPTCHA! ║", HUE_YELLOW)
+    API.SysMsg("║   Restart script when ready        ║", HUE_YELLOW)
+    API.SysMsg("╚════════════════════════════════════╝", HUE_YELLOW)
+
+    PAUSED = True
+    state.set_state("idle")
+    API.Stop()
+
+def check_resource_depletion():
+    """Check journal for resource depletion messages"""
+    try:
+        for message in DEPLETION_MESSAGES:
+            if API.InJournal(message, False):
+                API.SysMsg("DETECTED: " + message, HUE_ORANGE)
+                return True
+        return False
+    except Exception as e:
+        return False
+
+def check_gather_success():
+    """Check if gather was successful from journal"""
+    try:
+        for message in SUCCESS_MESSAGES:
+            if API.InJournal(message, False):
+                return True
+        return False
+    except Exception as e:
+        return False
+
+def parse_cooldown():
+    """Try to parse cooldown from journal message"""
+    return GATHER_DELAY
+
+def convert_logs_to_boards():
+    """Convert ALL log types in backpack to boards using hatchet"""
+    tool = get_tool()
+    if not tool:
+        return False
+
+    # Only convert if we have a hatchet/axe
+    if tool.Graphic not in [HATCHET_GRAPHIC, AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]:
+        return False  # Not a woodcutting tool
+
+    try:
+        backpack = API.Player.Backpack
+        if not backpack:
+            return False
+
+        items = API.ItemsInContainer(backpack.Serial, True)
+        if not items:
+            return False
+
+        logs_found = 0
+        # Check for ALL log types (regular, oak, ash, yew, heartwood, bloodwood, frostwood)
+        for item in items:
+            if hasattr(item, 'Graphic') and item.Graphic in LOG_GRAPHICS:
+                logs_found += 1
+
+                # Cancel any existing targets
+                cancel_all_targets()
+
+                # Pre-target the logs
+                API.PreTarget(item.Serial, "neutral")
+                API.Pause(0.1)
+
+                # Use hatchet on the logs (pass object, not serial)
+                API.UseObject(tool, False)
+                API.Pause(0.6)  # Wait for conversion
+
+                # Clean up
+                API.CancelPreTarget()
+
+        if logs_found > 0:
+            API.SysMsg("Converted " + str(logs_found) + " log stacks to boards", HUE_GREEN)
+            return True
+
+        return False
+
+    except Exception as e:
+        API.SysMsg("Board conversion error: " + str(e), HUE_RED)
+        return False
+
+# ============ CORE LOGIC ============
+
+def perform_gather():
+    """Perform gather action using AOE self-targeting"""
+    global gather_count
+
+    tool = get_tool()
+    if not tool:
+        API.SysMsg("No tool configured! Click [SET] to setup.", HUE_RED)
+        state.set_state("idle")
+        return
+
+    try:
+        # CRITICAL: Clear journal BEFORE gathering so we only see NEW messages
+        API.ClearJournal()
+
+        # Use harvester framework
+        if harvester.harvest():
+            gather_count += 1
+            state.set_state("gathering", duration=GATHER_DELAY)
+            API.SysMsg("Gathering... (x" + str(gather_count) + ")", HUE_GREEN)
+
+            # Mark that we're at gathering spot, not home
+            travel.at_home = False
+        else:
+            API.SysMsg("Gather failed!", HUE_RED)
+            state.set_state("idle")
+
+    except Exception as e:
+        API.SysMsg("Gather error: " + str(e), HUE_RED)
+        state.set_state("idle")
+
+def check_for_hostiles():
+    """Check for nearby hostile mobiles - uses CombatSystem"""
+    global last_combat_check
+
+    now = time.time()
+    if now - last_combat_check < COMBAT_CHECK_INTERVAL:
+        return None
+
+    last_combat_check = now
+    return combat.find_closest_hostile(COMBAT_DISTANCE)
+
+def handle_combat(enemy):
+    """Handle combat encounter"""
+    global current_enemy, PAUSED
+
+    try:
+        # Check if should flee
+        if combat.should_flee():
+            API.SysMsg("FLEEING - HP LOW!", HUE_RED)
+            current_enemy = enemy
+
+            # Use combat system flee
+            state.set_state("fleeing")
+            if combat.flee_from_enemy(enemy, distance=15, timeout=15.0):
+                # Fled successfully, now recall home
+                if travel.recall_home():
+                    state.set_state("dumping")
+                    current_enemy = None
+                else:
+                    API.SysMsg("Cannot escape! PAUSING!", HUE_RED)
+                    PAUSED = True
+                    state.set_state("idle")
+                    current_enemy = None
+            else:
+                # Flee failed
+                API.SysMsg("Flee failed! PAUSING!", HUE_RED)
+                PAUSED = True
+                state.set_state("idle")
+                current_enemy = None
+            return
+
+        # Light combat - just note enemy
+        current_enemy = enemy
+        player_hp_pct = (API.Player.Hits / API.Player.HitsMax * 100) if API.Player.HitsMax > 0 else 100
+        API.SysMsg("Combat: " + str(int(player_hp_pct)) + "% HP", HUE_YELLOW)
+        state.set_state("combat")
+
+    except Exception as e:
+        state.set_state("idle")
+
+def should_dump():
+    """Check if we should return home to dump"""
+    # Don't try to dump if we're already at home
+    if travel.at_home:
+        return False
+
+    # Use weight manager
+    return weight_mgr.should_dump()
+
+def emergency_hotkey_recall():
+    """Emergency recall - ESC hotkey (no flee, just try to recall)"""
+    API.SysMsg("EMERGENCY RECALL (ESC key)!", HUE_RED)
+    # Cancel any active pathfinding
+    if API.Pathfinding():
+        API.CancelPathfinding()
+    if travel.recall_home():
+        state.set_state("dumping")  # Go straight to dump
+    else:
+        API.SysMsg("Emergency recall failed! Try again or move to safety.", HUE_RED)
+
+# ============ MOVEMENT PATTERNS ============
+
+def check_movement(force=False):
+    """Check if we should move, and execute movement pattern"""
+    global gather_count, failed_gather_count
+
+    # Only move if forced (depletion/failed attempts) or gather count reached
+    should_move = force or (gather_count >= GATHERS_PER_MOVE and not MOVE_ON_DEPLETION_ONLY)
+
+    # In stationary mode, only move if forced (depleted or too many failures)
+    if movement_mode == "stationary" and not force:
+        return  # Don't move on regular gather count in stationary mode
+
+    if should_move:
+        if force:
+            API.SysMsg("Moving to new spot (depleted or failed)", HUE_YELLOW)
+        else:
+            API.SysMsg("Triggering movement after " + str(GATHERS_PER_MOVE) + " gathers", HUE_GRAY)
+
+        gather_count = 0  # Reset counter
+        failed_gather_count = 0  # Reset failed counter when moving
+
+        success = False
+        if movement_mode == "random":
+            success = move_random()  # This sets state to "moving" internally
+        elif movement_mode == "spiral":
+            success = move_spiral()  # This sets state to "moving" internally
+        elif movement_mode == "stationary":
+            # Forced movement in stationary mode - use random
+            API.SysMsg("Stationary mode: forced to move, using random pattern", HUE_YELLOW)
+            success = move_random()
+
+        if not success:
+            API.SysMsg("Movement failed - will retry after failed attempts", HUE_YELLOW)
+
+def move_random():
+    """Move randomly - 6-10 tiles for AOE harvest clearance using pathfinding"""
+    try:
+        # Get current position
+        player_x = getattr(API.Player, 'X', 0)
+        player_y = getattr(API.Player, 'Y', 0)
+
+        if player_x == 0 or player_y == 0:
+            API.SysMsg("Can't get player position!", HUE_RED)
+            return False
+
+        # Calculate random direction and distance
+        distance = random.randint(RANDOM_MOVE_STEPS_MIN, RANDOM_MOVE_STEPS_MAX)
+
+        # Random angle in radians
+        angle = random.uniform(0, 2 * math.pi)
+
+        # Calculate target position
+        target_x = int(player_x + distance * math.cos(angle))
+        target_y = int(player_y + distance * math.sin(angle))
+
+        # Direction name for display
+        directions = ["North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest"]
+        direction_index = int(((angle + math.pi/8) % (2*math.pi)) / (math.pi/4))
+        direction_name = directions[direction_index]
+
+        API.SysMsg("Moving " + direction_name + " (" + str(distance) + " tiles)", HUE_YELLOW)
+
+        # Start pathfinding to target location
+        result = API.Pathfind(target_x, target_y)
+
+        if result:
+            state.set_state("moving", timeout=15.0)
+            return True
+        else:
+            API.SysMsg("Pathfind failed - trying alternate location", HUE_YELLOW)
+            # Try a closer location if pathfind fails
+            target_x = int(player_x + 4 * math.cos(angle))
+            target_y = int(player_y + 4 * math.sin(angle))
+            result = API.Pathfind(target_x, target_y)
+            if result:
+                state.set_state("moving", timeout=15.0)
+                return True
+            return False
+
+    except Exception as e:
+        API.SysMsg("Move error: " + str(e), HUE_RED)
+        return False
+
+def move_spiral():
+    """Move in spiral pattern using pathfinding"""
+    global spiral_direction, spiral_steps, spiral_steps_taken, spiral_turns
+
+    try:
+        # Get current position
+        player_x = getattr(API.Player, 'X', 0)
+        player_y = getattr(API.Player, 'Y', 0)
+
+        if player_x == 0 or player_y == 0:
+            API.SysMsg("Can't get player position!", HUE_RED)
+            return False
+
+        # Calculate target position based on spiral direction
+        # 0=North, 1=East, 2=South, 3=West
+        target_x = player_x
+        target_y = player_y
+
+        if spiral_direction == 0:  # North
+            target_y = player_y - spiral_steps
+        elif spiral_direction == 1:  # East
+            target_x = player_x + spiral_steps
+        elif spiral_direction == 2:  # South
+            target_y = player_y + spiral_steps
+        elif spiral_direction == 3:  # West
+            target_x = player_x - spiral_steps
+
+        directions = ["North", "East", "South", "West"]
+        direction_name = directions[spiral_direction]
+
+        API.SysMsg("Spiral: moving " + direction_name + " (" + str(spiral_steps) + " tiles)", HUE_YELLOW)
+
+        # Start pathfinding
+        result = API.Pathfind(target_x, target_y)
+
+        if result:
+            state.set_state("moving", timeout=15.0)
+
+            # Update spiral state for next move
+            spiral_steps_taken = spiral_steps  # Mark this leg complete
+            spiral_direction = (spiral_direction + 1) % 4  # Turn right
+            spiral_turns += 1
+
+            # Increase steps every 2 turns (expanding spiral)
+            if spiral_turns % 2 == 0:
+                spiral_steps += 1
+
+            return True
+        else:
+            API.SysMsg("Spiral pathfind failed!", HUE_RED)
+            return False
+
+    except Exception as e:
+        API.SysMsg("Spiral move error: " + str(e), HUE_RED)
+        return False
+
+# ============ GUI SETUP CALLBACKS ============
+
+def on_set_tool():
+    """Prompt user to target harvesting tool"""
+    global tool_serial
+    API.SysMsg("Target your harvesting tool (pickaxe/hatchet/shovel)...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            item = API.FindItem(target)
+            if item and item.Graphic in TOOL_GRAPHICS:
+                tool_serial = target
+                save_int(KEY_TOOL, tool_serial)
+
+                # Update harvester
+                harvester.tool_serial = tool_serial
+
+                API.SysMsg("Tool set! " + get_tool_name(item), HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("That's not a valid harvesting tool!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Tool setup error: " + str(e), HUE_RED)
+
+def on_set_home():
+    """Prompt user to target home runebook and enter slot"""
+    API.SysMsg("Target your home runebook...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            item = API.FindItem(target)
+            if item:
+                travel.runebook_serial = target
+                save_int(KEY_RUNEBOOK, target)
+
+                # For now, default to slot 1 - TODO: Add slot input to UI
+                travel.home_slot = 1
+                save_int(KEY_RUNEBOOK_SLOT, 1)
+
+                API.SysMsg("Runebook set! Slot 1 = home", HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("Item not found!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Runebook setup error: " + str(e), HUE_RED)
+
+def on_set_storage():
+    """Prompt user to target storage container"""
+    API.SysMsg("Target your resource storage container...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            item = API.FindItem(target)
+            if item:
+                storage.container_serial = target
+                save_int(KEY_STORAGE, target)
+
+                # Get container position for pathfinding
+                container_x = getattr(item, 'X', 0)
+                container_y = getattr(item, 'Y', 0)
+                storage.set_container_position(container_x, container_y)
+
+                API.SysMsg("Storage container set!", HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("Item not found!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Storage setup error: " + str(e), HUE_RED)
+
+def adjust_spots(delta):
+    """Adjust number of gathering spots by +1 or -1"""
+    global num_gathering_spots
+
+    # Calculate new value
+    new_spots = num_gathering_spots + delta
+
+    # Validate range (1-15, since slot 1 is home and slot 16 is max)
+    if new_spots < 1:
+        API.SysMsg("Minimum 1 spot!", HUE_RED)
+        return
+    if new_spots > 15:
+        API.SysMsg("Maximum 15 spots!", HUE_RED)
+        return
+
+    # Apply the setting
+    num_gathering_spots = new_spots
+    save_int(KEY_NUM_SPOTS, num_gathering_spots)
+
+    # Update travel system
+    travel.num_spots = num_gathering_spots
+    travel.current_spot = 0  # Reset to first spot
+
+    API.SysMsg("Number of gathering spots set to " + str(num_gathering_spots), HUE_GREEN)
+    API.SysMsg("Will cycle through runebook slots 2-" + str(num_gathering_spots + 1), HUE_YELLOW)
+    update_display()
+
+def toggle_movement_mode():
+    """Cycle through movement modes"""
+    global movement_mode
+
+    modes = ["random", "spiral", "stationary"]
+    current_index = modes.index(movement_mode)
+    next_index = (current_index + 1) % len(modes)
+    movement_mode = modes[next_index]
+
+    API.SavePersistentVar(KEY_MOVEMENT_MODE, movement_mode, API.PersistentVar.Char)
+    API.SysMsg("Movement mode: " + movement_mode.upper(), HUE_YELLOW)
+    update_display()
+
+def test_pathfind_to_storage():
+    """Test button - pathfind to storage container"""
+    if storage.container_serial == 0:
+        API.SysMsg("Storage container not configured! Click [SET] first.", HUE_RED)
+        return
+
+    container = API.FindItem(storage.container_serial)
+    if not container:
+        API.SysMsg("Storage container not found!", HUE_RED)
+        return
+
+    distance = getattr(container, 'Distance', 99)
+    API.SysMsg("Container is " + str(distance) + " tiles away", HUE_YELLOW)
+
+    if distance <= 3:
+        API.SysMsg("Already close enough to container!", HUE_GREEN)
+        return
+
+    # Start pathfinding using storage system
+    if storage.pathfind_to_container():
+        API.SysMsg("Pathfinding started - watch your character move!", HUE_GREEN)
+        state.set_state("pathfinding")
+    else:
+        API.SysMsg("Pathfinding failed!", HUE_RED)
+
+def test_convert_logs():
+    """Test button - convert logs to boards"""
+    tool = get_tool()
+    if not tool:
+        API.SysMsg("No tool configured! Click [SET] first.", HUE_RED)
+        return
+
+    if tool.Graphic not in [HATCHET_GRAPHIC, AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]:
+        API.SysMsg("Tool is not a hatchet/axe! Can't convert logs.", HUE_RED)
+        return
+
+    # Count all log types
+    log_count_before = 0
+    for log_graphic in LOG_GRAPHICS:
+        log_count_before += count_resources(log_graphic)
+
+    if log_count_before == 0:
+        API.SysMsg("No logs in backpack to convert!", HUE_YELLOW)
+        return
+
+    API.SysMsg("Converting " + str(log_count_before) + " logs to boards...", HUE_YELLOW)
+
+    if convert_logs_to_boards():
+        # Count boards after
+        board_count_after = count_resources(BOARD_GRAPHIC)
+        API.SysMsg("Conversion complete! Boards: " + str(board_count_after), HUE_GREEN)
+    else:
+        API.SysMsg("Conversion failed!", HUE_RED)
+
+def toggle_pause():
+    """Toggle pause state"""
+    global PAUSED
+
+    PAUSED = not PAUSED
+
+    # Cancel any active pathfinding when pausing
+    if PAUSED and API.Pathfinding():
+        API.CancelPathfinding()
+
+    if PAUSED:
+        API.SysMsg("PAUSED", HUE_YELLOW)
+    else:
+        # Resuming - if at home, warn them
+        if travel.at_home:
+            API.SysMsg("WARNING: Still at home! Recall to gathering spot first!", HUE_RED)
+            PAUSED = True  # Keep paused
+        else:
+            API.SysMsg("RESUMED - Gathering", HUE_GREEN)
+
+    update_display()
+
+def resume_gathering():
+    """Resume gathering - automatically recalls to next gathering spot"""
+    global PAUSED
+
+    if not PAUSED:
+        API.SysMsg("Already running!", HUE_YELLOW)
+        return
+
+    if not travel.at_home:
+        API.SysMsg("Not at home! Can't resume.", HUE_RED)
+        return
+
+    # Show which spot we're going to
+    next_spot = travel.current_spot + 1
+    next_slot = 2 + travel.current_spot
+
+    # Recall to next gathering spot
+    if travel.rotate_to_next_spot():
+        # Successfully recalled - unpause and continue
+        PAUSED = False
+        API.SysMsg("RESUMED - Gathering at spot " + str(next_spot) + "/" + str(num_gathering_spots) + " (slot " + str(next_slot) + ")", HUE_GREEN)
+        update_display()
+    else:
+        # Recall failed - stay paused
+        API.SysMsg("Failed to recall to gathering spot!", HUE_RED)
+
+# ============ DISPLAY UPDATES ============
+
+def update_display():
+    """Update UI labels"""
+    if not gump or not controls:
+        return
+
+    try:
+        # Tool display
+        tool = get_tool()
+        tool_text = get_tool_name(tool) if tool else "Not Set"
+        if "tool_label" in controls:
+            controls["tool_label"].SetText("Tool: " + tool_text)
+
+        # Runebook display
+        runebook_text = "Not Set"
+        if travel.runebook_serial > 0:
+            runebook_text = "Slot " + str(travel.home_slot)
+            if num_gathering_spots > 1 and not travel.at_home:
+                # Show which gathering spot we're at
+                prev_spot_index = (travel.current_spot - 1) % num_gathering_spots
+                gathering_spot_display = str(prev_spot_index + 1) + "/" + str(num_gathering_spots)
+                runebook_text += " | Spot " + gathering_spot_display
+        if "runebook_label" in controls:
+            controls["runebook_label"].SetText("Home: " + runebook_text)
+
+        # Storage display
+        storage_text = "Not Set"
+        if storage.container_serial > 0:
+            storage_text = "0x" + hex(storage.container_serial)[2:].upper()
+        if "storage_label" in controls:
+            controls["storage_label"].SetText("Storage: " + storage_text)
+
+        # Spots display
+        if "spots_display" in controls:
+            controls["spots_display"].SetText(str(num_gathering_spots))
+
+        # Resources
+        if "resources_label" in controls:
+            controls["resources_label"].SetText("Ore: " + str(ore_count) + " | Logs: " + str(log_count))
+
+        # Weight
+        if "weight_label" in controls:
+            current_weight = weight_mgr.get_current_weight()
+            max_weight = weight_mgr.get_max_weight()
+            weight_pct = weight_mgr.get_weight_pct()
+            weight_text = str(int(current_weight)) + "/" + str(int(max_weight)) + " (" + str(int(weight_pct)) + "%)"
+            controls["weight_label"].SetText("Weight: " + weight_text)
+
+        # State
+        if "state_label" in controls:
+            current_state = state.get_state()
+            state_text = current_state.upper()
+            if current_state == "gathering":
+                if MOVE_ON_DEPLETION_ONLY:
+                    state_text += " (x" + str(gather_count) + ")"
+                    if failed_gather_count > 0:
+                        state_text += " [" + str(failed_gather_count) + " failed]"
+                else:
+                    state_text += " (" + str(gather_count) + "/" + str(GATHERS_PER_MOVE) + ")"
+            elif current_state == "pathfinding":
+                state_text += " (to container)"
+            controls["state_label"].SetText("State: " + state_text)
+
+        # Movement mode buttons
+        if "move_random_btn" in controls:
+            controls["move_random_btn"].SetBackgroundHue(HUE_GREEN if movement_mode == "random" else HUE_GRAY)
+        if "move_spiral_btn" in controls:
+            controls["move_spiral_btn"].SetBackgroundHue(HUE_GREEN if movement_mode == "spiral" else HUE_GRAY)
+        if "move_stay_btn" in controls:
+            controls["move_stay_btn"].SetBackgroundHue(HUE_GREEN if movement_mode == "stationary" else HUE_GRAY)
+
+        # Pause status
+        if "status_label" in controls:
+            if PAUSED and travel.at_home:
+                controls["status_label"].SetText("[AT HOME]")
+            else:
+                controls["status_label"].SetText("[PAUSED]" if PAUSED else "[ACTIVE]")
+
+        # Resume button (highlight when needed, gray out when not)
+        if "resume_btn" in controls:
+            if PAUSED and travel.at_home:
+                controls["resume_btn"].SetBackgroundHue(HUE_GREEN)
+                controls["resume_btn"].SetText("RESUME")
+            else:
+                controls["resume_btn"].SetBackgroundHue(HUE_GRAY)
+                controls["resume_btn"].SetText("---")
+
+    except Exception as e:
+        pass
+
+# ============ PERSISTENCE ============
+
+def load_settings():
+    """Load all settings from persistence"""
+    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots
+
+    try:
+        tool_serial = load_int(KEY_TOOL, 0)
+        movement_mode = API.GetPersistentVar(KEY_MOVEMENT_MODE, "random", API.PersistentVar.Char)
+        hotkey_pause = API.GetPersistentVar(KEY_HOTKEY_PAUSE, "F1", API.PersistentVar.Char)
+        hotkey_esc = API.GetPersistentVar(KEY_HOTKEY_ESC, "F2", API.PersistentVar.Char)
+        num_gathering_spots = load_int(KEY_NUM_SPOTS, 1)
+    except Exception as e:
+        API.SysMsg("Error loading settings: " + str(e), HUE_RED)
+
+# ============ FRAMEWORK INITIALIZATION ============
+
+def initialize_framework():
+    """Initialize framework objects after loading persistence"""
+    global travel, storage, weight_mgr, state, combat, harvester, stats, pos_tracker
+
+    # Load settings first
+    load_settings()
+
+    # Travel system
+    runebook_serial = load_int(KEY_RUNEBOOK, 0)
+    runebook_slot = load_int(KEY_RUNEBOOK_SLOT, 1)
+    travel = TravelSystem(runebook_serial, num_gathering_spots, runebook_slot)
+
+    # Storage system
+    storage_serial = load_int(KEY_STORAGE, 0)
+    storage = StorageSystem(storage_serial, STORAGE_SHELF_GUMP_ID, STORAGE_SHELF_FILL_BUTTON)
+
+    # Weight manager
+    threshold = load_int(KEY_WEIGHT_THRESHOLD, DEFAULT_WEIGHT_THRESHOLD)
+    weight_mgr = WeightManager(threshold)
+
+    # State machine
+    state = StateMachine()
+
+    # Combat system
+    combat = CombatSystem(mode="flee", flee_hp_threshold=FLEE_HP_THRESHOLD)
+
+    # Harvester
+    harvester = Harvester(tool_serial, GATHER_DELAY)
+    harvester.use_aoe = True  # CRITICAL: Enable AOE mode
+
+    # Session stats
+    stats = SessionStats()
+
+# ============ CLEANUP ============
+
+def cleanup():
+    """Cleanup on script stop"""
+    if pos_tracker:
+        pos_tracker.save()
+
+def on_gump_closed():
+    """Handle gump close"""
+    cleanup()
+
+# ============ BUILD GUI ============
+
+def build_gump():
+    """Build the main UI gump"""
+    global gump, controls, pos_tracker
+
+    # Load window position
+    x, y = load_window_position(KEY_WINDOW_POS, 100, 100)
+
+    # Create gump
+    gump = API.Gumps.CreateGump()
+    gump.SetRect(x, y, 340, 472)
+
+    # Create position tracker
+    pos_tracker = WindowPositionTracker(gump, KEY_WINDOW_POS, x, y)
+
+    # Add background
+    bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+    bg.SetRect(0, 0, 340, 472)
+    gump.Add(bg)
+
+    y_offset = 10
+
+    # Title bar
+    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.0", 14, "#ffaa00")
+    titleLabel.SetPos(10, y_offset)
+    gump.Add(titleLabel)
+
+    controls["status_label"] = API.Gumps.CreateGumpTTFLabel("[ACTIVE]", 11, "#00ff00")
+    controls["status_label"].SetPos(200, y_offset)
+    gump.Add(controls["status_label"])
+
+    # Resume button (shows after dump)
+    controls["resume_btn"] = API.Gumps.CreateSimpleButton("RESUME", 100, 22)
+    controls["resume_btn"].SetPos(120, y_offset + 20)
+    gump.Add(controls["resume_btn"])
+    API.Gumps.AddControlOnClick(controls["resume_btn"], resume_gathering)
+
+    y_offset += 20  # Extra space for resume button row
+
+    # Setup section
+    controls["tool_label"] = API.Gumps.CreateGumpTTFLabel("Tool: Not Set", 11, "#ffffff")
+    controls["tool_label"].SetPos(10, y_offset)
+    gump.Add(controls["tool_label"])
+
+    tool_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
+    tool_btn.SetPos(210, y_offset - 2)
+    gump.Add(tool_btn)
+    API.Gumps.AddControlOnClick(tool_btn, on_set_tool)
+
+    # Test convert logs button
+    convert_btn = API.Gumps.CreateSimpleButton("CONV", 50, 20)
+    convert_btn.SetPos(270, y_offset - 2)
+    gump.Add(convert_btn)
+    API.Gumps.AddControlOnClick(convert_btn, test_convert_logs)
+
+    y_offset += 22
+
+    controls["runebook_label"] = API.Gumps.CreateGumpTTFLabel("Home: Not Set", 11, "#ffffff")
+    controls["runebook_label"].SetPos(10, y_offset)
+    gump.Add(controls["runebook_label"])
+
+    home_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
+    home_btn.SetPos(270, y_offset - 2)
+    gump.Add(home_btn)
+    API.Gumps.AddControlOnClick(home_btn, on_set_home)
+
+    y_offset += 22
+
+    # Number of gathering spots - use buttons instead of text input
+    spots_label = API.Gumps.CreateGumpTTFLabel("# Spots:", 11, "#ffffff")
+    spots_label.SetPos(10, y_offset)
+    gump.Add(spots_label)
+
+    controls["spots_display"] = API.Gumps.CreateGumpTTFLabel(str(num_gathering_spots), 11, "#00ff00")
+    controls["spots_display"].SetPos(70, y_offset)
+    gump.Add(controls["spots_display"])
+
+    spots_minus_btn = API.Gumps.CreateSimpleButton("-", 25, 20)
+    spots_minus_btn.SetPos(100, y_offset - 2)
+    gump.Add(spots_minus_btn)
+    API.Gumps.AddControlOnClick(spots_minus_btn, lambda: adjust_spots(-1))
+
+    spots_plus_btn = API.Gumps.CreateSimpleButton("+", 25, 20)
+    spots_plus_btn.SetPos(130, y_offset - 2)
+    gump.Add(spots_plus_btn)
+    API.Gumps.AddControlOnClick(spots_plus_btn, lambda: adjust_spots(1))
+
+    spots_help = API.Gumps.CreateGumpTTFLabel("(Slots 2+)", 9, "#888888")
+    spots_help.SetPos(160, y_offset + 2)
+    gump.Add(spots_help)
+
+    y_offset += 22
+
+    controls["storage_label"] = API.Gumps.CreateGumpTTFLabel("Storage: Not Set", 11, "#ffffff")
+    controls["storage_label"].SetPos(10, y_offset)
+    gump.Add(controls["storage_label"])
+
+    storage_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
+    storage_btn.SetPos(210, y_offset - 2)
+    gump.Add(storage_btn)
+    API.Gumps.AddControlOnClick(storage_btn, on_set_storage)
+
+    # Test pathfind button
+    test_pathfind_btn = API.Gumps.CreateSimpleButton("TEST", 50, 20)
+    test_pathfind_btn.SetPos(270, y_offset - 2)
+    gump.Add(test_pathfind_btn)
+    API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
+
+    y_offset += 30
+
+    # Movement mode section
+    mode_label = API.Gumps.CreateGumpTTFLabel("Movement:", 11, "#ffffff")
+    mode_label.SetPos(10, y_offset)
+    gump.Add(mode_label)
+
+    controls["move_random_btn"] = API.Gumps.CreateSimpleButton("Random", 70, 20)
+    controls["move_random_btn"].SetPos(90, y_offset - 2)
+    gump.Add(controls["move_random_btn"])
+    API.Gumps.AddControlOnClick(controls["move_random_btn"], lambda: set_movement("random"))
+
+    controls["move_spiral_btn"] = API.Gumps.CreateSimpleButton("Spiral", 70, 20)
+    controls["move_spiral_btn"].SetPos(165, y_offset - 2)
+    gump.Add(controls["move_spiral_btn"])
+    API.Gumps.AddControlOnClick(controls["move_spiral_btn"], lambda: set_movement("spiral"))
+
+    controls["move_stay_btn"] = API.Gumps.CreateSimpleButton("Stay", 70, 20)
+    controls["move_stay_btn"].SetPos(240, y_offset - 2)
+    gump.Add(controls["move_stay_btn"])
+    API.Gumps.AddControlOnClick(controls["move_stay_btn"], lambda: set_movement("stationary"))
+
+    y_offset += 30
+
+    # Status section
+    controls["resources_label"] = API.Gumps.CreateGumpTTFLabel("Ore: 0 | Logs: 0", 11, "#ffffff")
+    controls["resources_label"].SetPos(10, y_offset)
+    gump.Add(controls["resources_label"])
+
+    y_offset += 18
+
+    controls["weight_label"] = API.Gumps.CreateGumpTTFLabel("Weight: 0/450 (0%)", 11, "#ffffff")
+    controls["weight_label"].SetPos(10, y_offset)
+    gump.Add(controls["weight_label"])
+
+    y_offset += 18
+
+    controls["state_label"] = API.Gumps.CreateGumpTTFLabel("State: IDLE", 11, "#ffffff")
+    controls["state_label"].SetPos(10, y_offset)
+    gump.Add(controls["state_label"])
+
+    y_offset += 30
+
+    # Session stats
+    stats_title = API.Gumps.CreateGumpTTFLabel("Session Stats:", 11, "#ffaa00")
+    stats_title.SetPos(10, y_offset)
+    gump.Add(stats_title)
+
+    y_offset += 18
+
+    controls["session_ore_label"] = API.Gumps.CreateGumpTTFLabel("Total Ore: 0", 11, "#aaaaaa")
+    controls["session_ore_label"].SetPos(15, y_offset)
+    gump.Add(controls["session_ore_label"])
+
+    y_offset += 16
+
+    controls["session_logs_label"] = API.Gumps.CreateGumpTTFLabel("Total Logs: 0", 11, "#aaaaaa")
+    controls["session_logs_label"].SetPos(15, y_offset)
+    gump.Add(controls["session_logs_label"])
+
+    y_offset += 16
+
+    controls["session_dumps_label"] = API.Gumps.CreateGumpTTFLabel("Dumps: 0", 11, "#aaaaaa")
+    controls["session_dumps_label"].SetPos(15, y_offset)
+    gump.Add(controls["session_dumps_label"])
+
+    y_offset += 16
+
+    controls["session_runtime_label"] = API.Gumps.CreateGumpTTFLabel("Runtime: 0m", 11, "#aaaaaa")
+    controls["session_runtime_label"].SetPos(15, y_offset)
+    gump.Add(controls["session_runtime_label"])
+
+    y_offset += 25
+
+    # Hotkeys
+    hotkeys_title = API.Gumps.CreateGumpTTFLabel("Hotkeys:", 11, "#ffaa00")
+    hotkeys_title.SetPos(10, y_offset)
+    gump.Add(hotkeys_title)
+
+    y_offset += 18
+
+    pause_label = API.Gumps.CreateGumpTTFLabel("PAUSE: [" + hotkey_pause + "]", 11, "#aaaaaa")
+    pause_label.SetPos(15, y_offset)
+    gump.Add(pause_label)
+
+    y_offset += 16
+
+    esc_label = API.Gumps.CreateGumpTTFLabel("ESC Home: [" + hotkey_esc + "]", 11, "#aaaaaa")
+    esc_label.SetPos(15, y_offset)
+    gump.Add(esc_label)
+
+    y_offset += 16
+
+    tab_label = API.Gumps.CreateGumpTTFLabel("Cycle Mode: [TAB]", 11, "#aaaaaa")
+    tab_label.SetPos(15, y_offset)
+    gump.Add(tab_label)
+
+    # Close callback
+    API.Gumps.AddControlOnDisposed(gump, on_gump_closed)
+
+    # Display the gump
+    API.Gumps.AddGump(gump)
+    update_display()
+
+def set_movement(mode):
+    """Set movement mode via button"""
+    global movement_mode
+    movement_mode = mode
+    API.SavePersistentVar(KEY_MOVEMENT_MODE, movement_mode, API.PersistentVar.Char)
+    update_display()
+
+# ============ HOTKEY HANDLERS ============
+
+def make_hotkey_handler(key):
+    """Create hotkey handler"""
+    def handler():
+        if key == hotkey_pause:
+            toggle_pause()
+        elif key == hotkey_esc:
+            emergency_hotkey_recall()
+        elif key == "TAB":
+            toggle_movement_mode()
+    return handler
+
+# ============ INITIALIZATION ============
+
+# Initialize framework
+initialize_framework()
+
+# Build GUI
+build_gump()
+
+# Register hotkeys
+all_keys = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "TAB", "ESC"]
+for key in all_keys:
+    try:
+        API.OnHotKey(key, make_hotkey_handler(key))
+    except:
+        pass
+
+API.SysMsg("Gatherer v2.0 started! (Framework-based)", HUE_GREEN)
+API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergency recall", HUE_YELLOW)
+
+# ============ MAIN LOOP ============
+
+try:
+    while not API.StopRequested:
+        API.ProcessCallbacks()  # CRITICAL: First for responsive hotkeys
+
+        # Check for captcha (highest priority - stops script immediately)
+        captcha = check_for_captcha()
+        if captcha:
+            handle_captcha(captcha)
+            break  # Exit main loop after captcha handling
+
+        if PAUSED:
+            API.Pause(0.1)
+            continue
+
+        # Update tracking
+        update_resource_counts()
+
+        # Update position tracker
+        if pos_tracker:
+            pos_tracker.update()
+
+        # Combat check (highest priority) - but not while already fleeing or at home
+        current_state = state.get_state()
+        if current_state not in ["fleeing", "dumping", "pathfinding"]:
+            enemy = check_for_hostiles()
+            if enemy:
+                handle_combat(enemy)
+                API.Pause(0.1)
+                continue
+
+        # State machine
+        if current_state == "idle":
+            # Check if we should dump
+            if should_dump():
+                if travel.recall_home():
+                    state.set_state("dumping")
+                else:
+                    # Recall failed - pause and notify
+                    API.SysMsg("Cannot recall home! Pausing - restock reagents or check runebook.", HUE_RED)
+                    PAUSED = True
+            # Otherwise, gather
+            elif tool_serial > 0:
+                tool = get_tool()
+                if tool:
+                    perform_gather()
+                else:
+                    if time.time() % 5 < 0.1:  # Message every 5 seconds
+                        API.SysMsg("IDLE - Tool not found (serial: 0x" + hex(tool_serial)[2:].upper() + ")", HUE_RED)
+            else:
+                # No tool configured
+                if time.time() % 5 < 0.1:  # Message every 5 seconds
+                    API.SysMsg("IDLE - No tool configured! Click [SET]", HUE_RED)
+
+        elif current_state == "gathering":
+            # Wait for gather to complete
+            if state.is_timeout(GATHER_DELAY):
+                # Check for SUCCESS first
+                success = check_gather_success()
+
+                if success:
+                    # Success! Resources were gathered
+                    failed_gather_count = 0  # Reset failed counter
+                    stats.increment("gathers")
+                    API.SysMsg("Success! Gathered resources (x" + str(gather_count) + ")", HUE_GREEN)
+                else:
+                    # No success - check if it's due to depletion or just a miss
+                    depleted = check_resource_depletion()
+
+                    if depleted:
+                        # Force movement when resources are depleted
+                        failed_gather_count = 0  # Reset failed counter
+                        API.SysMsg("=== DEPLETED - MOVING ===", HUE_RED)
+                        check_movement(force=True)
+                    else:
+                        # Failed gather - no success message and not depleted
+                        failed_gather_count += 1
+                        API.SysMsg("Failed gather " + str(failed_gather_count) + "/" + str(MAX_FAILED_GATHERS), HUE_YELLOW)
+
+                        # Move if we've failed too many times
+                        if failed_gather_count >= MAX_FAILED_GATHERS:
+                            API.SysMsg("=== TOO MANY FAILURES - MOVING ===", HUE_ORANGE)
+                            failed_gather_count = 0
+                            check_movement(force=True)
+
+                # Transition to idle if not moving
+                if state.get_state() != "moving":
+                    state.set_state("idle")
+
+        elif current_state == "moving":
+            # Check if pathfinding movement is complete
+            if not API.Pathfinding():
+                # Movement complete
+                API.SysMsg("Movement complete", HUE_GREEN)
+
+                # Convert logs to boards if we have a hatchet (during idle time between spots)
+                tool = get_tool()
+                if tool and AUTO_CONVERT_LOGS:
+                    if tool.Graphic in [HATCHET_GRAPHIC, AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]:
+                        # Count all log types
+                        log_count_before = 0
+                        for log_graphic in LOG_GRAPHICS:
+                            log_count_before += count_resources(log_graphic)
+
+                        if log_count_before > 0:
+                            API.SysMsg("Converting logs to boards...", HUE_YELLOW)
+                            convert_logs_to_boards()
+                            API.Pause(0.5)
+
+                state.set_state("idle")
+            elif state.is_timeout(15.0):
+                # Timeout after 15 seconds - cancel pathfinding
+                API.SysMsg("Movement timeout - canceling", HUE_YELLOW)
+                API.CancelPathfinding()
+                state.set_state("idle")
+
+        elif current_state == "combat":
+            # Re-check enemy
+            if current_enemy:
+                enemy_serial = getattr(current_enemy, 'Serial', None)
+                if enemy_serial:
+                    mob = API.FindMobile(enemy_serial)
+                    if not mob or mob.IsDead or mob.Distance > COMBAT_DISTANCE:
+                        current_enemy = None
+                        state.set_state("idle")
+                else:
+                    current_enemy = None
+                    state.set_state("idle")
+            else:
+                state.set_state("idle")
+
+        elif current_state == "fleeing":
+            # Framework handles fleeing - this state should transition quickly
+            state.set_state("idle")
+
+        elif current_state == "pathfinding":
+            # Wait for pathfinding to complete
+            if not API.Pathfinding():
+                # Pathfinding complete
+                API.SysMsg("Reached container area", HUE_GREEN)
+                state.set_state("dumping")
+            elif state.is_timeout(30.0):  # Use state machine timeout
+                # Timeout - cancel pathfinding and try dumping anyway
+                API.SysMsg("Pathfind timeout - trying dump anyway", HUE_YELLOW)
+                API.CancelPathfinding()
+                state.set_state("dumping")
+
+        elif current_state == "dumping":
+            # Check if we need to pathfind first
+            if not storage.is_in_range(3):
+                # Too far, pathfind first
+                if storage.pathfind_to_container():
+                    state.set_state("pathfinding")
+                else:
+                    # Pathfind failed, pause
+                    API.SysMsg("Can't reach container! Move closer manually.", HUE_RED)
+                    PAUSED = True
+                    state.set_state("idle")
+                continue
+
+            # Close enough, dump resources
+            if storage.dump_resources():
+                # Track session totals BEFORE clearing counts
+                session_ore += ore_count
+                session_logs += log_count
+
+                session_dumps += 1
+                stats.increment("dumps")
+
+                # Update counts and weight after dump
+                update_resource_counts()
+                state.set_state("idle")
+                API.SysMsg("======================", HUE_GREEN)
+                API.SysMsg("Dump complete!", HUE_GREEN)
+
+                # Check if journal shows emergency charge was used
+                if travel.check_out_of_reagents():
+                    API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
+                    API.SysMsg("║  OUT OF REAGENTS DETECTED!         ║", HUE_RED)
+                    API.SysMsg("║  SCRIPT PAUSED - RESTOCK REGS!     ║", HUE_RED)
+                    API.SysMsg("║  Click RESUME when ready           ║", HUE_RED)
+                    API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
+                    PAUSED = True
+                    travel.at_home = True
+                else:
+                    # Normal dump - transition to waiting state before auto-recall
+                    API.SysMsg("Auto-recalling to next spot in 2 seconds...", HUE_YELLOW)
+                    API.SysMsg("======================", HUE_GREEN)
+                    state.set_state("waiting_to_recall")
+            else:
+                state.set_state("idle")
+                PAUSED = True
+
+        elif current_state == "waiting_to_recall":
+            # Non-blocking wait before auto-recall
+            if state.get_elapsed() >= 2.0:
+                # Auto-recall to next gathering spot
+                if travel.rotate_to_next_spot():
+                    # Calculate spot number AFTER rotation
+                    current_gathering_spot = (travel.current_spot - 1) % num_gathering_spots + 1
+                    API.SysMsg("Auto-resumed - Gathering at spot " + str(current_gathering_spot) + "/" + str(num_gathering_spots), HUE_GREEN)
+                    state.set_state("idle")
+                else:
+                    API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
+                    API.SysMsg("║  Auto-recall failed!               ║", HUE_RED)
+                    API.SysMsg("║  Script PAUSED - check reagents    ║", HUE_RED)
+                    API.SysMsg("║  Click RESUME when ready           ║", HUE_RED)
+                    API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
+                    PAUSED = True
+                    travel.at_home = True  # Mark as at home so RESUME button works
+                    state.set_state("idle")
+            else:
+                state.set_state("idle")
+                PAUSED = True
+
+        # Update display periodically
+        now = time.time()
+        if now - last_display_update > DISPLAY_UPDATE_INTERVAL:
+            update_display()
+            last_display_update = now
+
+            # Update session runtime
+            runtime_seconds = stats.get_runtime()
+            runtime_text = format_time_elapsed(runtime_seconds)
+
+            if "session_runtime_label" in controls:
+                controls["session_runtime_label"].SetText("Runtime: " + runtime_text)
+
+            # Update session totals
+            if "session_ore_label" in controls:
+                controls["session_ore_label"].SetText("Total Ore: " + str(session_ore + ore_count))
+            if "session_logs_label" in controls:
+                controls["session_logs_label"].SetText("Total Logs: " + str(session_logs + log_count))
+            if "session_dumps_label" in controls:
+                controls["session_dumps_label"].SetText("Dumps: " + str(session_dumps))
+
+        API.Pause(0.1)  # Short pause only
+
+except Exception as e:
+    API.SysMsg("CRITICAL ERROR: " + str(e), HUE_RED)
+
+# Cleanup
+cleanup()
+API.SysMsg("Gatherer stopped", HUE_YELLOW)

@@ -1,0 +1,141 @@
+================================================================================
+  PHASE 1 UTILITIES - IMPLEMENTATION COMPLETE ✅
+  Date: 2026-01-27
+================================================================================
+
+All Phase 1 utilities have been implemented in LegionUtils v3.0!
+
+--------------------------------------------------------------------------------
+WHAT WAS ADDED
+--------------------------------------------------------------------------------
+
+LegionUtils.py upgraded: v2.0 (406 lines) → v3.0 (858 lines)
+Added: 452 lines of reusable utilities
+
+5 Major New Utilities:
+
+1. ✅ Enhanced Item Counting
+   - get_item_count(graphic, container_serial, recursive)
+   - has_item(graphic, min_count, container_serial)
+   - count_items_by_type(*graphics)
+   → Replaces get_potion_count(), count_gold_in_bag(), etc.
+   → Estimated savings: 250 lines across codebase
+
+2. ✅ WindowPositionTracker Class
+   - Automatic position loading/saving
+   - Periodic position updates
+   - Simple 3-line usage pattern
+   → Replaces ~40-50 lines per script
+   → Estimated savings: 200 lines across 5 scripts
+
+3. ✅ ToggleSetting Class
+   - Manages boolean settings with persistence
+   - Automatic button updates
+   - System messages and callbacks
+   → Replaces ~20-25 lines per toggle function
+   → Estimated savings: 200 lines across toggle-heavy scripts
+
+4. ✅ ActionTimer Class
+   - Simple one-time action timing
+   - Cleaner than manual start_time tracking
+   - is_complete(), time_remaining() methods
+   → Replaces manual timing code
+   → Estimated savings: 80 lines across scripts
+
+5. ✅ ExpandableWindow Class
+   - Manages expand/collapse with control visibility
+   - Automatic state persistence
+   - Simple registration pattern
+   → Replaces ~80-120 lines per script
+   → Estimated savings: 320 lines across 4 scripts
+
+TOTAL ESTIMATED SAVINGS: ~1,050 lines across codebase
+
+--------------------------------------------------------------------------------
+EXAMPLES
+--------------------------------------------------------------------------------
+
+Enhanced Item Counting:
+  heal_potions = get_item_count(HEAL_POTION_GRAPHIC)
+  gold = get_item_count(GOLD_GRAPHIC, container_serial=satchel)
+  if has_item(HEAL_POTION_GRAPHIC, min_count=5):
+      # Have at least 5 heal potions
+
+WindowPositionTracker:
+  pos_tracker = WindowPositionTracker(gump, SETTINGS_KEY)
+  # In loop: pos_tracker.update()
+  # On close: pos_tracker.save()
+
+ToggleSetting:
+  auto_heal = ToggleSetting(AUTO_HEAL_KEY, True, "Auto Heal",
+                            {"off": off_btn, "on": on_btn})
+  # Wire: API.Gumps.AddControlOnClick(on_btn, lambda: auto_heal.set(True))
+  # Use: if auto_heal.value: do_healing()
+
+ActionTimer:
+  bandage_timer = ActionTimer(BANDAGE_DELAY)
+  # Start: bandage_timer.start()
+  # Check: if bandage_timer.is_complete(): next_action()
+
+ExpandableWindow:
+  expander = ExpandableWindow(gump, expandBtn, KEY, 280, 600, 24)
+  expander.add_controls(label1, label2, button1, button2)
+  API.Gumps.AddControlOnClick(expandBtn, expander.toggle)
+
+--------------------------------------------------------------------------------
+BACKWARD COMPATIBILITY
+--------------------------------------------------------------------------------
+
+✅ All existing functions still work:
+- get_potion_count(graphic) - now wraps get_item_count()
+- get_bandage_count() - unchanged
+- All v2.0 utilities - unchanged
+
+New utilities are ADDITIVE - won't break existing scripts!
+
+--------------------------------------------------------------------------------
+NEXT STEPS - YOUR CHOICE
+--------------------------------------------------------------------------------
+
+Option A: Start Refactoring
+  → Pick a script (recommend: Dexer_Suite.py - biggest win)
+  → Start with item counting (easiest pattern)
+  → Test and iterate
+
+Option B: Test Utilities First
+  → Create test scripts for new utilities
+  → Verify functionality
+  → Then proceed to refactoring
+
+Option C: Continue Building
+  → Implement Phase 2 utilities (HotkeyManager, etc.)
+  → Expand library further
+
+--------------------------------------------------------------------------------
+READY FOR USE
+--------------------------------------------------------------------------------
+
+All utilities are:
+  ✅ Implemented
+  ✅ Documented with docstrings
+  ✅ Ready for testing
+  ✅ Backward compatible
+
+See PHASE1_IMPLEMENTATION.md for:
+  - Detailed usage examples
+  - Before/after comparisons
+  - Testing checklist
+  - Migration strategies
+
+--------------------------------------------------------------------------------
+
+What would you like to do next?
+
+1. "Let's refactor Dexer_Suite" - Start refactoring with biggest win
+2. "Let's test the utilities" - Create test scripts first
+3. "Continue with Phase 2" - Implement more utilities
+4. "Show me examples" - See more usage examples
+
+Ready when you are! 🚀
+
+================================================================================

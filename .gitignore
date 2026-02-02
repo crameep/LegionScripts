@@ -51,3 +51,19 @@ desktop.ini
 # TazUO/Legion Specific
 # Add any TazUO-specific temp/cache files here if discovered
 _backups/
+
+# Development
+dev/wip/
+assets/debug/
+assets/captcha/captcha_current*.png
+
+# Archives
+archive/backups_*/
+
+# Executables
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
