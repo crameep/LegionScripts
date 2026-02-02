@@ -89,7 +89,6 @@ show_test_scripts = False  # Toggle to show/hide Test folder scripts
 def debug_msg(text):
     """Debug logging"""
     if False:  # Set to True for debugging
-        API.SysMsg("DEBUG: " + text, 88)
 
 def get_script_dir():
     """Get the directory where scripts are located"""
@@ -116,24 +115,18 @@ def ensure_backup_dir():
 def parse_version(script_path):
     """Parse __version__ from a script file. Returns version string or None."""
     try:
-        API.SysMsg("DEBUG PARSE: Opening " + script_path, 88)
         # Explicitly use UTF-8 encoding to handle any encoding issues
         with open(script_path, 'r', encoding='utf-8') as f:
             content = f.read()
-            API.SysMsg("DEBUG PARSE: Read " + str(len(content)) + " chars", 88)
             # Regex: __version__ = "1.0" or __version__ = '1.0'
             match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
             if match:
                 version = match.group(1)
-                API.SysMsg("DEBUG PARSE: Found version " + version, 88)
                 return version
             else:
-                API.SysMsg("DEBUG PARSE: No version match found", HUE_YELLOW)
                 # Show first 500 chars to diagnose
                 preview = content[:500].replace('\n', '\\n').replace('\r', '\\r')
-                API.SysMsg("DEBUG PARSE: Content preview: " + preview[:200], 88)
     except Exception as e:
-        API.SysMsg("DEBUG PARSE: Exception: " + str(e), HUE_RED)
     return None
 
 def compare_versions(v1, v2):
@@ -176,24 +169,17 @@ def get_local_version(relative_path):
     try:
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
-        API.SysMsg("DEBUG LOCAL: Checking " + relative_path, 88)
-        API.SysMsg("DEBUG LOCAL: Full path = " + path, 88)
-        API.SysMsg("DEBUG LOCAL: Exists = " + str(os.path.exists(path)), 88)
         if os.path.exists(path):
             file_size = os.path.getsize(path)
-            API.SysMsg("DEBUG LOCAL: File size = " + str(file_size), 88)
             version = parse_version(path)
-            API.SysMsg("DEBUG LOCAL: Version = " + (version or "NOT FOUND"), 88)
             return version
     except Exception as e:
-        API.SysMsg("DEBUG LOCAL: Exception: " + str(e), HUE_RED)
     return None
 
 def download_script(relative_path):
     """Download script content from GitHub. Returns (success, content_or_error)"""
     url = GITHUB_BASE_URL + relative_path
     try:
-        API.SysMsg("DEBUG DOWNLOAD: " + url, 88)
         debug_msg("Downloading: " + url)
         try:
             # Python 3 style
@@ -207,14 +193,11 @@ def download_script(relative_path):
             response = urllib2.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
             content = response.read()
 
-        API.SysMsg("DEBUG DOWNLOAD: Got " + str(len(content)) + " bytes", 88)
         if len(content) < 100:
-            API.SysMsg("DEBUG DOWNLOAD: Content preview: " + content[:100], 88)
         debug_msg("Downloaded " + str(len(content)) + " bytes")
         return (True, content)
     except Exception as e:
         error = str(e)
-        API.SysMsg("DEBUG DOWNLOAD: ERROR - " + error, HUE_RED)
         debug_msg("Download error: " + error)
         return (False, error)
 
@@ -269,14 +252,11 @@ def write_script(relative_path, content):
         script_dir = get_script_dir()
         path = os.path.join(script_dir, relative_path)
 
-        API.SysMsg("DEBUG WRITE: path=" + path, 88)
-        API.SysMsg("DEBUG WRITE: content length=" + str(len(content)), 88)
 
         # Ensure directory exists
         dir_path = os.path.dirname(path)
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path)
-            API.SysMsg("DEBUG WRITE: Created dir " + dir_path, 88)
 
         # Write with explicit UTF-8 encoding and Unix line endings (newline='\n')
         # This prevents Windows from converting LF to CRLF which can cause parsing issues
@@ -286,24 +266,19 @@ def write_script(relative_path, content):
         # Verify file was written
         if os.path.exists(path):
             file_size = os.path.getsize(path)
-            API.SysMsg("DEBUG WRITE: File exists, size=" + str(file_size), 88)
 
             # Verify it can be parsed
             try:
                 test_version = parse_version(path)
                 if test_version:
-                    API.SysMsg("DEBUG WRITE: Verified version: " + test_version, HUE_GREEN)
                 else:
-                    API.SysMsg("DEBUG WRITE: WARNING - No version found after write!", HUE_YELLOW)
             except:
                 pass
         else:
-            API.SysMsg("DEBUG WRITE: ERROR - File doesn't exist after write!", HUE_RED)
 
         debug_msg("Wrote " + str(len(content)) + " bytes to " + relative_path)
         return (True, None)
     except Exception as e:
-        API.SysMsg("DEBUG WRITE: Exception: " + str(e), HUE_RED)
         return (False, str(e))
 
 def list_backups(filename):
@@ -978,18 +953,14 @@ cleanup_all_backups()
 
 # ============ BUILD GUI ============
 try:
-    API.SysMsg("=== GUI BUILD START ===", 68)
     gump = API.Gumps.CreateGump()
-    API.SysMsg("1. CreateGump() OK", 88)
     API.Gumps.AddControlOnDisposed(gump, onClosed)
-    API.SysMsg("2. AddControlOnDisposed() OK", 88)
 
     # Load window position
     savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
     posXY = savedPos.split(',')
     lastX = int(posXY[0])
     lastY = int(posXY[1])
-    API.SysMsg("3. Position loaded: " + str(lastX) + "," + str(lastY), 88)
 
     # Initialize last known position with loaded values
     last_known_x = lastX
@@ -1003,62 +974,40 @@ try:
     calculated_height = 68 + (script_count * 22) + 28 + 28 + 25 + 20
     max_height = 700  # Don't make window too tall
     win_height = max(min_height, min(calculated_height, max_height))
-    API.SysMsg("4. Window size: " + str(win_width) + "x" + str(win_height), 88)
 
-    API.SysMsg("5. Calling gump.SetRect(" + str(lastX) + "," + str(lastY) + "," + str(win_width) + "," + str(win_height) + ")", 88)
     gump.SetRect(lastX, lastY, win_width, win_height)
-    API.SysMsg("6. SetRect() OK", 68)
 except Exception as e:
-    API.SysMsg("ERROR in GUI init: " + str(e), 32)
-    API.SysMsg("Error type: " + str(type(e).__name__), 32)
-    import sys
-    import traceback
-    exc_type, exc_value, exc_tb = sys.exc_info()
-    API.SysMsg("Details: " + str(exc_value), 32)
+    API.SysMsg("ERROR creating GUI: " + str(e), 32)
     raise
 
 try:
     # Background
-    API.SysMsg("7. Creating background ColorBox(0.85, '#1a1a2e')...", 88)
     bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-    API.SysMsg("8. ColorBox created, calling SetRect(0,0," + str(win_width) + "," + str(win_height) + ")", 88)
     bg.SetRect(0, 0, win_width, win_height)
-    API.SysMsg("9. Adding bg to gump...", 88)
     gump.Add(bg)
-    API.SysMsg("10. Background added OK", 68)
 except Exception as e:
-    API.SysMsg("ERROR in background: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    API.SysMsg("ERROR creating background: " + str(e), 32)
     raise
 
 try:
     # Title
-    API.SysMsg("11. Creating title label...", 88)
     test_indicator = " [TEST: ON]" if show_test_scripts else ""
     title_text = "Script Updater v" + __version__ + test_indicator
-    API.SysMsg("12. Title text: '" + title_text + "'", 88)
-    API.SysMsg("13. Calling CreateGumpTTFLabel(text, 16, '#00d4ff', aligned='center', maxWidth=" + str(win_width) + ")", 88)
     title = API.Gumps.CreateGumpTTFLabel(title_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
-    API.SysMsg("14. Title label created, setting position...", 88)
     title.SetPos(0, 5)
     gump.Add(title)
-    API.SysMsg("15. Title added OK", 68)
 except Exception as e:
-    API.SysMsg("ERROR in title: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    API.SysMsg("ERROR creating title: " + str(e), 32)
     raise
 
 try:
-    # Instructions with script count - TEST: Copy title format exactly
-    API.SysMsg("16. Creating instructions label...", 88)
+    # Instructions with script count
     script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates'"
-    API.SysMsg("17. Instructions text: '" + script_count_text + "' (len=" + str(len(script_count_text)) + ")", 88)
-    API.SysMsg("18. TEST: Using same params as title (font=16, color=#00d4ff)", 88)
     instructions = API.Gumps.CreateGumpTTFLabel(script_count_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
-    API.SysMsg("19. Instructions label created, setting position...", 88)
     instructions.SetPos(0, 28)
     gump.Add(instructions)
-    API.SysMsg("20. Instructions added OK", 68)
 except Exception as e:
-    API.SysMsg("ERROR in instructions: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    API.SysMsg("ERROR creating instructions: " + str(e), 32)
     raise
 
 # Column headers
