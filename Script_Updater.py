@@ -977,91 +977,94 @@ init_script_data()
 cleanup_all_backups()
 
 # ============ BUILD GUI ============
-API.SysMsg("DEBUG: Creating gump...", 88)
-gump = API.Gumps.CreateGump()
-API.Gumps.AddControlOnDisposed(gump, onClosed)
-
-# Load window position
-API.SysMsg("DEBUG: Loading position...", 88)
-savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 try:
+    API.SysMsg("=== GUI BUILD START ===", 68)
+    gump = API.Gumps.CreateGump()
+    API.SysMsg("1. CreateGump() OK", 88)
+    API.Gumps.AddControlOnDisposed(gump, onClosed)
+    API.SysMsg("2. AddControlOnDisposed() OK", 88)
+
+    # Load window position
+    savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
     posXY = savedPos.split(',')
     lastX = int(posXY[0])
     lastY = int(posXY[1])
+    API.SysMsg("3. Position loaded: " + str(lastX) + "," + str(lastY), 88)
 
-    # Validate coordinates - prevent off-screen positioning
-    # If coordinates seem invalid (negative, or way too large), reset to default
-    if lastX < 0 or lastX > 3000 or lastY < 0 or lastY > 2000:
-        API.SysMsg("Window position out of bounds - resetting to default", 43)
-        lastX = 100
-        lastY = 100
-except:
-    # If parsing fails, use defaults
-    lastX = 100
-    lastY = 100
+    # Initialize last known position with loaded values
+    last_known_x = lastX
+    last_known_y = lastY
 
-# Initialize last known position with loaded values
-last_known_x = lastX
-last_known_y = lastY
-API.SysMsg("DEBUG: Position = " + str(lastX) + "," + str(lastY), 88)
+    # Window size - dynamic height based on script count
+    win_width = 580
+    # Calculate height: header(68) + rows(22 each) + buttons(28+28) + status(25) + padding(20)
+    min_height = 450
+    script_count = len(MANAGED_SCRIPTS) if MANAGED_SCRIPTS else 0
+    calculated_height = 68 + (script_count * 22) + 28 + 28 + 25 + 20
+    max_height = 700  # Don't make window too tall
+    win_height = max(min_height, min(calculated_height, max_height))
+    API.SysMsg("4. Window size: " + str(win_width) + "x" + str(win_height), 88)
 
-# Window size - dynamic height based on script count
-win_width = 580
-# Calculate height: header(68) + rows(22 each) + buttons(28+28) + status(25) + padding(20)
-min_height = 450
-script_count = len(MANAGED_SCRIPTS) if MANAGED_SCRIPTS else 0
-calculated_height = 68 + (script_count * 22) + 28 + 28 + 25 + 20
-max_height = 700  # Don't make window too tall
-win_height = max(min_height, min(calculated_height, max_height))
-API.SysMsg("DEBUG: script_count=" + str(script_count) + " win_height=" + str(win_height), 88)
+    API.SysMsg("5. Calling gump.SetRect(" + str(lastX) + "," + str(lastY) + "," + str(win_width) + "," + str(win_height) + ")", 88)
+    gump.SetRect(lastX, lastY, win_width, win_height)
+    API.SysMsg("6. SetRect() OK", 68)
+except Exception as e:
+    API.SysMsg("ERROR in GUI init: " + str(e), 32)
+    API.SysMsg("Error type: " + str(type(e).__name__), 32)
+    import sys
+    import traceback
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    API.SysMsg("Details: " + str(exc_value), 32)
+    raise
 
-# Validate gump fits on screen - prevent off-screen positioning
-# Assume minimum screen size of 1280x720 for safety
-max_screen_width = 1920
-max_screen_height = 1080
-if lastX + win_width > max_screen_width:
-    lastX = max(0, max_screen_width - win_width - 10)
-    API.SysMsg("DEBUG: Adjusted X to fit screen: " + str(lastX), 43)
-if lastY + win_height > max_screen_height:
-    lastY = max(0, max_screen_height - win_height - 10)
-    API.SysMsg("DEBUG: Adjusted Y to fit screen: " + str(lastY), 43)
-if win_height > max_screen_height - 50:
-    win_height = max_screen_height - 50
-    API.SysMsg("DEBUG: Reduced height to fit screen: " + str(win_height), 43)
+try:
+    # Background
+    API.SysMsg("7. Creating background ColorBox(0.85, '#1a1a2e')...", 88)
+    bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+    API.SysMsg("8. ColorBox created, calling SetRect(0,0," + str(win_width) + "," + str(win_height) + ")", 88)
+    bg.SetRect(0, 0, win_width, win_height)
+    API.SysMsg("9. Adding bg to gump...", 88)
+    gump.Add(bg)
+    API.SysMsg("10. Background added OK", 68)
+except Exception as e:
+    API.SysMsg("ERROR in background: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    raise
 
-API.SysMsg("DEBUG: Final position: " + str(lastX) + "," + str(lastY) + " size: " + str(win_width) + "x" + str(win_height), 88)
-API.SysMsg("DEBUG: Setting gump rect...", 88)
-gump.SetRect(int(lastX), int(lastY), int(win_width), int(win_height))
+try:
+    # Title
+    API.SysMsg("11. Creating title label...", 88)
+    test_indicator = " [TEST: ON]" if show_test_scripts else ""
+    title_text = "Script Updater v" + __version__ + test_indicator
+    API.SysMsg("12. Title text: '" + title_text + "'", 88)
+    API.SysMsg("13. Calling CreateGumpTTFLabel(text, 16, '#00d4ff', aligned='center', maxWidth=" + str(win_width) + ")", 88)
+    title = API.Gumps.CreateGumpTTFLabel(title_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
+    API.SysMsg("14. Title label created, setting position...", 88)
+    title.SetPos(0, 5)
+    gump.Add(title)
+    API.SysMsg("15. Title added OK", 68)
+except Exception as e:
+    API.SysMsg("ERROR in title: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    raise
 
-# Background
-API.SysMsg("DEBUG: Adding background...", 88)
-bg = API.Gumps.CreateGumpColorBox(1710638)  # #1a1a2e as decimal
-bg.SetRect(0, 0, win_width, win_height)
-gump.Add(bg)
-
-# Title
-API.SysMsg("DEBUG: Creating title...", 88)
-test_indicator = " [TEST: ON]" if show_test_scripts else ""
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator)
-title.SetPos(10, 5)
-gump.Add(title)
-
-# Instructions with script count
-API.SysMsg("DEBUG: Creating instructions...", 88)
-if MANAGED_SCRIPTS:
-    instr_text = str(script_count) + " scripts - Check for updates"
-else:
-    instr_text = "Click Check Updates to load scripts"
-API.SysMsg("DEBUG: instr_text len=" + str(len(instr_text)), 88)
-instructions = API.Gumps.CreateGumpTTFLabel(instr_text)
-API.SysMsg("DEBUG: instructions label created", 88)
-instructions.SetPos(10, 28)
-gump.Add(instructions)
-API.SysMsg("DEBUG: instructions added to gump", 88)
+try:
+    # Instructions with script count
+    API.SysMsg("16. Creating instructions label...", 88)
+    script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
+    instr_text = script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/"
+    API.SysMsg("17. Instructions text: '" + instr_text + "' (len=" + str(len(instr_text)) + ")", 88)
+    API.SysMsg("18. Calling CreateGumpTTFLabel(text, 8, '#aaaaaa', aligned='center', maxWidth=" + str(win_width) + ")", 88)
+    instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 8, "#aaaaaa", aligned="center", maxWidth=win_width)
+    API.SysMsg("19. Instructions label created, setting position...", 88)
+    instructions.SetPos(0, 28)
+    gump.Add(instructions)
+    API.SysMsg("20. Instructions added OK", 68)
+except Exception as e:
+    API.SysMsg("ERROR in instructions: " + str(e) + " | Type: " + str(type(e).__name__), 32)
+    raise
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status")
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 9, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
@@ -1121,17 +1124,15 @@ gump.Add(showTestBtn)
 
 # Status bar
 y += 25
-statusBg = API.Gumps.CreateGumpColorBox(0)  # Black background
+statusBg = API.Gumps.CreateGumpColorBox(0.9, "#000000")
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Ready")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 10, "#00ff00")
 statusLabel.SetPos(10, y + 4)
 gump.Add(statusLabel)
 
-API.SysMsg("DEBUG: About to display gump...", 88)
 API.Gumps.AddGump(gump)
-API.SysMsg("DEBUG: Gump displayed successfully!", 68)
 
 # Initial display update
 update_script_list()
