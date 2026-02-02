@@ -1042,7 +1042,7 @@ gump.Add(bg)
 # Title
 API.SysMsg("DEBUG: Creating title...", 88)
 test_indicator = " [TEST: ON]" if show_test_scripts else ""
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16)
+title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator)
 title.SetPos(10, 5)
 gump.Add(title)
 
@@ -1053,7 +1053,7 @@ if MANAGED_SCRIPTS:
 else:
     instr_text = "Click Check Updates to load scripts"
 API.SysMsg("DEBUG: instr_text len=" + str(len(instr_text)), 88)
-instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 8)
+instructions = API.Gumps.CreateGumpTTFLabel(instr_text)
 API.SysMsg("DEBUG: instructions label created", 88)
 instructions.SetPos(10, 28)
 gump.Add(instructions)
@@ -1061,7 +1061,7 @@ API.SysMsg("DEBUG: instructions added to gump", 88)
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 9)
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status")
 header.SetPos(10, y)
 gump.Add(header)
 
@@ -1125,7 +1125,7 @@ statusBg = API.Gumps.CreateGumpColorBox(0)  # Black background
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 10)
+statusLabel = API.Gumps.CreateGumpTTFLabel("Ready")
 statusLabel.SetPos(10, y + 4)
 gump.Add(statusLabel)
 
