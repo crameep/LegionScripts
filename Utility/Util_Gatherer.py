@@ -1916,7 +1916,15 @@ try:
 
         elif current_state == "waiting_to_recall":
             # Non-blocking wait before auto-recall
-            if state.get_elapsed() >= 2.0:
+            elapsed = state.get_elapsed()
+
+            # Debug: Show countdown every 0.5s
+            if int(elapsed * 2) != int((elapsed - 0.1) * 2):  # Every 0.5s
+                remaining = max(0, 2.0 - elapsed)
+                API.SysMsg("Recalling in " + str(round(remaining, 1)) + "s...", HUE_BLUE)
+
+            if elapsed >= 2.0:
+                API.SysMsg("2 seconds elapsed, attempting recall...", HUE_YELLOW)
                 # Auto-recall to next gathering spot
                 if travel.rotate_to_next_spot():
                     # Calculate spot number AFTER rotation
