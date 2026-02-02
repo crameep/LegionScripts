@@ -1052,8 +1052,8 @@ try:
     script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
     instr_text = script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/"
     API.SysMsg("17. Instructions text: '" + instr_text + "' (len=" + str(len(instr_text)) + ")", 88)
-    API.SysMsg("18. Calling CreateGumpTTFLabel(text, 10, '#aaaaaa', aligned='center', maxWidth=" + str(win_width) + ")", 88)
-    instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 10, "#aaaaaa", aligned="center", maxWidth=win_width)
+    API.SysMsg("18. Calling CreateGumpTTFLabel(text, 11, '#aaaaaa', aligned='center', maxWidth=" + str(win_width) + ")", 88)
+    instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 11, "#aaaaaa", aligned="center", maxWidth=win_width)
     API.SysMsg("19. Instructions label created, setting position...", 88)
     instructions.SetPos(0, 28)
     gump.Add(instructions)
@@ -1064,7 +1064,7 @@ except Exception as e:
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 10, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 11, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
