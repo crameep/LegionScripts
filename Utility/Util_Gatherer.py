@@ -762,6 +762,36 @@ def on_set_fire_beetle():
     except Exception as e:
         API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
 
+def on_show_storage_info():
+    """Show current storage gump/button settings and instructions"""
+    # Show current values
+    if resource_type == "mining":
+        gump_id = load_int(KEY_STORAGE_GUMP_MINING, 111922706)
+        button_id = load_int(KEY_STORAGE_BUTTON_MINING, 121)
+        gump_key = KEY_STORAGE_GUMP_MINING
+        button_key = KEY_STORAGE_BUTTON_MINING
+        res_type = "MINING"
+    else:
+        gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 111922706)
+        button_id = load_int(KEY_STORAGE_BUTTON_LUMBERJACKING, 121)
+        gump_key = KEY_STORAGE_GUMP_LUMBERJACKING
+        button_key = KEY_STORAGE_BUTTON_LUMBERJACKING
+        res_type = "LUMBERJACKING"
+
+    API.SysMsg("=== " + res_type + " STORAGE SETTINGS ===", HUE_ORANGE)
+    API.SysMsg("Current Gump ID: " + str(gump_id), HUE_YELLOW)
+    API.SysMsg("Current Button ID: " + str(button_id), HUE_YELLOW)
+    API.SysMsg("", HUE_YELLOW)
+    API.SysMsg("To change these settings:", HUE_YELLOW)
+    API.SysMsg("1. Run Util_GumpInspector script", HUE_YELLOW)
+    API.SysMsg("2. Open your storage container", HUE_YELLOW)
+    API.SysMsg("3. Click buttons to see their IDs", HUE_YELLOW)
+    API.SysMsg("4. Note Gump ID and 'Fill/Restock' button ID", HUE_YELLOW)
+    API.SysMsg("5. Use Python console to save:", HUE_YELLOW)
+    API.SysMsg("   API.SavePersistentVar('" + gump_key + "', 'GUMP_ID', API.PersistentVar.Char)", HUE_GRAY)
+    API.SysMsg("   API.SavePersistentVar('" + button_key + "', 'BUTTON_ID', API.PersistentVar.Char)", HUE_GRAY)
+    API.SysMsg("6. Reload this script", HUE_YELLOW)
+
 def adjust_spots(delta):
     """Adjust number of gathering spots by +1 or -1"""
     global num_gathering_spots
@@ -935,6 +965,17 @@ def update_display():
             storage_text = "0x" + hex(storage.container_serial)[2:].upper()
         if "storage_label" in controls:
             controls["storage_label"].SetText("Storage (" + resource_type[:4] + "): " + storage_text)
+
+        # Storage gump/button IDs
+        if "storage_ids_label" in controls:
+            if resource_type == "mining":
+                gump_id = load_int(KEY_STORAGE_GUMP_MINING, 111922706)
+                button_id = load_int(KEY_STORAGE_BUTTON_MINING, 121)
+            else:
+                gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 111922706)
+                button_id = load_int(KEY_STORAGE_BUTTON_LUMBERJACKING, 121)
+            ids_text = "Gump: " + str(gump_id) + " | Button: " + str(button_id)
+            controls["storage_ids_label"].SetText(ids_text)
 
         # Fire beetle display (mining only)
         if "beetle_label" in controls:
@@ -1184,15 +1225,28 @@ def build_gump():
     gump.Add(controls["storage_label"])
 
     storage_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
-    storage_btn.SetPos(210, y_offset - 2)
+    storage_btn.SetPos(180, y_offset - 2)
     gump.Add(storage_btn)
     API.Gumps.AddControlOnClick(storage_btn, on_set_storage)
 
+    # Storage info button (shows gump/button IDs)
+    storage_info_btn = API.Gumps.CreateSimpleButton("INFO", 50, 20)
+    storage_info_btn.SetPos(235, y_offset - 2)
+    gump.Add(storage_info_btn)
+    API.Gumps.AddControlOnClick(storage_info_btn, on_show_storage_info)
+
     # Test pathfind button
     test_pathfind_btn = API.Gumps.CreateSimpleButton("TEST", 50, 20)
-    test_pathfind_btn.SetPos(270, y_offset - 2)
+    test_pathfind_btn.SetPos(290, y_offset - 2)
     gump.Add(test_pathfind_btn)
     API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
+
+    y_offset += 22
+
+    # Storage gump/button info
+    controls["storage_ids_label"] = API.Gumps.CreateGumpTTFLabel("Gump: ??? | Button: ???", 15, "#888888")
+    controls["storage_ids_label"].SetPos(10, y_offset)
+    gump.Add(controls["storage_ids_label"])
 
     y_offset += 22
 
