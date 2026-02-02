@@ -89,6 +89,7 @@ show_test_scripts = False  # Toggle to show/hide Test folder scripts
 def debug_msg(text):
     """Debug logging"""
     if False:  # Set to True for debugging
+        API.SysMsg("DEBUG: " + text, 88)
 
 def get_script_dir():
     """Get the directory where scripts are located"""
