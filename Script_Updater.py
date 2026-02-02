@@ -982,9 +982,21 @@ API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 # Load window position
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
-posXY = savedPos.split(',')
-lastX = int(posXY[0])
-lastY = int(posXY[1])
+try:
+    posXY = savedPos.split(',')
+    lastX = int(posXY[0])
+    lastY = int(posXY[1])
+
+    # Validate coordinates - prevent off-screen positioning
+    # If coordinates seem invalid (negative, or way too large), reset to default
+    if lastX < 0 or lastX > 3000 or lastY < 0 or lastY > 2000:
+        API.SysMsg("Window position out of bounds - resetting to default", 43)
+        lastX = 100
+        lastY = 100
+except:
+    # If parsing fails, use defaults
+    lastX = 100
+    lastY = 100
 
 # Initialize last known position with loaded values
 last_known_x = lastX
