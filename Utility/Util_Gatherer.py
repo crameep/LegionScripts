@@ -193,6 +193,12 @@ pos_tracker = None
 # ============ GUI REFERENCES ============
 gump = None
 controls = {}
+tester_gump = None
+tester_controls = {}
+
+# ============ CAPTURE STATE ============
+detecting_gump = False
+captured_gump_id = 0
 
 # ============ UTILITY FUNCTIONS ============
 
@@ -762,49 +768,218 @@ def on_set_fire_beetle():
     except Exception as e:
         API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
 
-def on_capture_storage_gump():
-    """Capture storage container gump ID"""
-    global storage
+def on_detect_storage_gump():
+    """Detect storage gump ID when opened"""
+    global detecting_gump, captured_gump_id
 
-    API.SysMsg("=== CAPTURE STORAGE GUMP ===", HUE_ORANGE)
-    API.SysMsg("1. Open your storage container NOW", HUE_YELLOW)
-    API.SysMsg("2. Script will detect the gump...", HUE_YELLOW)
+    if detecting_gump:
+        API.SysMsg("Already detecting gump!", HUE_YELLOW)
+        return
+
+    detecting_gump = True
+    API.SysMsg("=== DETECTING STORAGE GUMP ===", HUE_ORANGE)
+    API.SysMsg("Open your storage container NOW...", HUE_YELLOW)
 
     try:
-        # Record current open gumps (to filter them out)
-        # Wait for a new gump to appear
-        API.WaitForGump(delay=10.0)
+        # Wait for gump to open (using GumpInspector's approach)
+        # This is a simplified version - in practice we'd track open gumps
+        API.WaitForGump(delay=15.0)
 
-        # After user interacts with gump, we need to get its ID
-        # Since API doesn't provide easy gump ID detection, we'll use a workaround:
-        # Have user open container, then we try common gump IDs or use inspector
+        # Get currently open gumps using HasGump
+        # Try common gump IDs or ask user to use GumpInspector
+        API.SysMsg("Gump detected! Use GumpInspector to see ID,", HUE_YELLOW)
+        API.SysMsg("then enter it in the button tester.", HUE_YELLOW)
 
-        API.SysMsg("Gump should now be open.", HUE_YELLOW)
-        API.SysMsg("Look at the gump - note any unique ID shown", HUE_YELLOW)
-        API.SysMsg("Then click [SET ID] button to enter it manually", HUE_YELLOW)
-        API.SysMsg("Or use GumpInspector to find the exact ID", HUE_YELLOW)
+        # For now, we'll have user manually enter it or we can try to detect
+        # by testing if gumps are open with common IDs
+        detecting_gump = False
 
     except Exception as e:
-        API.SysMsg("Gump capture error: " + str(e), HUE_RED)
+        API.SysMsg("Gump detect error: " + str(e), HUE_RED)
+        detecting_gump = False
 
-def on_set_storage_gump_manual():
-    """Manually set storage gump ID using text input"""
-    API.SysMsg("=== SET STORAGE GUMP ID ===", HUE_ORANGE)
-    API.SysMsg("Use GumpInspector to find your storage gump ID", HUE_YELLOW)
-    API.SysMsg("Then use Python console:", HUE_YELLOW)
-
+def on_open_button_tester():
+    """Open button tester window"""
+    # Get current gump ID
     if resource_type == "mining":
-        gump_key = KEY_STORAGE_GUMP_MINING
-        button_key = KEY_STORAGE_BUTTON_MINING
+        gump_id = load_int(KEY_STORAGE_GUMP_MINING, 0)
     else:
-        gump_key = KEY_STORAGE_GUMP_LUMBERJACKING
-        button_key = KEY_STORAGE_BUTTON_LUMBERJACKING
+        gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 0)
 
-    API.SysMsg("For GUMP ID:", HUE_YELLOW)
-    API.SysMsg("  API.SavePersistentVar('" + gump_key + "', 'YOUR_GUMP_ID', API.PersistentVar.Char)", HUE_GRAY)
-    API.SysMsg("For BUTTON ID:", HUE_YELLOW)
-    API.SysMsg("  API.SavePersistentVar('" + button_key + "', 'YOUR_BUTTON_ID', API.PersistentVar.Char)", HUE_GRAY)
-    API.SysMsg("Then reload Gatherer script", HUE_YELLOW)
+    if gump_id == 0:
+        API.SysMsg("Set gump ID first! Use GumpInspector to find it,", HUE_RED)
+        API.SysMsg("then set via Python console (see [?] button)", HUE_RED)
+        return
+
+    build_button_tester()
+
+def test_button_number(button_id):
+    """Test a specific button ID"""
+    # Get gump ID
+    if resource_type == "mining":
+        gump_id = load_int(KEY_STORAGE_GUMP_MINING, 0)
+    else:
+        gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 0)
+
+    if gump_id == 0:
+        API.SysMsg("No gump ID set!", HUE_RED)
+        return
+
+    try:
+        # Check if gump is open
+        if API.HasGump(gump_id):
+            # Click the button
+            API.ReplyGump(button_id, gump_id)
+            API.SysMsg("Clicked button " + str(button_id), HUE_GREEN)
+
+            # Update result in tester
+            if "result_label" in tester_controls:
+                tester_controls["result_label"].SetText("Tested button: " + str(button_id))
+        else:
+            API.SysMsg("Storage gump not open! Open it first.", HUE_RED)
+            if "result_label" in tester_controls:
+                tester_controls["result_label"].SetText("Gump not open!")
+
+    except Exception as e:
+        API.SysMsg("Button test error: " + str(e), HUE_RED)
+
+def set_button_as_fill():
+    """Set the current test button as the fill button"""
+    if "custom_input" not in tester_controls:
+        return
+
+    try:
+        button_text = tester_controls["custom_input"].Text.strip()
+        if not button_text:
+            API.SysMsg("Enter button ID first!", HUE_RED)
+            return
+
+        button_id = int(button_text)
+
+        # Save button ID
+        if resource_type == "mining":
+            save_int(KEY_STORAGE_BUTTON_MINING, button_id)
+            storage.fill_button_id = button_id
+        else:
+            save_int(KEY_STORAGE_BUTTON_LUMBERJACKING, button_id)
+            storage.fill_button_id = button_id
+
+        API.SysMsg("Fill button set to: " + str(button_id), HUE_GREEN)
+        update_display()
+
+        # Re-init framework to use new button
+        initialize_framework()
+
+    except ValueError:
+        API.SysMsg("Invalid button ID!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Set button error: " + str(e), HUE_RED)
+
+def build_button_tester():
+    """Build button tester window"""
+    global tester_gump, tester_controls
+
+    # Close existing tester
+    if tester_gump:
+        tester_gump.Dispose()
+
+    tester_controls = {}
+
+    # Create tester window
+    tester_gump = API.Gumps.CreateGump()
+    tester_gump.SetRect(400, 200, 320, 280)
+
+    # Background
+    bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+    bg.SetRect(0, 0, 320, 280)
+    tester_gump.Add(bg)
+
+    # Title
+    title = API.Gumps.CreateGumpTTFLabel("Storage Button Tester", 16, "#ffaa00")
+    title.SetPos(10, 5)
+    tester_gump.Add(title)
+
+    # Instructions
+    instr = API.Gumps.CreateGumpTTFLabel("Open storage, test buttons:", 15, "#888888")
+    instr.SetPos(10, 28)
+    tester_gump.Add(instr)
+
+    # Quick test grid (buttons 100-123)
+    y_pos = 50
+    grid_label = API.Gumps.CreateGumpTTFLabel("Common buttons:", 15, "#ffcc00")
+    grid_label.SetPos(10, y_pos)
+    tester_gump.Add(grid_label)
+
+    y_pos += 20
+    # Create grid of common button IDs
+    common_buttons = [100, 101, 102, 103, 110, 111, 120, 121, 122, 123, 130, 131]
+    for i, btn_id in enumerate(common_buttons):
+        row = i // 4
+        col = i % 4
+        x_pos = 10 + (col * 60)
+        y_btn = y_pos + (row * 26)
+
+        test_btn = API.Gumps.CreateSimpleButton("[" + str(btn_id) + "]", 55, 22)
+        test_btn.SetPos(x_pos, y_btn)
+        test_btn.SetBackgroundHue(68)
+        tester_gump.Add(test_btn)
+        API.Gumps.AddControlOnClick(test_btn, lambda bid=btn_id: test_button_number(bid))
+
+    y_pos += 90
+
+    # Custom button test
+    custom_label = API.Gumps.CreateGumpTTFLabel("Custom ID:", 15, "#ffcc00")
+    custom_label.SetPos(10, y_pos)
+    tester_gump.Add(custom_label)
+
+    tester_controls["custom_input"] = API.Gumps.CreateGumpTextBox("", 60, 22)
+    tester_controls["custom_input"].SetPos(90, y_pos)
+    tester_gump.Add(tester_controls["custom_input"])
+
+    test_custom_btn = API.Gumps.CreateSimpleButton("[TEST]", 60, 22)
+    test_custom_btn.SetPos(160, y_pos)
+    test_custom_btn.SetBackgroundHue(68)
+    tester_gump.Add(test_custom_btn)
+    API.Gumps.AddControlOnClick(test_custom_btn, lambda: test_button_number(int(tester_controls["custom_input"].Text) if tester_controls["custom_input"].Text.strip() else 0))
+
+    y_pos += 28
+
+    # Set button
+    set_btn = API.Gumps.CreateSimpleButton("[SET AS FILL]", 100, 22)
+    set_btn.SetPos(10, y_pos)
+    set_btn.SetBackgroundHue(66)
+    tester_gump.Add(set_btn)
+    API.Gumps.AddControlOnClick(set_btn, set_button_as_fill)
+
+    # Current button display
+    if resource_type == "mining":
+        current_btn = load_int(KEY_STORAGE_BUTTON_MINING, 0)
+    else:
+        current_btn = load_int(KEY_STORAGE_BUTTON_LUMBERJACKING, 0)
+
+    if current_btn > 0:
+        current_label = API.Gumps.CreateGumpTTFLabel("Current: " + str(current_btn), 15, "#00ff00")
+        current_label.SetPos(120, y_pos + 3)
+        tester_gump.Add(current_label)
+
+    y_pos += 28
+
+    # Result label
+    tester_controls["result_label"] = API.Gumps.CreateGumpTTFLabel("Click button to test", 15, "#888888")
+    tester_controls["result_label"].SetPos(10, y_pos)
+    tester_gump.Add(tester_controls["result_label"])
+
+    # Close callback
+    API.Gumps.AddControlOnDisposed(tester_gump, on_tester_closed)
+
+    # Display
+    API.Gumps.AddGump(tester_gump)
+
+def on_tester_closed():
+    """Cleanup when tester window closes"""
+    global tester_gump, tester_controls
+    tester_gump = None
+    tester_controls = {}
 
 def on_show_storage_info():
     """Show current storage gump/button settings"""
@@ -1256,25 +1431,25 @@ def build_gump():
     gump.Add(controls["storage_label"])
 
     storage_btn = API.Gumps.CreateSimpleButton("SET", 40, 20)
-    storage_btn.SetPos(170, y_offset - 2)
+    storage_btn.SetPos(140, y_offset - 2)
     gump.Add(storage_btn)
     API.Gumps.AddControlOnClick(storage_btn, on_set_storage)
 
-    # Storage gump/button ID setter
-    storage_id_btn = API.Gumps.CreateSimpleButton("ID", 35, 20)
-    storage_id_btn.SetPos(215, y_offset - 2)
-    gump.Add(storage_id_btn)
-    API.Gumps.AddControlOnClick(storage_id_btn, on_set_storage_gump_manual)
+    # Test buttons window
+    test_btn_btn = API.Gumps.CreateSimpleButton("BTN", 40, 20)
+    test_btn_btn.SetPos(185, y_offset - 2)
+    gump.Add(test_btn_btn)
+    API.Gumps.AddControlOnClick(test_btn_btn, on_open_button_tester)
 
     # Storage info button
     storage_info_btn = API.Gumps.CreateSimpleButton("?", 30, 20)
-    storage_info_btn.SetPos(255, y_offset - 2)
+    storage_info_btn.SetPos(230, y_offset - 2)
     gump.Add(storage_info_btn)
     API.Gumps.AddControlOnClick(storage_info_btn, on_show_storage_info)
 
     # Test pathfind button
-    test_pathfind_btn = API.Gumps.CreateSimpleButton("TST", 35, 20)
-    test_pathfind_btn.SetPos(290, y_offset - 2)
+    test_pathfind_btn = API.Gumps.CreateSimpleButton("TST", 40, 20)
+    test_pathfind_btn.SetPos(265, y_offset - 2)
     gump.Add(test_pathfind_btn)
     API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
 
