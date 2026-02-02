@@ -3720,7 +3720,7 @@ gump.Add(title)
 # Mode buttons (row 1)
 y_pos = 45
 
-mode_label = API.Gumps.CreateGumpTTFLabel("Mode:", 11, COLOR_GRAY)
+mode_label = API.Gumps.CreateGumpTTFLabel("Mode:", 15, COLOR_GRAY)
 mode_label.SetPos(10, y_pos + 2)
 gump.Add(mode_label)
 
@@ -3766,69 +3766,69 @@ gump.Add(pause_btn)
 # Status section
 y_pos += 35
 
-status_header = API.Gumps.CreateGumpTTFLabel("STATUS", 11, COLOR_YELLOW)
+status_header = API.Gumps.CreateGumpTTFLabel("STATUS", 15, COLOR_YELLOW)
 status_header.SetPos(10, y_pos)
 gump.Add(status_header)
 
 y_pos += 20
 
-status_label = API.Gumps.CreateGumpTTFLabel("Status: Idle", 11, COLOR_GREEN)
+status_label = API.Gumps.CreateGumpTTFLabel("Status: Idle", 15, COLOR_GREEN)
 status_label.SetPos(10, y_pos)
 gump.Add(status_label)
 
 y_pos += 20
 
-runtime_label = API.Gumps.CreateGumpTTFLabel("Runtime: 00:00:00", 11, COLOR_GRAY)
+runtime_label = API.Gumps.CreateGumpTTFLabel("Runtime: 00:00:00", 15, COLOR_GRAY)
 runtime_label.SetPos(10, y_pos)
 gump.Add(runtime_label)
 
 # Stats section
 y_pos += 30
 
-stats_header = API.Gumps.CreateGumpTTFLabel("SESSION STATS", 11, COLOR_YELLOW)
+stats_header = API.Gumps.CreateGumpTTFLabel("SESSION STATS", 15, COLOR_YELLOW)
 stats_header.SetPos(10, y_pos)
 gump.Add(stats_header)
 
 y_pos += 20
 
-picked_label = API.Gumps.CreateGumpTTFLabel("Picked: 0", 11, COLOR_GREEN)
+picked_label = API.Gumps.CreateGumpTTFLabel("Picked: 0", 15, COLOR_GREEN)
 picked_label.SetPos(10, y_pos)
 gump.Add(picked_label)
 
 y_pos += 18
 
-spools_label = API.Gumps.CreateGumpTTFLabel("Spools: 0", 11, COLOR_PURPLE)
+spools_label = API.Gumps.CreateGumpTTFLabel("Spools: 0", 15, COLOR_PURPLE)
 spools_label.SetPos(10, y_pos)
 gump.Add(spools_label)
 
 y_pos += 18
 
-bolts_label = API.Gumps.CreateGumpTTFLabel("Bolts: 0", 11, COLOR_YELLOW)
+bolts_label = API.Gumps.CreateGumpTTFLabel("Bolts: 0", 15, COLOR_YELLOW)
 bolts_label.SetPos(10, y_pos)
 gump.Add(bolts_label)
 
 y_pos += 18
 
-collected_label = API.Gumps.CreateGumpTTFLabel("Collected: 0", 11, COLOR_GRAY)
+collected_label = API.Gumps.CreateGumpTTFLabel("Collected: 0", 15, COLOR_GRAY)
 collected_label.SetPos(10, y_pos)
 gump.Add(collected_label)
 
 y_pos += 18
 
-cycles_label = API.Gumps.CreateGumpTTFLabel("Cycles: 0", 11, COLOR_PURPLE)
+cycles_label = API.Gumps.CreateGumpTTFLabel("Cycles: 0", 15, COLOR_PURPLE)
 cycles_label.SetPos(10, y_pos)
 gump.Add(cycles_label)
 
 y_pos += 18
 
-bandages_made_label = API.Gumps.CreateGumpTTFLabel("Bandages Made: 0", 11, COLOR_GRAY)
+bandages_made_label = API.Gumps.CreateGumpTTFLabel("Bandages Made: 0", 15, COLOR_GRAY)
 bandages_made_label.SetPos(10, y_pos)
 gump.Add(bandages_made_label)
 
 # Full automation setup section
 y_pos += 30
 
-fullauto_header = API.Gumps.CreateGumpTTFLabel("FULL AUTO SETUP", 11, COLOR_YELLOW)
+fullauto_header = API.Gumps.CreateGumpTTFLabel("FULL AUTO SETUP", 15, COLOR_YELLOW)
 fullauto_header.SetPos(10, y_pos)
 gump.Add(fullauto_header)
 
@@ -3855,7 +3855,7 @@ gump.Add(set_storage_btn)
 y_pos += 28
 
 # Bandage making toggle
-bandage_label = API.Gumps.CreateGumpTTFLabel("Make Bandages:", 11, COLOR_GRAY)
+bandage_label = API.Gumps.CreateGumpTTFLabel("Make Bandages:", 15, COLOR_GRAY)
 bandage_label.SetPos(10, y_pos + 2)
 gump.Add(bandage_label)
 
@@ -3868,7 +3868,7 @@ gump.Add(bandage_toggle_btn)
 # Runebook setup section
 y_pos += 30
 
-runebook_header = API.Gumps.CreateGumpTTFLabel("RUNEBOOK SETUP", 11, COLOR_YELLOW)
+runebook_header = API.Gumps.CreateGumpTTFLabel("RUNEBOOK SETUP", 15, COLOR_YELLOW)
 runebook_header.SetPos(10, y_pos)
 gump.Add(runebook_header)
 
@@ -3880,14 +3880,14 @@ set_runebook_btn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(set_runebook_btn, on_set_runebook)
 gump.Add(set_runebook_btn)
 
-runebook_info = API.Gumps.CreateGumpTTFLabel("Slot 1=Home, 2+=Farms", 9, COLOR_GRAY)
+runebook_info = API.Gumps.CreateGumpTTFLabel("Slot 1=Home, 2+=Farms", 15, COLOR_GRAY)
 runebook_info.SetPos(70, y_pos + 5)
 gump.Add(runebook_info)
 
 y_pos += 28
 
 # Farm spots control
-farm_spots_label = API.Gumps.CreateGumpTTFLabel("Farms:", 11, COLOR_GRAY)
+farm_spots_label = API.Gumps.CreateGumpTTFLabel("Farms:", 15, COLOR_GRAY)
 farm_spots_label.SetPos(10, y_pos + 2)
 gump.Add(farm_spots_label)
 
@@ -3897,7 +3897,7 @@ farm_spots_dec_btn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(farm_spots_dec_btn, on_farm_spots_decrease)
 gump.Add(farm_spots_dec_btn)
 
-farm_spots_display = API.Gumps.CreateGumpTTFLabel(str(num_farm_spots), 11, COLOR_GREEN)
+farm_spots_display = API.Gumps.CreateGumpTTFLabel(str(num_farm_spots), 15, COLOR_GREEN)
 farm_spots_display.SetPos(100, y_pos + 2)
 gump.Add(farm_spots_display)
 
@@ -3908,7 +3908,7 @@ API.Gumps.AddControlOnClick(farm_spots_inc_btn, on_farm_spots_increase)
 gump.Add(farm_spots_inc_btn)
 
 # Weight threshold control
-weight_label = API.Gumps.CreateGumpTTFLabel("Weight:", 11, COLOR_GRAY)
+weight_label = API.Gumps.CreateGumpTTFLabel("Weight:", 15, COLOR_GRAY)
 weight_label.SetPos(170, y_pos + 2)
 gump.Add(weight_label)
 
@@ -3918,7 +3918,7 @@ weight_dec_btn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(weight_dec_btn, on_weight_decrease)
 gump.Add(weight_dec_btn)
 
-weight_display = API.Gumps.CreateGumpTTFLabel(str(weight_threshold) + "%", 11, COLOR_GREEN)
+weight_display = API.Gumps.CreateGumpTTFLabel(str(weight_threshold) + "%", 15, COLOR_GREEN)
 weight_display.SetPos(265, y_pos + 2)
 gump.Add(weight_display)
 
@@ -3931,7 +3931,7 @@ gump.Add(weight_inc_btn)
 y_pos += 28
 
 # Current farm display
-current_farm_label = API.Gumps.CreateGumpTTFLabel("Current: Farm " + str(current_farm_index + 1) + "/" + str(num_farm_spots), 11, COLOR_PURPLE)
+current_farm_label = API.Gumps.CreateGumpTTFLabel("Current: Farm " + str(current_farm_index + 1) + "/" + str(num_farm_spots), 15, COLOR_PURPLE)
 current_farm_label.SetPos(10, y_pos)
 gump.Add(current_farm_label)
 
@@ -3970,31 +3970,31 @@ gump.Add(reset_stats_btn)
 # Help text
 y_pos += 40
 
-help1 = API.Gumps.CreateGumpTTFLabel("Picker: Auto-pick cotton plants in reach (1 tile)", 8, COLOR_GRAY)
+help1 = API.Gumps.CreateGumpTTFLabel("Picker: Auto-pick cotton plants in reach (1 tile)", 15, COLOR_GRAY)
 help1.SetPos(10, y_pos)
 gump.Add(help1)
 
 y_pos += 12
 
-help2 = API.Gumps.CreateGumpTTFLabel("Weaver: Spin cotton -> spools -> cloth bolts", 8, COLOR_GRAY)
+help2 = API.Gumps.CreateGumpTTFLabel("Weaver: Spin cotton -> spools -> cloth bolts", 15, COLOR_GRAY)
 help2.SetPos(10, y_pos)
 gump.Add(help2)
 
 y_pos += 12
 
-help3 = API.Gumps.CreateGumpTTFLabel("AutoPick: Target plant type, auto-pathfind and pick", 8, COLOR_GRAY)
+help3 = API.Gumps.CreateGumpTTFLabel("AutoPick: Target plant type, auto-pathfind and pick", 15, COLOR_GRAY)
 help3.SetPos(10, y_pos)
 gump.Add(help3)
 
 y_pos += 12
 
-help4 = API.Gumps.CreateGumpTTFLabel("Full Auto: Complete cycle (pick -> spin -> weave -> cut -> store)", 8, COLOR_GRAY)
+help4 = API.Gumps.CreateGumpTTFLabel("Full Auto: Complete cycle (pick -> spin -> weave -> cut -> store)", 15, COLOR_GRAY)
 help4.SetPos(10, y_pos)
 gump.Add(help4)
 
 y_pos += 12
 
-help5 = API.Gumps.CreateGumpTTFLabel("Hotkey: " + hotkeys['pause'] + " = Pause/Resume", 8, COLOR_YELLOW)
+help5 = API.Gumps.CreateGumpTTFLabel("Hotkey: " + hotkeys['pause'] + " = Pause/Resume", 15, COLOR_YELLOW)
 help5.SetPos(10, y_pos)
 gump.Add(help5)
 

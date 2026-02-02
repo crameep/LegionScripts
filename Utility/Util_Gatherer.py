@@ -975,11 +975,11 @@ def build_gump():
     y_offset = 10
 
     # Title bar
-    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.0", 14, "#ffaa00")
+    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.0", 15, "#ffaa00")
     titleLabel.SetPos(10, y_offset)
     gump.Add(titleLabel)
 
-    controls["status_label"] = API.Gumps.CreateGumpTTFLabel("[ACTIVE]", 11, "#00ff00")
+    controls["status_label"] = API.Gumps.CreateGumpTTFLabel("[ACTIVE]", 15, "#00ff00")
     controls["status_label"].SetPos(200, y_offset)
     gump.Add(controls["status_label"])
 
@@ -992,7 +992,7 @@ def build_gump():
     y_offset += 20  # Extra space for resume button row
 
     # Setup section
-    controls["tool_label"] = API.Gumps.CreateGumpTTFLabel("Tool: Not Set", 11, "#ffffff")
+    controls["tool_label"] = API.Gumps.CreateGumpTTFLabel("Tool: Not Set", 15, "#ffffff")
     controls["tool_label"].SetPos(10, y_offset)
     gump.Add(controls["tool_label"])
 
@@ -1009,7 +1009,7 @@ def build_gump():
 
     y_offset += 22
 
-    controls["runebook_label"] = API.Gumps.CreateGumpTTFLabel("Home: Not Set", 11, "#ffffff")
+    controls["runebook_label"] = API.Gumps.CreateGumpTTFLabel("Home: Not Set", 15, "#ffffff")
     controls["runebook_label"].SetPos(10, y_offset)
     gump.Add(controls["runebook_label"])
 
@@ -1021,11 +1021,11 @@ def build_gump():
     y_offset += 22
 
     # Number of gathering spots - use buttons instead of text input
-    spots_label = API.Gumps.CreateGumpTTFLabel("# Spots:", 11, "#ffffff")
+    spots_label = API.Gumps.CreateGumpTTFLabel("# Spots:", 15, "#ffffff")
     spots_label.SetPos(10, y_offset)
     gump.Add(spots_label)
 
-    controls["spots_display"] = API.Gumps.CreateGumpTTFLabel(str(num_gathering_spots), 11, "#00ff00")
+    controls["spots_display"] = API.Gumps.CreateGumpTTFLabel(str(num_gathering_spots), 15, "#00ff00")
     controls["spots_display"].SetPos(70, y_offset)
     gump.Add(controls["spots_display"])
 
@@ -1039,13 +1039,13 @@ def build_gump():
     gump.Add(spots_plus_btn)
     API.Gumps.AddControlOnClick(spots_plus_btn, lambda: adjust_spots(1))
 
-    spots_help = API.Gumps.CreateGumpTTFLabel("(Slots 2+)", 9, "#888888")
+    spots_help = API.Gumps.CreateGumpTTFLabel("(Slots 2+)", 15, "#888888")
     spots_help.SetPos(160, y_offset + 2)
     gump.Add(spots_help)
 
     y_offset += 22
 
-    controls["storage_label"] = API.Gumps.CreateGumpTTFLabel("Storage: Not Set", 11, "#ffffff")
+    controls["storage_label"] = API.Gumps.CreateGumpTTFLabel("Storage: Not Set", 15, "#ffffff")
     controls["storage_label"].SetPos(10, y_offset)
     gump.Add(controls["storage_label"])
 
@@ -1063,7 +1063,7 @@ def build_gump():
     y_offset += 30
 
     # Movement mode section
-    mode_label = API.Gumps.CreateGumpTTFLabel("Movement:", 11, "#ffffff")
+    mode_label = API.Gumps.CreateGumpTTFLabel("Movement:", 15, "#ffffff")
     mode_label.SetPos(10, y_offset)
     gump.Add(mode_label)
 
@@ -1085,75 +1085,75 @@ def build_gump():
     y_offset += 30
 
     # Status section
-    controls["resources_label"] = API.Gumps.CreateGumpTTFLabel("Ore: 0 | Logs: 0", 11, "#ffffff")
+    controls["resources_label"] = API.Gumps.CreateGumpTTFLabel("Ore: 0 | Logs: 0", 15, "#ffffff")
     controls["resources_label"].SetPos(10, y_offset)
     gump.Add(controls["resources_label"])
 
     y_offset += 18
 
-    controls["weight_label"] = API.Gumps.CreateGumpTTFLabel("Weight: 0/450 (0%)", 11, "#ffffff")
+    controls["weight_label"] = API.Gumps.CreateGumpTTFLabel("Weight: 0/450 (0%)", 15, "#ffffff")
     controls["weight_label"].SetPos(10, y_offset)
     gump.Add(controls["weight_label"])
 
     y_offset += 18
 
-    controls["state_label"] = API.Gumps.CreateGumpTTFLabel("State: IDLE", 11, "#ffffff")
+    controls["state_label"] = API.Gumps.CreateGumpTTFLabel("State: IDLE", 15, "#ffffff")
     controls["state_label"].SetPos(10, y_offset)
     gump.Add(controls["state_label"])
 
     y_offset += 30
 
     # Session stats
-    stats_title = API.Gumps.CreateGumpTTFLabel("Session Stats:", 11, "#ffaa00")
+    stats_title = API.Gumps.CreateGumpTTFLabel("Session Stats:", 15, "#ffaa00")
     stats_title.SetPos(10, y_offset)
     gump.Add(stats_title)
 
     y_offset += 18
 
-    controls["session_ore_label"] = API.Gumps.CreateGumpTTFLabel("Total Ore: 0", 11, "#aaaaaa")
+    controls["session_ore_label"] = API.Gumps.CreateGumpTTFLabel("Total Ore: 0", 15, "#aaaaaa")
     controls["session_ore_label"].SetPos(15, y_offset)
     gump.Add(controls["session_ore_label"])
 
     y_offset += 16
 
-    controls["session_logs_label"] = API.Gumps.CreateGumpTTFLabel("Total Logs: 0", 11, "#aaaaaa")
+    controls["session_logs_label"] = API.Gumps.CreateGumpTTFLabel("Total Logs: 0", 15, "#aaaaaa")
     controls["session_logs_label"].SetPos(15, y_offset)
     gump.Add(controls["session_logs_label"])
 
     y_offset += 16
 
-    controls["session_dumps_label"] = API.Gumps.CreateGumpTTFLabel("Dumps: 0", 11, "#aaaaaa")
+    controls["session_dumps_label"] = API.Gumps.CreateGumpTTFLabel("Dumps: 0", 15, "#aaaaaa")
     controls["session_dumps_label"].SetPos(15, y_offset)
     gump.Add(controls["session_dumps_label"])
 
     y_offset += 16
 
-    controls["session_runtime_label"] = API.Gumps.CreateGumpTTFLabel("Runtime: 0m", 11, "#aaaaaa")
+    controls["session_runtime_label"] = API.Gumps.CreateGumpTTFLabel("Runtime: 0m", 15, "#aaaaaa")
     controls["session_runtime_label"].SetPos(15, y_offset)
     gump.Add(controls["session_runtime_label"])
 
     y_offset += 25
 
     # Hotkeys
-    hotkeys_title = API.Gumps.CreateGumpTTFLabel("Hotkeys:", 11, "#ffaa00")
+    hotkeys_title = API.Gumps.CreateGumpTTFLabel("Hotkeys:", 15, "#ffaa00")
     hotkeys_title.SetPos(10, y_offset)
     gump.Add(hotkeys_title)
 
     y_offset += 18
 
-    pause_label = API.Gumps.CreateGumpTTFLabel("PAUSE: [" + hotkey_pause + "]", 11, "#aaaaaa")
+    pause_label = API.Gumps.CreateGumpTTFLabel("PAUSE: [" + hotkey_pause + "]", 15, "#aaaaaa")
     pause_label.SetPos(15, y_offset)
     gump.Add(pause_label)
 
     y_offset += 16
 
-    esc_label = API.Gumps.CreateGumpTTFLabel("ESC Home: [" + hotkey_esc + "]", 11, "#aaaaaa")
+    esc_label = API.Gumps.CreateGumpTTFLabel("ESC Home: [" + hotkey_esc + "]", 15, "#aaaaaa")
     esc_label.SetPos(15, y_offset)
     gump.Add(esc_label)
 
     y_offset += 16
 
-    tab_label = API.Gumps.CreateGumpTTFLabel("Cycle Mode: [TAB]", 11, "#aaaaaa")
+    tab_label = API.Gumps.CreateGumpTTFLabel("Cycle Mode: [TAB]", 15, "#aaaaaa")
     tab_label.SetPos(15, y_offset)
     gump.Add(tab_label)
 

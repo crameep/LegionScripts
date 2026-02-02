@@ -474,13 +474,13 @@ API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
 # Hotkey info (hidden when collapsed)
-hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 9, "#666666", aligned="center", maxWidth=WINDOW_WIDTH)
+hotkeyInfo = API.Gumps.CreateGumpTTFLabel(f"Cast: {CAST_HOTKEY} | Last: {TARGET_HOTKEY} | Int: {INTERRUPT_HOTKEY}", 15, "#666666", aligned="center", maxWidth=WINDOW_WIDTH)
 hotkeyInfo.SetPos(0, 28)
 hotkeyInfo.IsVisible = is_expanded
 gump.Add(hotkeyInfo)
 
 # Current combo display (hidden when collapsed)
-comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 13, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
+comboLabel = API.Gumps.CreateGumpTTFLabel(f"Active: {COMBOS[current_combo]['name']}", 15, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
 comboLabel.SetPos(0, 45)
 comboLabel.IsVisible = is_expanded
 gump.Add(comboLabel)
@@ -494,7 +494,7 @@ col3X = 187
 startY = 70
 
 # === PVP SECTION ===
-pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 11, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
+pvpLabel = API.Gumps.CreateGumpTTFLabel("═══ PVP COMBOS ═══", 15, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
 pvpLabel.SetPos(0, startY)
 pvpLabel.IsVisible = is_expanded
 gump.Add(pvpLabel)
@@ -517,7 +517,7 @@ for i, (key, combo) in enumerate(pvp_combos):
 
 # === PVE SECTION ===
 pveY = startY + 75
-pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 11, "#66ff66", aligned="center", maxWidth=WINDOW_WIDTH)
+pveLabel = API.Gumps.CreateGumpTTFLabel("═══ PVE COMBOS ═══", 15, "#66ff66", aligned="center", maxWidth=WINDOW_WIDTH)
 pveLabel.SetPos(0, pveY)
 pveLabel.IsVisible = is_expanded
 gump.Add(pveLabel)
@@ -539,7 +539,7 @@ for i, (key, combo) in enumerate(pve_combos):
 
 # === SINGLE SPELLS SECTION ===
 singleY = pveY + 80
-singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 11, "#6666ff", aligned="center", maxWidth=WINDOW_WIDTH)
+singleLabel = API.Gumps.CreateGumpTTFLabel("═══ SINGLE SPELLS ═══", 15, "#6666ff", aligned="center", maxWidth=WINDOW_WIDTH)
 singleLabel.SetPos(0, singleY)
 singleLabel.IsVisible = is_expanded
 gump.Add(singleLabel)
@@ -560,7 +560,7 @@ for i, (key, combo) in enumerate(single_combos):
 
 # === UTILITY SECTION ===
 utilY = singleY + 50
-utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 11, "#ffff66", aligned="center", maxWidth=WINDOW_WIDTH)
+utilLabel = API.Gumps.CreateGumpTTFLabel("═══ UTILITY ═══", 15, "#ffff66", aligned="center", maxWidth=WINDOW_WIDTH)
 utilLabel.SetPos(0, utilY)
 utilLabel.IsVisible = is_expanded
 gump.Add(utilLabel)

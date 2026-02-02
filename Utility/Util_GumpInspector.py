@@ -670,7 +670,7 @@ expandBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
-subtitle = API.Gumps.CreateGumpTTFLabel("Monitors gump opens/closes & button presses", 8, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
+subtitle = API.Gumps.CreateGumpTTFLabel("Monitors gump opens/closes & button presses", 15, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 subtitle.SetPos(0, 22)
 subtitle.IsVisible = is_expanded
 gump.Add(subtitle)
@@ -731,7 +731,7 @@ y = 65
 colLeftX = 5
 colRightX = 190
 
-gumpCountLabel = API.Gumps.CreateGumpTTFLabel("Open: 0", 10, "#00ff00")
+gumpCountLabel = API.Gumps.CreateGumpTTFLabel("Open: 0", 15, "#00ff00")
 gumpCountLabel.SetPos(colLeftX, y)
 gumpCountLabel.IsVisible = is_expanded
 gump.Add(gumpCountLabel)
@@ -742,7 +742,7 @@ gumpListBg.SetRect(colLeftX, y, 178, 95)
 gumpListBg.IsVisible = is_expanded
 gump.Add(gumpListBg)
 
-gumpListLabel = API.Gumps.CreateGumpTTFLabel("Monitoring...\n\nOpen a gump to\ninspect it", 9, "#aaaaaa")
+gumpListLabel = API.Gumps.CreateGumpTTFLabel("Monitoring...\n\nOpen a gump to\ninspect it", 15, "#aaaaaa")
 gumpListLabel.SetPos(colLeftX + 3, y + 2)
 gumpListLabel.IsVisible = is_expanded
 gump.Add(gumpListLabel)
@@ -756,14 +756,14 @@ API.Gumps.AddControlOnClick(selectNextBtn, select_next_gump)
 gump.Add(selectNextBtn)
 
 y += 22
-selectedLabel = API.Gumps.CreateGumpTTFLabel("Sel: (none)", 9, "#00ff00")
+selectedLabel = API.Gumps.CreateGumpTTFLabel("Sel: (none)", 15, "#00ff00")
 selectedLabel.SetPos(colLeftX, y)
 selectedLabel.IsVisible = is_expanded
 gump.Add(selectedLabel)
 
 # === RIGHT COLUMN - Button Testing ===
 y = 65
-sectionLabel2 = API.Gumps.CreateGumpTTFLabel("=== BUTTON TESTING ===", 9, "#ff8800")
+sectionLabel2 = API.Gumps.CreateGumpTTFLabel("=== BUTTON TESTING ===", 15, "#ff8800")
 sectionLabel2.SetPos(colRightX, y)
 sectionLabel2.IsVisible = is_expanded
 gump.Add(sectionLabel2)
@@ -800,7 +800,7 @@ for i, (num, func) in enumerate(button_funcs):
 
 # Custom button input
 y += (6 * btnSpaceY) + 2
-customLabel = API.Gumps.CreateGumpTTFLabel("Custom:", 9, "#aaaaaa")
+customLabel = API.Gumps.CreateGumpTTFLabel("Custom:", 15, "#aaaaaa")
 customLabel.SetPos(colRightX, y + 3)
 customLabel.IsVisible = is_expanded
 gump.Add(customLabel)
@@ -839,7 +839,7 @@ scanBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(scanBtn, scan_buttons)
 gump.Add(scanBtn)
 
-lastClickLabel = API.Gumps.CreateGumpTTFLabel("Last: -", 9, "#ffff00")
+lastClickLabel = API.Gumps.CreateGumpTTFLabel("Last: -", 15, "#ffff00")
 lastClickLabel.SetPos(colRightX + 95, y + 3)
 lastClickLabel.IsVisible = is_expanded
 gump.Add(lastClickLabel)
@@ -852,7 +852,7 @@ divider.IsVisible = is_expanded
 gump.Add(divider)
 
 y += 5
-logTitle = API.Gumps.CreateGumpTTFLabel("=== ACTIVITY LOG (auto-monitors gumps) ===", 9, "#ff8800")
+logTitle = API.Gumps.CreateGumpTTFLabel("=== ACTIVITY LOG (auto-monitors gumps) ===", 15, "#ff8800")
 logTitle.SetPos(5, y)
 logTitle.IsVisible = is_expanded
 gump.Add(logTitle)
@@ -870,7 +870,7 @@ logBg.SetRect(5, y, 370, 150)
 logBg.IsVisible = is_expanded
 gump.Add(logBg)
 
-logLabel = API.Gumps.CreateGumpTTFLabel("Monitoring for gump activity...\n\nOPEN = Gump detected\nCLOSE = Gump closed (button pressed!)\nBTN = Button test result", 9, "#aaaaaa")
+logLabel = API.Gumps.CreateGumpTTFLabel("Monitoring for gump activity...\n\nOPEN = Gump detected\nCLOSE = Gump closed (button pressed!)\nBTN = Button test result", 15, "#aaaaaa")
 logLabel.SetPos(8, y + 2)
 logLabel.IsVisible = is_expanded
 gump.Add(logLabel)

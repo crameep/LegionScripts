@@ -1588,22 +1588,22 @@ expandBtn.SetBackgroundHue(90)
 API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
-priorityLabel = API.Gumps.CreateGumpTTFLabel("Rez > SelfPoison > VetKit(2+) > Tank > Pets", 8, "#888888", aligned="center", maxWidth=300)
+priorityLabel = API.Gumps.CreateGumpTTFLabel("Rez > SelfPoison > VetKit(2+) > Tank > Pets", 15, "#888888", aligned="center", maxWidth=300)
 priorityLabel.SetPos(0, 25)
 priorityLabel.IsVisible = is_expanded
 gump.Add(priorityLabel)
 
-timingLabel = API.Gumps.CreateGumpTTFLabel("Self:" + str(SELF_DELAY) + "s | Vet:" + str(VET_DELAY) + "s | Rez:" + str(REZ_DELAY) + "s", 9, "#AAFFAA", aligned="center", maxWidth=300)
+timingLabel = API.Gumps.CreateGumpTTFLabel("Self:" + str(SELF_DELAY) + "s | Vet:" + str(VET_DELAY) + "s | Rez:" + str(REZ_DELAY) + "s", 15, "#AAFFAA", aligned="center", maxWidth=300)
 timingLabel.SetPos(0, 40)
 timingLabel.IsVisible = is_expanded
 gump.Add(timingLabel)
 
-rangeLabel = API.Gumps.CreateGumpTTFLabel("Range: Bandage=" + str(BANDAGE_RANGE) + " | Spell=" + str(SPELL_RANGE) + " tiles", 8, "#FFAAFF", aligned="center", maxWidth=300)
+rangeLabel = API.Gumps.CreateGumpTTFLabel("Range: Bandage=" + str(BANDAGE_RANGE) + " | Spell=" + str(SPELL_RANGE) + " tiles", 15, "#FFAAFF", aligned="center", maxWidth=300)
 rangeLabel.SetPos(0, 52)
 rangeLabel.IsVisible = is_expanded
 gump.Add(rangeLabel)
 
-methodLabel = API.Gumps.CreateGumpTTFLabel("Heal:", 11, "#AAAAAA", aligned="left", maxWidth=50)
+methodLabel = API.Gumps.CreateGumpTTFLabel("Heal:", 15, "#AAAAAA", aligned="left", maxWidth=50)
 methodLabel.SetPos(10, 65)
 methodLabel.IsVisible = is_expanded
 gump.Add(methodLabel)
@@ -1660,12 +1660,12 @@ API.Gumps.AddControlOnClick(skipoorBtn, toggle_skipoor)
 gump.Add(skipoorBtn)
 
 # === FRIEND REZ SECTION ===
-rezFriendSection = API.Gumps.CreateGumpTTFLabel("=== FRIEND REZ ===", 10, "#ff66ff", aligned="center", maxWidth=300)
+rezFriendSection = API.Gumps.CreateGumpTTFLabel("=== FRIEND REZ ===", 15, "#ff66ff", aligned="center", maxWidth=300)
 rezFriendSection.SetPos(0, 136)
 rezFriendSection.IsVisible = is_expanded
 gump.Add(rezFriendSection)
 
-rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 10, "#FFAAFF", aligned="center", maxWidth=300)
+rezFriendLabel = API.Gumps.CreateGumpTTFLabel("Friend Rez: Inactive", 15, "#FFAAFF", aligned="center", maxWidth=300)
 rezFriendLabel.SetPos(0, 152)
 rezFriendLabel.IsVisible = is_expanded
 gump.Add(rezFriendLabel)
@@ -1678,12 +1678,12 @@ API.Gumps.AddControlOnClick(rezFriendBtn, toggle_rez_friend)
 gump.Add(rezFriendBtn)
 
 # Tank section
-tankSection = API.Gumps.CreateGumpTTFLabel("=== TANK PET ===", 10, "#ff6666", aligned="center", maxWidth=300)
+tankSection = API.Gumps.CreateGumpTTFLabel("=== TANK PET ===", 15, "#ff6666", aligned="center", maxWidth=300)
 tankSection.SetPos(0, 196)
 tankSection.IsVisible = is_expanded
 gump.Add(tankSection)
 
-tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None Set]", 11, "#FFAAAA", aligned="center", maxWidth=300)
+tankLabel = API.Gumps.CreateGumpTTFLabel("Tank: [None Set]", 15, "#FFAAAA", aligned="center", maxWidth=300)
 tankLabel.SetPos(0, 212)
 tankLabel.IsVisible = is_expanded
 gump.Add(tankLabel)
@@ -1703,12 +1703,12 @@ API.Gumps.AddControlOnClick(clearTankBtn, clear_tank)
 gump.Add(clearTankBtn)
 
 # Vet Kit section
-vetkitSection = API.Gumps.CreateGumpTTFLabel("=== VET KIT ===", 10, "#66ff66", aligned="center", maxWidth=300)
+vetkitSection = API.Gumps.CreateGumpTTFLabel("=== VET KIT ===", 15, "#66ff66", aligned="center", maxWidth=300)
 vetkitSection.SetPos(0, 256)
 vetkitSection.IsVisible = is_expanded
 gump.Add(vetkitSection)
 
-vetkitLabel = API.Gumps.CreateGumpTTFLabel("Vet Kit: [Not Set]", 11, "#AAFFAA", aligned="center", maxWidth=300)
+vetkitLabel = API.Gumps.CreateGumpTTFLabel("Vet Kit: [Not Set]", 15, "#AAFFAA", aligned="center", maxWidth=300)
 vetkitLabel.SetPos(0, 272)
 vetkitLabel.IsVisible = is_expanded
 gump.Add(vetkitLabel)
@@ -1728,14 +1728,14 @@ API.Gumps.AddControlOnClick(clearVetkitBtn, clear_vetkit)
 gump.Add(clearVetkitBtn)
 
 # Pet section
-petSection = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 10, "#00d4ff", aligned="center", maxWidth=300)
+petSection = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 15, "#00d4ff", aligned="center", maxWidth=300)
 petSection.SetPos(0, 316)
 petSection.IsVisible = is_expanded
 gump.Add(petSection)
 
 petListY = 332
 for i in range(MAX_PETS):
-    lbl = API.Gumps.CreateGumpTTFLabel(str(i+1) + ". ---", 11, "#CCCCCC", aligned="left", maxWidth=280)
+    lbl = API.Gumps.CreateGumpTTFLabel(str(i+1) + ". ---", 15, "#CCCCCC", aligned="left", maxWidth=280)
     lbl.SetPos(15, petListY + (i * 16))
     lbl.IsVisible = is_expanded
     gump.Add(lbl)
@@ -1764,7 +1764,7 @@ clearBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(clearBtn, clear_all_pets)
 gump.Add(clearBtn)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Status: Running", 10, "#00ff00", aligned="center", maxWidth=300)
+statusLabel = API.Gumps.CreateGumpTTFLabel("Status: Running", 15, "#00ff00", aligned="center", maxWidth=300)
 statusLabel.SetPos(0, btnY + 28)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)

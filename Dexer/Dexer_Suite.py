@@ -2429,7 +2429,7 @@ y = 30
 
 # ========== TOP SECTION - RESOURCE BARS ==========
 
-resourceTitle = API.Gumps.CreateGumpTTFLabel("=== STATUS ===", 9, "#00ffaa", aligned="center", maxWidth=280)
+resourceTitle = API.Gumps.CreateGumpTTFLabel("=== STATUS ===", 15, "#00ffaa", aligned="center", maxWidth=280)
 
 resourceTitle.SetPos(0, y)
 
@@ -2445,7 +2445,7 @@ y += 16
 
 # HP
 
-hpLabel = API.Gumps.CreateGumpTTFLabel("HP: 0/0 (0%)", 9, "#00ff00")
+hpLabel = API.Gumps.CreateGumpTTFLabel("HP: 0/0 (0%)", 15, "#00ff00")
 
 hpLabel.SetPos(10, y)
 
@@ -2455,7 +2455,7 @@ gump.Add(hpLabel)
 
 
 
-hpBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#00ff00")
+hpBar = API.Gumps.CreateGumpTTFLabel("[------------]", 15, "#00ff00")
 
 hpBar.SetPos(170, y)
 
@@ -2471,7 +2471,7 @@ y += 14
 
 # Stamina
 
-stamLabel = API.Gumps.CreateGumpTTFLabel("Stam: 0/0 (0%)", 9, "#00ffff")
+stamLabel = API.Gumps.CreateGumpTTFLabel("Stam: 0/0 (0%)", 15, "#00ffff")
 
 stamLabel.SetPos(10, y)
 
@@ -2481,7 +2481,7 @@ gump.Add(stamLabel)
 
 
 
-stamBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#00ffff")
+stamBar = API.Gumps.CreateGumpTTFLabel("[------------]", 15, "#00ffff")
 
 stamBar.SetPos(170, y)
 
@@ -2497,7 +2497,7 @@ y += 14
 
 # Mana
 
-manaLabel = API.Gumps.CreateGumpTTFLabel("Mana: 0/0 (0%)", 9, "#8888ff")
+manaLabel = API.Gumps.CreateGumpTTFLabel("Mana: 0/0 (0%)", 15, "#8888ff")
 
 manaLabel.SetPos(10, y)
 
@@ -2507,7 +2507,7 @@ gump.Add(manaLabel)
 
 
 
-manaBar = API.Gumps.CreateGumpTTFLabel("[------------]", 9, "#8888ff")
+manaBar = API.Gumps.CreateGumpTTFLabel("[------------]", 15, "#8888ff")
 
 manaBar.SetPos(170, y)
 
@@ -2523,7 +2523,7 @@ y += 14
 
 # Poison status
 
-poisonTitleLabel = API.Gumps.CreateGumpTTFLabel("Poison:", 9, "#ffffff")
+poisonTitleLabel = API.Gumps.CreateGumpTTFLabel("Poison:", 15, "#ffffff")
 
 poisonTitleLabel.SetPos(10, y)
 
@@ -2533,7 +2533,7 @@ gump.Add(poisonTitleLabel)
 
 
 
-poisonLabel = API.Gumps.CreateGumpTTFLabel("Clear", 9, "#00ff00")
+poisonLabel = API.Gumps.CreateGumpTTFLabel("Clear", 15, "#00ff00")
 
 poisonLabel.SetPos(60, y)
 
@@ -2549,7 +2549,7 @@ y += 20
 
 # ========== MIDDLE SECTION - POTIONS ==========
 
-middleTitle = API.Gumps.CreateGumpTTFLabel("=== POTIONS ===", 9, "#ff8800", aligned="center", maxWidth=280)
+middleTitle = API.Gumps.CreateGumpTTFLabel("=== POTIONS ===", 15, "#ff8800", aligned="center", maxWidth=280)
 
 middleTitle.SetPos(0, y)
 
@@ -2567,7 +2567,7 @@ leftX = 10
 
 # Heal Potion
 
-healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal: 0", 9, "#ffaa00")
+healPotionLabel = API.Gumps.CreateGumpTTFLabel("Heal: 0", 15, "#ffaa00")
 
 healPotionLabel.SetPos(leftX, y)
 
@@ -2597,7 +2597,7 @@ y += 20
 
 # Cure Potion
 
-curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure: 0", 9, "#ffff00")
+curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure: 0", 15, "#ffff00")
 
 curePotionLabel.SetPos(leftX, y)
 
@@ -2627,7 +2627,7 @@ y += 20
 
 # Refresh Potion
 
-refreshPotionLabel = API.Gumps.CreateGumpTTFLabel("Refresh: 0", 9, "#ff0000")
+refreshPotionLabel = API.Gumps.CreateGumpTTFLabel("Refresh: 0", 15, "#ff0000")
 
 refreshPotionLabel.SetPos(leftX, y)
 
@@ -2657,7 +2657,7 @@ y += 20
 
 # Strength potion with buff bar
 
-strPotionLabel = API.Gumps.CreateGumpTTFLabel("Str: 0", 9, "#aaaaaa")
+strPotionLabel = API.Gumps.CreateGumpTTFLabel("Str: 0", 15, "#aaaaaa")
 
 strPotionLabel.SetPos(leftX, y)
 
@@ -2669,7 +2669,7 @@ gump.Add(strPotionLabel)
 
 # Agility potion (display only)
 
-agiPotionLabel = API.Gumps.CreateGumpTTFLabel("Agi: 0", 9, "#aaaaaa")
+agiPotionLabel = API.Gumps.CreateGumpTTFLabel("Agi: 0", 15, "#aaaaaa")
 
 agiPotionLabel.SetPos(leftX + 90, y)
 
@@ -2685,7 +2685,7 @@ y += 14
 
 # STR Buff Bar
 
-strBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 9, "#555555")
+strBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 15, "#555555")
 
 strBuffBar.SetPos(leftX, y)
 
@@ -2697,7 +2697,7 @@ gump.Add(strBuffBar)
 
 # AGI Buff Bar
 
-agiBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 9, "#555555")
+agiBuffBar = API.Gumps.CreateGumpTTFLabel("[----------]", 15, "#555555")
 
 agiBuffBar.SetPos(leftX + 90, y)
 
@@ -2713,7 +2713,7 @@ y += 20
 
 # ========== BOTTOM SECTION - HEALING + SETTINGS ==========
 
-healingTitle = API.Gumps.CreateGumpTTFLabel("=== HEALING ===", 9, "#00ff00", aligned="center", maxWidth=280)
+healingTitle = API.Gumps.CreateGumpTTFLabel("=== HEALING ===", 15, "#00ff00", aligned="center", maxWidth=280)
 
 healingTitle.SetPos(0, y)
 
@@ -2729,7 +2729,7 @@ y += 16
 
 # Bandage
 
-bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: 0", 9, "#ffffff")
+bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: 0", 15, "#ffffff")
 
 bandageLabel.SetPos(leftX, y)
 
@@ -2773,7 +2773,7 @@ y += 20
 
 # Heal state
 
-healStateLabel = API.Gumps.CreateGumpTTFLabel("Idle", 9, "#00ff00")
+healStateLabel = API.Gumps.CreateGumpTTFLabel("Idle", 15, "#00ff00")
 
 healStateLabel.SetPos(leftX, y)
 
@@ -2789,7 +2789,7 @@ y += 20
 
 # Thresholds
 
-healThresholdLabel = API.Gumps.CreateGumpTTFLabel("Heal: " + str(heal_threshold) + "%", 9, "#ffaa00")
+healThresholdLabel = API.Gumps.CreateGumpTTFLabel("Heal: " + str(heal_threshold) + "%", 15, "#ffaa00")
 
 healThresholdLabel.SetPos(leftX, y)
 
@@ -2799,7 +2799,7 @@ gump.Add(healThresholdLabel)
 
 
 
-criticalThresholdLabel = API.Gumps.CreateGumpTTFLabel("Critical: " + str(critical_threshold) + "%", 9, "#ff0000")
+criticalThresholdLabel = API.Gumps.CreateGumpTTFLabel("Critical: " + str(critical_threshold) + "%", 15, "#ff0000")
 
 criticalThresholdLabel.SetPos(leftX + 100, y)
 
@@ -2813,7 +2813,7 @@ y += 14
 
 
 
-stamThresholdLabel = API.Gumps.CreateGumpTTFLabel("Stam: " + str(stamina_threshold) + "%", 9, "#00ffff")
+stamThresholdLabel = API.Gumps.CreateGumpTTFLabel("Stam: " + str(stamina_threshold) + "%", 15, "#00ffff")
 
 stamThresholdLabel.SetPos(leftX, y)
 
@@ -2829,7 +2829,7 @@ y += 20
 
 # ========== TARGETING SECTION ==========
 
-targetingTitle = API.Gumps.CreateGumpTTFLabel("=== TARGETING ===", 9, "#ff6666", aligned="center", maxWidth=280)
+targetingTitle = API.Gumps.CreateGumpTTFLabel("=== TARGETING ===", 15, "#ff6666", aligned="center", maxWidth=280)
 
 targetingTitle.SetPos(0, y)
 
@@ -2897,7 +2897,7 @@ y += 24
 
 # ========== UTILITIES SECTION ==========
 
-utilTitle = API.Gumps.CreateGumpTTFLabel("=== UTILITIES ===", 9, "#00aaff", aligned="center", maxWidth=280)
+utilTitle = API.Gumps.CreateGumpTTFLabel("=== UTILITIES ===", 15, "#00aaff", aligned="center", maxWidth=280)
 
 utilTitle.SetPos(0, y)
 
@@ -2967,7 +2967,7 @@ y += 24
 
 # ========== FOOTER - PAUSE + COOLDOWN ==========
 
-footerTitle = API.Gumps.CreateGumpTTFLabel("=== CONTROL ===", 9, "#ff6666", aligned="center", maxWidth=280)
+footerTitle = API.Gumps.CreateGumpTTFLabel("=== CONTROL ===", 15, "#ff6666", aligned="center", maxWidth=280)
 
 footerTitle.SetPos(0, y)
 
@@ -2995,7 +2995,7 @@ gump.Add(pauseBtn)
 
 
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 15, "#00ff00")
 
 statusLabel.SetPos(110, y + 4)
 
@@ -3005,7 +3005,7 @@ gump.Add(statusLabel)
 
 
 
-cooldownLabel = API.Gumps.CreateGumpTTFLabel("Ready", 9, "#00ff00")
+cooldownLabel = API.Gumps.CreateGumpTTFLabel("Ready", 15, "#00ff00")
 
 cooldownLabel.SetPos(250, y + 4)
 
@@ -3021,7 +3021,7 @@ y += 28
 
 # ========== HOTKEYS DISPLAY ==========
 
-hotkeyTitle = API.Gumps.CreateGumpTTFLabel("=== HOTKEYS ===", 9, "#ffff00", aligned="center", maxWidth=280)
+hotkeyTitle = API.Gumps.CreateGumpTTFLabel("=== HOTKEYS ===", 15, "#ffff00", aligned="center", maxWidth=280)
 
 hotkeyTitle.SetPos(0, y)
 
@@ -3037,7 +3037,7 @@ y += 16
 
 # Row 1 - Potions & Attack
 
-hotkeyRow1 = API.Gumps.CreateGumpTTFLabel("Heal:" + HOTKEY_HEAL_POTION + " | Cure:" + HOTKEY_CURE_POTION + " | Refresh:" + HOTKEY_REFRESH_POTION, 9, "#aaaaaa")
+hotkeyRow1 = API.Gumps.CreateGumpTTFLabel("Heal:" + HOTKEY_HEAL_POTION + " | Cure:" + HOTKEY_CURE_POTION + " | Refresh:" + HOTKEY_REFRESH_POTION, 15, "#aaaaaa")
 
 hotkeyRow1.SetPos(leftX, y)
 
@@ -3053,7 +3053,7 @@ y += 14
 
 # Row 2 - Bandage, Pause, Attack
 
-hotkeyRow2 = API.Gumps.CreateGumpTTFLabel("Bandage:" + HOTKEY_BANDAGE + " | Attack:" + HOTKEY_ATTACK + " | Pause:" + HOTKEY_PAUSE, 9, "#aaaaaa")
+hotkeyRow2 = API.Gumps.CreateGumpTTFLabel("Bandage:" + HOTKEY_BANDAGE + " | Attack:" + HOTKEY_ATTACK + " | Pause:" + HOTKEY_PAUSE, 15, "#aaaaaa")
 
 hotkeyRow2.SetPos(leftX, y)
 

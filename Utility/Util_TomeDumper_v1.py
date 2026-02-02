@@ -1436,7 +1436,7 @@ def build_main_gump():
     API.Gumps.AddControlOnClick(main_controls["config_btn"], on_config_clicked)
 
     # Tome list label
-    listLabel = API.Gumps.CreateGumpTTFLabel("Tomes:", 11, "#ffcc00")
+    listLabel = API.Gumps.CreateGumpTTFLabel("Tomes:", 15, "#ffcc00")
     listLabel.SetPos(10, 28)
     main_gump.Add(listLabel)
 
@@ -1471,7 +1471,7 @@ def build_main_gump():
     API.Gumps.AddControlOnClick(main_controls["dump_all_btn"], on_dump_all_clicked)
 
     # Status display
-    statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 11, "#888888")
+    statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 15, "#888888")
     statusLabel.SetPos(10, 350)
     main_gump.Add(statusLabel)
     main_controls["status_label"] = statusLabel
@@ -1543,13 +1543,13 @@ def build_config_gump():
         edit_header = "Edit Tome"
         if editing_dirty:
             edit_header += " *"
-        editLabel = API.Gumps.CreateGumpTTFLabel(edit_header, 13, "#ffcc00")
+        editLabel = API.Gumps.CreateGumpTTFLabel(edit_header, 15, "#ffcc00")
         editLabel.SetPos(10, y_pos)
         config_gump.Add(editLabel)
         y_pos += 20
 
         # Instructions
-        instructLabel = API.Gumps.CreateGumpTTFLabel("1. Type name, click [SET]  2. Target tome  3. Detect gump  4. Test buttons", 8, "#888888")
+        instructLabel = API.Gumps.CreateGumpTTFLabel("1. Type name, click [SET]  2. Target tome  3. Detect gump  4. Test buttons", 15, "#888888")
         instructLabel.SetPos(10, y_pos)
         config_gump.Add(instructLabel)
         y_pos += 20
@@ -1557,7 +1557,7 @@ def build_config_gump():
         # Name input
         global name_text_box, name_display_label
 
-        nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 11, "#ffffff")
+        nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 15, "#ffffff")
         nameLabel.SetPos(15, y_pos)
         config_gump.Add(nameLabel)
 
@@ -1574,7 +1574,7 @@ def build_config_gump():
         API.Gumps.AddControlOnClick(config_controls["set_name_btn"], on_set_name_clicked)
 
         # Display current saved name
-        name_display_label = API.Gumps.CreateGumpTTFLabel("Saved: " + current_name, 9, "#00ff88")
+        name_display_label = API.Gumps.CreateGumpTTFLabel("Saved: " + current_name, 15, "#00ff88")
         name_display_label.SetPos(285, y_pos + 5)
         config_gump.Add(name_display_label)
 
@@ -1592,12 +1592,12 @@ def build_config_gump():
 
         # Always show status
         if tome_captured:
-            serialLabel = API.Gumps.CreateGumpTTFLabel("Tome: 0x{:X}".format(tome_serial), 10, "#00ff00")
+            serialLabel = API.Gumps.CreateGumpTTFLabel("Tome: 0x{:X}".format(tome_serial), 15, "#00ff00")
             serialLabel.SetPos(145, y_pos + 5)
             config_gump.Add(serialLabel)
             config_controls["tome_serial_label"] = serialLabel  # Store for updates
         else:
-            helpLabel = API.Gumps.CreateGumpTTFLabel("Click to target tome", 9, "#888888")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("Click to target tome", 15, "#888888")
             helpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(helpLabel)
         y_pos += 30
@@ -1615,12 +1615,12 @@ def build_config_gump():
 
         # Always show status
         if gump_captured:
-            gumpLabel = API.Gumps.CreateGumpTTFLabel("Gump ID: " + str(gump_id), 10, "#00ff00")
+            gumpLabel = API.Gumps.CreateGumpTTFLabel("Gump ID: " + str(gump_id), 15, "#00ff00")
             gumpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(gumpLabel)
             config_controls["gump_id_label"] = gumpLabel  # Store for updates
         else:
-            helpLabel = API.Gumps.CreateGumpTTFLabel("Open tome, wait for detect", 9, "#888888")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("Open tome, wait for detect", 15, "#888888")
             helpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(helpLabel)
         y_pos += 30
@@ -1636,22 +1636,22 @@ def build_config_gump():
 
         # Always show status
         if btn_captured:
-            buttonLabel = API.Gumps.CreateGumpTTFLabel("Button: " + str(editing_tome["fill_button_id"]), 10, "#00ff00")
+            buttonLabel = API.Gumps.CreateGumpTTFLabel("Button: " + str(editing_tome["fill_button_id"]), 15, "#00ff00")
             buttonLabel.SetPos(145, y_pos + 5)
             config_gump.Add(buttonLabel)
             config_controls["fill_button_label"] = buttonLabel  # Store for updates
         elif gump_ready:
-            helpLabel = API.Gumps.CreateGumpTTFLabel("Test to find fill button", 9, "#888888")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("Test to find fill button", 15, "#888888")
             helpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(helpLabel)
         else:
-            helpLabel = API.Gumps.CreateGumpTTFLabel("Need gump ID first", 9, "#ff8800")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("Need gump ID first", 15, "#ff8800")
             helpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(helpLabel)
         y_pos += 30
 
         # Targeting Mode Selection
-        targetingLabel = API.Gumps.CreateGumpTTFLabel("Targeting mode:", 11, "#ffffff")
+        targetingLabel = API.Gumps.CreateGumpTTFLabel("Targeting mode:", 15, "#ffffff")
         targetingLabel.SetPos(15, y_pos + 2)
         config_gump.Add(targetingLabel)
 
@@ -1694,7 +1694,7 @@ def build_config_gump():
             "single_item": "Target 1 item per button click",
             "multi_item": "Target items repeatedly"
         }
-        helpLabel = API.Gumps.CreateGumpTTFLabel(mode_help.get(targeting_mode, ""), 8, "#888888")
+        helpLabel = API.Gumps.CreateGumpTTFLabel(mode_help.get(targeting_mode, ""), 15, "#888888")
         helpLabel.SetPos(15, y_pos)
         config_gump.Add(helpLabel)
 
@@ -1702,7 +1702,7 @@ def build_config_gump():
 
         # Auto-retarget option (only for multi_item mode)
         if targeting_mode == "multi_item":
-            autoRetargetLabel = API.Gumps.CreateGumpTTFLabel("Auto-retarget:", 11, "#ffffff")
+            autoRetargetLabel = API.Gumps.CreateGumpTTFLabel("Auto-retarget:", 15, "#ffffff")
             autoRetargetLabel.SetPos(30, y_pos + 2)
             config_gump.Add(autoRetargetLabel)
 
@@ -1720,7 +1720,7 @@ def build_config_gump():
             config_gump.Add(config_controls["retarget_on"])
             API.Gumps.AddControlOnClick(config_controls["retarget_on"], lambda: on_auto_retarget_set(True))
 
-            helpLabel2 = API.Gumps.CreateGumpTTFLabel("(cursor reappears after each item)", 8, "#888888")
+            helpLabel2 = API.Gumps.CreateGumpTTFLabel("(cursor reappears after each item)", 15, "#888888")
             helpLabel2.SetPos(30, y_pos + 22)
             config_gump.Add(helpLabel2)
 
@@ -1745,14 +1745,14 @@ def build_config_gump():
             API.Gumps.AddControlOnClick(config_controls["add_target_btn"], on_add_target_clicked)
 
             # Help text
-            helpLabel = API.Gumps.CreateGumpTTFLabel("Target backpack, lootpack, etc.", 9, "#888888")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("Target backpack, lootpack, etc.", 15, "#888888")
             helpLabel.SetPos(145, y_pos + 5)
             config_gump.Add(helpLabel)
             y_pos += 30
 
             # List of containers
             if target_containers:
-                containerListLabel = API.Gumps.CreateGumpTTFLabel("Targets (" + str(len(target_containers)) + "):", 11, "#ffcc00")
+                containerListLabel = API.Gumps.CreateGumpTTFLabel("Targets (" + str(len(target_containers)) + "):", 15, "#ffcc00")
                 containerListLabel.SetPos(15, y_pos)
                 config_gump.Add(containerListLabel)
                 y_pos += 18
@@ -1766,7 +1766,7 @@ def build_config_gump():
                     else:
                         container_text = "  0x{:X} (not found)".format(container_serial)
 
-                    serialLabel = API.Gumps.CreateGumpTTFLabel(container_text, 10, "#00ff88")
+                    serialLabel = API.Gumps.CreateGumpTTFLabel(container_text, 15, "#00ff88")
                     serialLabel.SetPos(15, y_pos)
                     config_gump.Add(serialLabel)
 
@@ -1780,7 +1780,7 @@ def build_config_gump():
 
                     y_pos += 18
             else:
-                noTargetsLabel = API.Gumps.CreateGumpTTFLabel("  No targets - click [ADD TARGET]", 10, "#888888")
+                noTargetsLabel = API.Gumps.CreateGumpTTFLabel("  No targets - click [ADD TARGET]", 15, "#888888")
                 noTargetsLabel.SetPos(15, y_pos)
                 config_gump.Add(noTargetsLabel)
                 y_pos += 18
@@ -1788,7 +1788,7 @@ def build_config_gump():
             y_pos += 10
 
             # Graphic targeting option
-            graphicTargetLabel = API.Gumps.CreateGumpTTFLabel("Or use Graphic ID:", 11, "#ffffff")
+            graphicTargetLabel = API.Gumps.CreateGumpTTFLabel("Or use Graphic ID:", 15, "#ffffff")
             graphicTargetLabel.SetPos(15, y_pos + 2)
             config_gump.Add(graphicTargetLabel)
 
@@ -1807,7 +1807,7 @@ def build_config_gump():
             API.Gumps.AddControlOnClick(config_controls["graphic_on"], lambda: on_graphic_targeting_set(True))
 
             # Help text
-            helpLabel = API.Gumps.CreateGumpTTFLabel("(target any bag type instead of specific)", 8, "#888888")
+            helpLabel = API.Gumps.CreateGumpTTFLabel("(target any bag type instead of specific)", 15, "#888888")
             helpLabel.SetPos(15, y_pos + 22)
             config_gump.Add(helpLabel)
             y_pos += 40
@@ -1823,18 +1823,18 @@ def build_config_gump():
                 API.Gumps.AddControlOnClick(config_controls["capture_graphic_btn"], on_capture_graphic_clicked)
 
                 if has_graphic:
-                    graphicLabel = API.Gumps.CreateGumpTTFLabel("Graphic: 0x{:X}".format(editing_tome["target_graphic"]), 10, "#00ff00")
+                    graphicLabel = API.Gumps.CreateGumpTTFLabel("Graphic: 0x{:X}".format(editing_tome["target_graphic"]), 15, "#00ff00")
                     graphicLabel.SetPos(165, y_pos + 5)
                     config_gump.Add(graphicLabel)
                     config_controls["graphic_label"] = graphicLabel  # Store for updates
                 else:
-                    helpLabel = API.Gumps.CreateGumpTTFLabel("Target a container type", 9, "#888888")
+                    helpLabel = API.Gumps.CreateGumpTTFLabel("Target a container type", 15, "#888888")
                     helpLabel.SetPos(165, y_pos + 5)
                     config_gump.Add(helpLabel)
                 y_pos += 30
 
                 # Hue specific toggle
-                hueSpecificLabel = API.Gumps.CreateGumpTTFLabel("Hue specific:", 11, "#ffffff")
+                hueSpecificLabel = API.Gumps.CreateGumpTTFLabel("Hue specific:", 15, "#ffffff")
                 hueSpecificLabel.SetPos(15, y_pos + 2)
                 config_gump.Add(hueSpecificLabel)
 
@@ -1857,7 +1857,7 @@ def build_config_gump():
                 if hue_specific:
                     has_hue = editing_tome.get("target_hue", 0) > 0
                     hue_text = "Hue: 0x{:X}".format(editing_tome.get("target_hue", 0)) if has_hue else "Hue: (any color captured)"
-                    hueLabel = API.Gumps.CreateGumpTTFLabel(hue_text, 10, "#00ff88")
+                    hueLabel = API.Gumps.CreateGumpTTFLabel(hue_text, 15, "#00ff88")
                     hueLabel.SetPos(15, y_pos)
                     config_gump.Add(hueLabel)
                     y_pos += 18
@@ -1876,17 +1876,17 @@ def build_config_gump():
             graphics_str = ", ".join("0x{:X}".format(g) for g in editing_tome["item_graphics"][:3])
             if len(editing_tome["item_graphics"]) > 3:
                 graphics_str += "..."
-            graphicsLabel = API.Gumps.CreateGumpTTFLabel(graphics_str + " (" + str(len(editing_tome["item_graphics"])) + " types)", 9, "#00ff00")
+            graphicsLabel = API.Gumps.CreateGumpTTFLabel(graphics_str + " (" + str(len(editing_tome["item_graphics"])) + " types)", 15, "#00ff00")
             graphicsLabel.SetPos(155, y_pos + 5)
             config_gump.Add(graphicsLabel)
         else:
-            noFilterLabel = API.Gumps.CreateGumpTTFLabel("No filter = ALL items!", 9, "#ff8800")
+            noFilterLabel = API.Gumps.CreateGumpTTFLabel("No filter = ALL items!", 15, "#ff8800")
             noFilterLabel.SetPos(155, y_pos + 5)
             config_gump.Add(noFilterLabel)
         y_pos += 30
 
         # Summary
-        summaryLabel = API.Gumps.CreateGumpTTFLabel("Ready to save:", 10, "#ffcc00")
+        summaryLabel = API.Gumps.CreateGumpTTFLabel("Ready to save:", 15, "#ffcc00")
         summaryLabel.SetPos(15, y_pos)
         config_gump.Add(summaryLabel)
         y_pos += 18
@@ -1903,7 +1903,7 @@ def build_config_gump():
         check_button = "[x]" if has_button else "[ ]"
         check_container = "[x]" if (not needs_tgt or has_containers) else "[ ]"
 
-        checkLabel1 = API.Gumps.CreateGumpTTFLabel(check_tome + " Tome  " + check_gump + " Gump  " + check_button + " Button  " + check_container + " Target", 9, "#aaaaaa")
+        checkLabel1 = API.Gumps.CreateGumpTTFLabel(check_tome + " Tome  " + check_gump + " Gump  " + check_button + " Button  " + check_container + " Target", 15, "#aaaaaa")
         checkLabel1.SetPos(20, y_pos)
         config_gump.Add(checkLabel1)
         y_pos += 18
@@ -1925,7 +1925,7 @@ def build_config_gump():
         API.Gumps.AddControlOnClick(config_controls["cancel_btn"], on_cancel_edit_clicked)
 
         if not ready_to_save:
-            warnLabel = API.Gumps.CreateGumpTTFLabel("Missing required fields", 8, "#ff8800")
+            warnLabel = API.Gumps.CreateGumpTTFLabel("Missing required fields", 15, "#ff8800")
             warnLabel.SetPos(200, y_pos + 5)
             config_gump.Add(warnLabel)
 
@@ -1933,7 +1933,7 @@ def build_config_gump():
 
     # Existing tomes list
     list_y_pos = y_pos if editing_tome else 60
-    listLabel = API.Gumps.CreateGumpTTFLabel("Existing Tomes:", 13, "#ffcc00")
+    listLabel = API.Gumps.CreateGumpTTFLabel("Existing Tomes:", 15, "#ffcc00")
     listLabel.SetPos(10, list_y_pos)
     config_gump.Add(listLabel)
     list_y_pos += 25
@@ -1941,7 +1941,7 @@ def build_config_gump():
     for i, tome in enumerate(tomes):
         # Skip if we're past window bounds
         if list_y_pos > CONFIG_HEIGHT - 30:
-            moreLabel = API.Gumps.CreateGumpTTFLabel("... (scroll down for more)", 9, "#888888")
+            moreLabel = API.Gumps.CreateGumpTTFLabel("... (scroll down for more)", 15, "#888888")
             moreLabel.SetPos(15, list_y_pos)
             config_gump.Add(moreLabel)
             break
@@ -1949,7 +1949,7 @@ def build_config_gump():
         enabled_text = "[ON] " if tome.get("enabled", True) else "[OFF]"
         hue = "#00ff00" if tome.get("enabled", True) else "#888888"
 
-        tomeLabel = API.Gumps.CreateGumpTTFLabel(enabled_text + str(tome.get("name", "Unknown")), 11, hue)
+        tomeLabel = API.Gumps.CreateGumpTTFLabel(enabled_text + str(tome.get("name", "Unknown")), 15, hue)
         tomeLabel.SetPos(15, list_y_pos)
         config_gump.Add(tomeLabel)
 
@@ -2005,12 +2005,12 @@ def build_tester_gump():
     tester_gump.Add(titleLabel)
 
     # Instructions
-    instrLabel = API.Gumps.CreateGumpTTFLabel("Open tome, then test buttons:", 9, "#888888")
+    instrLabel = API.Gumps.CreateGumpTTFLabel("Open tome, then test buttons:", 15, "#888888")
     instrLabel.SetPos(10, 25)
     tester_gump.Add(instrLabel)
 
     # Quick test grid (buttons 0-11)
-    gridLabel = API.Gumps.CreateGumpTTFLabel("Quick Test (0-11):", 11, "#ffcc00")
+    gridLabel = API.Gumps.CreateGumpTTFLabel("Quick Test (0-11):", 15, "#ffcc00")
     gridLabel.SetPos(10, 40)
     tester_gump.Add(gridLabel)
 
@@ -2032,7 +2032,7 @@ def build_tester_gump():
         y_pos += 30
 
     # Custom button input
-    customLabel = API.Gumps.CreateGumpTTFLabel("Custom ID:", 11, "#ffcc00")
+    customLabel = API.Gumps.CreateGumpTTFLabel("Custom ID:", 15, "#ffcc00")
     customLabel.SetPos(10, 155)
     tester_gump.Add(customLabel)
 
@@ -2056,19 +2056,19 @@ def build_tester_gump():
     # Show current button if already set
     y_pos = 185
     if editing_tome and editing_tome.get("fill_button_id", 0) > 0:
-        currentLabel = API.Gumps.CreateGumpTTFLabel("Current fill button: " + str(editing_tome["fill_button_id"]), 10, "#00ff00")
+        currentLabel = API.Gumps.CreateGumpTTFLabel("Current fill button: " + str(editing_tome["fill_button_id"]), 15, "#00ff00")
         currentLabel.SetPos(10, y_pos)
         tester_gump.Add(currentLabel)
         y_pos += 18
 
     # Instructions
-    instrLabel = API.Gumps.CreateGumpTTFLabel("Type button # above, click [TEST], then [SET AS FILL]", 8, "#888888")
+    instrLabel = API.Gumps.CreateGumpTTFLabel("Type button # above, click [TEST], then [SET AS FILL]", 15, "#888888")
     instrLabel.SetPos(10, y_pos)
     tester_gump.Add(instrLabel)
     y_pos += 18
 
     # Last result display
-    resultLabel = API.Gumps.CreateGumpTTFLabel("Click button to test", 11, "#888888")
+    resultLabel = API.Gumps.CreateGumpTTFLabel("Click button to test", 15, "#888888")
     resultLabel.SetPos(10, y_pos)
     tester_gump.Add(resultLabel)
     tester_controls["result_label"] = resultLabel

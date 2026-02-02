@@ -697,12 +697,12 @@ gump.Add(expandBtn)
 hotkeyText = "Kill:" + (ALL_KILL_HOTKEY if ALL_KILL_HOTKEY else "-")
 hotkeyText += " | Guard:" + (GUARD_HOTKEY if GUARD_HOTKEY else "-")
 hotkeyText += " | Follow:" + (FOLLOW_HOTKEY if FOLLOW_HOTKEY else "-")
-hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 8, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
+hotkeyLabel = API.Gumps.CreateGumpTTFLabel(hotkeyText, 15, "#888888", aligned="center", maxWidth=WINDOW_WIDTH)
 hotkeyLabel.SetPos(0, 23)
 gump.Add(hotkeyLabel)
 
 # Target type section
-targetLabel = API.Gumps.CreateGumpTTFLabel("=== TARGET TYPES ===", 9, "#ff8800", aligned="center", maxWidth=WINDOW_WIDTH)
+targetLabel = API.Gumps.CreateGumpTTFLabel("=== TARGET TYPES ===", 15, "#ff8800", aligned="center", maxWidth=WINDOW_WIDTH)
 targetLabel.SetPos(0, 42)
 targetLabel.IsVisible = is_expanded
 gump.Add(targetLabel)
@@ -728,7 +728,7 @@ API.Gumps.AddControlOnClick(graysBtn, toggle_grays)
 gump.Add(graysBtn)
 
 # === ATTACK ORDER SECTION ===
-orderLabel = API.Gumps.CreateGumpTTFLabel("=== ATTACK ORDER ===", 9, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
+orderLabel = API.Gumps.CreateGumpTTFLabel("=== ATTACK ORDER ===", 15, "#ff6666", aligned="center", maxWidth=WINDOW_WIDTH)
 orderLabel.SetPos(0, startY + 27)
 orderLabel.IsVisible = is_expanded
 gump.Add(orderLabel)
@@ -794,7 +794,7 @@ API.Gumps.AddControlOnClick(downBtn, move_pet_down)
 gump.Add(downBtn)
 
 # Commands section
-cmdLabel = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 9, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
+cmdLabel = API.Gumps.CreateGumpTTFLabel("=== COMMANDS ===", 15, "#00ff00", aligned="center", maxWidth=WINDOW_WIDTH)
 cmdLabel.SetPos(0, petBtnY + 27)
 cmdLabel.IsVisible = is_expanded
 gump.Add(cmdLabel)

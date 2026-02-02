@@ -282,7 +282,7 @@ def update_message_display():
 
     # If no messages, show simple helper text
     if visible_count == 0:
-        help_label = API.Gumps.CreateGumpTTFLabel("No messages yet...", 12, "#666666")
+        help_label = API.Gumps.CreateGumpTTFLabel("No messages yet...", 15, "#666666")
         help_label.SetPos(10, 10)
         scrollArea.Add(help_label)
         message_labels.append(help_label)
@@ -295,7 +295,7 @@ def update_message_display():
     for msg in visible:
         msg_text = format_message(msg)
         # Font size 11, with maxWidth for wrapping
-        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 11, "#cccccc", maxWidth=355)
+        msg_label = API.Gumps.CreateGumpTTFLabel(msg_text, 15, "#cccccc", maxWidth=355)
         msg_label.SetPos(8, y_pos)
         scrollArea.Add(msg_label)
         message_labels.append(msg_label)
@@ -668,7 +668,7 @@ legendBg.SetRect(5, y, 390, 20)
 legendBg.IsVisible = is_expanded
 gump.Add(legendBg)
 
-legendLabel = API.Gumps.CreateGumpTTFLabel("[i]=INFO  [!]=WARN  [X]=ERROR  [.]=DEBUG", 10, "#888888")
+legendLabel = API.Gumps.CreateGumpTTFLabel("[i]=INFO  [!]=WARN  [X]=ERROR  [.]=DEBUG", 15, "#888888")
 legendLabel.SetPos(10, y + 3)
 legendLabel.IsVisible = is_expanded
 gump.Add(legendLabel)
@@ -689,7 +689,7 @@ gump.Add(scrollArea)
 
 # Status line
 y += 320  # Adjusted for new layout
-statusLabel = API.Gumps.CreateGumpTTFLabel("Showing 0 of 0 messages", 9, "#888888")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Showing 0 of 0 messages", 15, "#888888")
 statusLabel.SetPos(5, y)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
