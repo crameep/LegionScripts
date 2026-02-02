@@ -994,7 +994,8 @@ last_known_y = lastY
 win_width = 580
 # Calculate height: header(68) + rows(22 each) + buttons(28+28) + status(25) + padding(20)
 min_height = 450
-calculated_height = 68 + (len(MANAGED_SCRIPTS) * 22) + 28 + 28 + 25 + 20
+script_count = len(MANAGED_SCRIPTS) if MANAGED_SCRIPTS else 0
+calculated_height = 68 + (script_count * 22) + 28 + 28 + 25 + 20
 max_height = 700  # Don't make window too tall
 win_height = max(min_height, min(calculated_height, max_height))
 gump.SetRect(lastX, lastY, win_width, win_height)
@@ -1011,7 +1012,7 @@ title.SetPos(0, 5)
 gump.Add(title)
 
 # Instructions with script count
-script_count_text = str(len(MANAGED_SCRIPTS)) + " scripts"
+script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
 instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
 instructions.SetPos(0, 28)
 gump.Add(instructions)
@@ -1042,7 +1043,7 @@ for i, (category, relative_path) in enumerate(MANAGED_SCRIPTS):
     })
 
 # Bottom buttons
-y = 68 + (len(MANAGED_SCRIPTS) * row_height) + 10
+y = 68 + (script_count * row_height) + 10
 
 checkBtn = API.Gumps.CreateSimpleButton("[Check Updates]", 135, 25)
 checkBtn.SetPos(10, y)
