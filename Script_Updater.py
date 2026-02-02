@@ -1015,8 +1015,23 @@ max_height = 700  # Don't make window too tall
 win_height = max(min_height, min(calculated_height, max_height))
 API.SysMsg("DEBUG: script_count=" + str(script_count) + " win_height=" + str(win_height), 88)
 
+# Validate gump fits on screen - prevent off-screen positioning
+# Assume minimum screen size of 1280x720 for safety
+max_screen_width = 1920
+max_screen_height = 1080
+if lastX + win_width > max_screen_width:
+    lastX = max(0, max_screen_width - win_width - 10)
+    API.SysMsg("DEBUG: Adjusted X to fit screen: " + str(lastX), 43)
+if lastY + win_height > max_screen_height:
+    lastY = max(0, max_screen_height - win_height - 10)
+    API.SysMsg("DEBUG: Adjusted Y to fit screen: " + str(lastY), 43)
+if win_height > max_screen_height - 50:
+    win_height = max_screen_height - 50
+    API.SysMsg("DEBUG: Reduced height to fit screen: " + str(win_height), 43)
+
+API.SysMsg("DEBUG: Final position: " + str(lastX) + "," + str(lastY) + " size: " + str(win_width) + "x" + str(win_height), 88)
 API.SysMsg("DEBUG: Setting gump rect...", 88)
-gump.SetRect(lastX, lastY, win_width, win_height)
+gump.SetRect(int(lastX), int(lastY), int(win_width), int(win_height))
 
 # Background
 API.SysMsg("DEBUG: Adding background...", 88)
