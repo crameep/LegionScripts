@@ -1019,14 +1019,14 @@ gump.Add(bg)
 
 # Title
 test_indicator = " [TEST: ON]" if show_test_scripts else ""
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff", aligned="center", maxWidth=win_width)
-title.SetPos(0, 5)
+title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff")
+title.SetPos(10, 5)
 gump.Add(title)
 
 # Instructions with script count
 script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
-instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/", 8, "#aaaaaa", aligned="center", maxWidth=win_width)
-instructions.SetPos(0, 28)
+instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates", 8, "#aaaaaa")
+instructions.SetPos(10, 28)
 gump.Add(instructions)
 
 # Column headers
