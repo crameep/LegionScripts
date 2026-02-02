@@ -1932,9 +1932,7 @@ try:
                     PAUSED = True
                     travel.at_home = True  # Mark as at home so RESUME button works
                     state.set_state("idle")
-            else:
-                state.set_state("idle")
-                PAUSED = True
+            # else: Stay in waiting_to_recall state until 2 seconds elapse
 
         # Update display periodically
         now = time.time()
