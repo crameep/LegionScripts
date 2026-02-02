@@ -74,6 +74,9 @@ CONVERT_DELAY = 1.5  # Time to wait for log conversion
 # Combat settings
 FLEE_HP_THRESHOLD = 50  # Recall home if HP drops below this %
 COMBAT_DISTANCE = 10  # Detect enemies within this range
+COMBAT_MODE = "fight"  # "flee" or "fight" - fight back or just flee
+HEAL_HP_THRESHOLD = 70  # Use bandage when HP drops below this %
+BANDAGE_GRAPHIC = 0x0E21  # Bandage graphic
 
 # Weight settings
 DEFAULT_WEIGHT_THRESHOLD = 80  # Return home at 80% capacity
@@ -135,6 +138,8 @@ KEY_HOTKEY_ESC = KEY_PREFIX + "HotkeyEsc"
 KEY_WINDOW_POS = KEY_PREFIX + "WindowXY"
 KEY_NUM_SPOTS = KEY_PREFIX + "NumGatheringSpots"
 KEY_CURRENT_SPOT = KEY_PREFIX + "CurrentSpotIndex"
+KEY_WEAPON = KEY_PREFIX + "WeaponSerial"
+KEY_COMBAT_MODE = KEY_PREFIX + "CombatMode"
 
 # ============ RUNTIME STATE ============
 
@@ -167,8 +172,11 @@ spiral_turns = 0  # Turns completed
 # Tool/Setup
 tool_serial = 0
 fire_beetle_serial = 0  # Fire beetle for smelting ore
+weapon_serial = 0  # Weapon for combat
 num_gathering_spots = 1  # How many gathering spots in runebook (slots 2, 3, 4, etc.)
 resource_type = "mining"  # "mining" or "lumberjacking" (auto-detected from tool)
+combat_mode = "fight"  # "flee" or "fight"
+last_bandage_time = 0  # Track bandage cooldown
 
 # Hotkeys
 hotkey_pause = "F1"
@@ -483,15 +491,76 @@ def check_for_hostiles():
     last_combat_check = now
     return combat.find_closest_hostile(COMBAT_DISTANCE)
 
+def equip_weapon():
+    """Equip weapon for combat"""
+    if weapon_serial == 0:
+        return False
+
+    weapon = get_item_safe(weapon_serial)
+    if not weapon:
+        return False
+
+    try:
+        # Equip the weapon
+        API.UseObject(weapon.Serial, False)
+        API.Pause(0.5)
+        return True
+    except:
+        return False
+
+def attack_enemy(enemy):
+    """Attack an enemy"""
+    try:
+        # Set last target to enemy
+        API.SetLastTarget(enemy.Serial)
+        # Attack
+        API.Attack(enemy.Serial)
+        return True
+    except:
+        return False
+
+def use_bandage():
+    """Use bandage to heal"""
+    global last_bandage_time
+
+    # Check cooldown (bandages have ~10s cooldown typically)
+    if time.time() - last_bandage_time < 10:
+        return False
+
+    # Find bandages
+    API.FindType(BANDAGE_GRAPHIC)
+    if not API.Found:
+        return False
+
+    try:
+        bandage = get_item_safe(API.Found)
+        if not bandage:
+            return False
+
+        # Use bandage on self
+        cancel_all_targets()
+        API.PreTarget(API.Player.Serial, "beneficial")
+        API.Pause(0.1)
+        API.UseObject(bandage.Serial, False)
+        API.Pause(0.2)
+        API.CancelPreTarget()
+
+        last_bandage_time = time.time()
+        return True
+    except:
+        return False
+
 def handle_combat(enemy):
     """Handle combat encounter"""
     global current_enemy, PAUSED
 
     try:
-        # Check if should flee
-        if combat.should_flee():
-            API.SysMsg("FLEEING - HP LOW!", HUE_RED)
-            current_enemy = enemy
+        current_enemy = enemy
+        player_hp_pct = (API.Player.Hits / API.Player.HitsMax * 100) if API.Player.HitsMax > 0 else 100
+
+        # Check if should flee (HP too low)
+        if player_hp_pct < FLEE_HP_THRESHOLD:
+            API.SysMsg("FLEEING - HP LOW! (" + str(int(player_hp_pct)) + "%)", HUE_RED)
 
             # Use combat system flee
             state.set_state("fleeing")
@@ -513,13 +582,34 @@ def handle_combat(enemy):
                 current_enemy = None
             return
 
-        # Light combat - just note enemy
-        current_enemy = enemy
-        player_hp_pct = (API.Player.Hits / API.Player.HitsMax * 100) if API.Player.HitsMax > 0 else 100
-        API.SysMsg("Combat: " + str(int(player_hp_pct)) + "% HP", HUE_YELLOW)
-        state.set_state("combat")
+        # Fight mode - engage enemy
+        if combat_mode == "fight":
+            API.SysMsg("COMBAT: " + str(int(player_hp_pct)) + "% HP", HUE_YELLOW)
+
+            # Equip weapon
+            if weapon_serial > 0:
+                equip_weapon()
+
+            # Attack enemy
+            attack_enemy(enemy)
+
+            # Heal if needed
+            if player_hp_pct < HEAL_HP_THRESHOLD:
+                if use_bandage():
+                    API.SysMsg("Using bandage (" + str(int(player_hp_pct)) + "% HP)", HUE_YELLOW)
+
+            state.set_state("combat")
+        else:
+            # Flee mode - just run away
+            API.SysMsg("Enemy detected - fleeing (flee mode)", HUE_YELLOW)
+            if combat.flee_from_enemy(enemy, distance=15, timeout=5.0):
+                state.set_state("idle")
+                current_enemy = None
+            else:
+                state.set_state("combat")
 
     except Exception as e:
+        API.SysMsg("Combat error: " + str(e), HUE_RED)
         state.set_state("idle")
 
 def should_dump():
@@ -789,6 +879,41 @@ def on_set_fire_beetle():
                 API.SysMsg("That's not a mobile!", HUE_RED)
     except Exception as e:
         API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
+
+def on_set_weapon():
+    """Prompt user to target weapon for combat"""
+    global weapon_serial
+
+    API.SysMsg("Target your weapon...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            item = API.FindItem(target)
+            if item:
+                weapon_serial = target
+                save_int(KEY_WEAPON, weapon_serial)
+                API.SysMsg("Weapon set!", HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("Item not found!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Weapon setup error: " + str(e), HUE_RED)
+
+def toggle_combat_mode():
+    """Toggle between fight and flee combat modes"""
+    global combat_mode
+
+    if combat_mode == "fight":
+        combat_mode = "flee"
+    else:
+        combat_mode = "fight"
+
+    API.SavePersistentVar(KEY_COMBAT_MODE, combat_mode, API.PersistentVar.Char)
+    API.SysMsg("Combat mode: " + combat_mode.upper(), HUE_YELLOW)
+    update_display()
 
 def on_detect_storage_gump():
     """Detect storage gump ID when opened - auto-detect like TomeDumper"""
@@ -1297,11 +1422,13 @@ def update_display():
 
 def load_settings():
     """Load all settings from persistence"""
-    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots
+    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, combat_mode
 
     try:
         tool_serial = load_int(KEY_TOOL, 0)
+        weapon_serial = load_int(KEY_WEAPON, 0)
         movement_mode = API.GetPersistentVar(KEY_MOVEMENT_MODE, "random", API.PersistentVar.Char)
+        combat_mode = API.GetPersistentVar(KEY_COMBAT_MODE, "fight", API.PersistentVar.Char)
         hotkey_pause = API.GetPersistentVar(KEY_HOTKEY_PAUSE, "F1", API.PersistentVar.Char)
         hotkey_esc = API.GetPersistentVar(KEY_HOTKEY_ESC, "F2", API.PersistentVar.Char)
         num_gathering_spots = load_int(KEY_NUM_SPOTS, 1)
@@ -1536,6 +1663,26 @@ def build_gump():
     beetle_btn.SetPos(210, y_offset - 2)
     gump.Add(beetle_btn)
     API.Gumps.AddControlOnClick(beetle_btn, on_set_fire_beetle)
+
+    y_offset += 30
+
+    # Combat section
+    combat_label = API.Gumps.CreateGumpTTFLabel("Combat:", 15, "#ffffff")
+    combat_label.SetPos(10, y_offset)
+    gump.Add(combat_label)
+
+    # Combat mode toggle
+    combat_mode_btn = API.Gumps.CreateSimpleButton("FIGHT" if combat_mode == "fight" else "FLEE", 70, 20)
+    combat_mode_btn.SetPos(70, y_offset - 2)
+    combat_mode_btn.SetBackgroundHue(HUE_RED if combat_mode == "fight" else HUE_YELLOW)
+    gump.Add(combat_mode_btn)
+    API.Gumps.AddControlOnClick(combat_mode_btn, toggle_combat_mode)
+
+    # Weapon set button
+    weapon_btn = API.Gumps.CreateSimpleButton("SET WPN", 60, 20)
+    weapon_btn.SetPos(145, y_offset - 2)
+    gump.Add(weapon_btn)
+    API.Gumps.AddControlOnClick(weapon_btn, on_set_weapon)
 
     y_offset += 30
 
