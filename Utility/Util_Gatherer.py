@@ -417,53 +417,20 @@ def smelt_ore(skip_threshold=False):
             API.SysMsg("Ore item not accessible!", HUE_RED)
             return False
 
-        # Cancel any existing targets first
-        if API.HasTarget():
-            API.CancelTarget()
+        # Use same pattern as convert_logs_to_boards (which works automatically)
+        # Cancel any existing targets
+        cancel_all_targets()
+
+        # Pre-target the fire beetle
+        API.PreTarget(beetle.Serial, "neutral")
         API.Pause(0.1)
 
-        # Use ore to open target cursor
-        API.UseObject(ore_item.Serial, False)
-        API.Pause(0.5)
-
-        # Wait for target cursor to appear
-        wait_count = 0
-        while not API.HasTarget() and wait_count < 20:
-            API.Pause(0.1)
-            wait_count += 1
-
-        if not API.HasTarget():
-            API.SysMsg("Target cursor didn't appear!", HUE_RED)
-            return False
-
-        # Legion API has no way to programmatically send targets for this action
-        # User must manually click the fire beetle
-        API.SysMsg("╔════════════════════════════════════╗", HUE_YELLOW)
-        API.SysMsg("║   CLICK YOUR FIRE BEETLE NOW!      ║", HUE_YELLOW)
-        API.SysMsg("║   Smelting " + str(ore_count) + " ore...".ljust(33) + "║", HUE_YELLOW)
-        API.SysMsg("╚════════════════════════════════════╝", HUE_YELLOW)
-
-        # Wait for user to click the beetle (max 10 seconds)
-        manual_wait = 0
-        while API.HasTarget() and manual_wait < 100:
-            API.Pause(0.1)
-            manual_wait += 1
-
-        if API.HasTarget():
-            # User didn't click - cancel and fail
-            API.CancelTarget()
-            API.SysMsg("Smelting cancelled (no target clicked)", HUE_RED)
-            return False
-
-        # Target was clicked, wait for smelting to complete
+        # Use ore on the beetle (pass OBJECT not SERIAL - this is critical!)
+        API.UseObject(ore_item, False)
         API.Pause(SMELT_DELAY)
 
-        # Verify smelting worked (ore count should decrease)
-        new_ore_count = count_resources(ORE_GRAPHIC)
-        if new_ore_count < ore_count:
-            API.SysMsg("Smelting successful! (" + str(ore_count - new_ore_count) + " ore -> ingots)", HUE_GREEN)
-        else:
-            API.SysMsg("Smelting may have failed (ore count unchanged)", HUE_YELLOW)
+        # Clean up
+        API.CancelPreTarget()
 
         API.SysMsg("Smelting complete! (" + str(ore_count) + " ore -> ingots)", HUE_ORANGE)
         update_resource_counts()
