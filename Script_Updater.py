@@ -977,10 +977,12 @@ init_script_data()
 cleanup_all_backups()
 
 # ============ BUILD GUI ============
+API.SysMsg("DEBUG: Creating gump...", 88)
 gump = API.Gumps.CreateGump()
 API.Gumps.AddControlOnDisposed(gump, onClosed)
 
 # Load window position
+API.SysMsg("DEBUG: Loading position...", 88)
 savedPos = API.GetPersistentVar(SETTINGS_KEY, "100,100", API.PersistentVar.Char)
 try:
     posXY = savedPos.split(',')
@@ -1001,6 +1003,7 @@ except:
 # Initialize last known position with loaded values
 last_known_x = lastX
 last_known_y = lastY
+API.SysMsg("DEBUG: Position = " + str(lastX) + "," + str(lastY), 88)
 
 # Window size - dynamic height based on script count
 win_width = 580
@@ -1010,24 +1013,33 @@ script_count = len(MANAGED_SCRIPTS) if MANAGED_SCRIPTS else 0
 calculated_height = 68 + (script_count * 22) + 28 + 28 + 25 + 20
 max_height = 700  # Don't make window too tall
 win_height = max(min_height, min(calculated_height, max_height))
+API.SysMsg("DEBUG: script_count=" + str(script_count) + " win_height=" + str(win_height), 88)
+
+API.SysMsg("DEBUG: Setting gump rect...", 88)
 gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
+API.SysMsg("DEBUG: Adding background...", 88)
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, win_width, win_height)
 gump.Add(bg)
 
 # Title
+API.SysMsg("DEBUG: Creating title...", 88)
 test_indicator = " [TEST: ON]" if show_test_scripts else ""
 title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff")
 title.SetPos(10, 5)
 gump.Add(title)
 
 # Instructions with script count
+API.SysMsg("DEBUG: Creating instructions...", 88)
 script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
+API.SysMsg("DEBUG: script_count_text='" + script_count_text + "'", 88)
 instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates", 8, "#aaaaaa")
+API.SysMsg("DEBUG: instructions label created", 88)
 instructions.SetPos(10, 28)
 gump.Add(instructions)
+API.SysMsg("DEBUG: instructions added to gump", 88)
 
 # Column headers
 y = 48
