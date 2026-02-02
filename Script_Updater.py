@@ -34,6 +34,7 @@ __version__ = "1.9.0"
 # ============ USER SETTINGS ============
 GITHUB_BASE_URL = "https://raw.githubusercontent.com/crameep/LegionScripts/main/"
 GITHUB_API_URL = "https://api.github.com/repos/crameep/LegionScripts/contents/"
+GITHUB_COMMITS_URL = "https://api.github.com/repos/crameep/LegionScripts/commits/main"
 BACKUP_DATE = datetime.now().strftime("%Y-%m-%d")
 BACKUP_DIR = os.path.join("_support", "archive", "backups_" + BACKUP_DATE)
 DOWNLOAD_TIMEOUT = 5  # seconds
@@ -84,6 +85,8 @@ last_known_x = 100
 last_known_y = 100
 last_position_check = 0
 show_test_scripts = False  # Toggle to show/hide Test folder scripts
+latest_commit_hash = "fetching..."  # Latest commit hash from GitHub
+latest_commit_short = "..."  # Short version (first 7 chars)
 
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
@@ -531,10 +534,60 @@ def discover_local_scripts():
     except:
         return []
 
+def fetch_latest_commit():
+    """Fetch latest commit hash from GitHub. Returns (hash, short_hash) or (None, None) on error."""
+    global latest_commit_hash, latest_commit_short
+
+    try:
+        debug_msg("Fetching latest commit from GitHub...")
+
+        # Fetch commit data from GitHub API
+        try:
+            # Python 3 style
+            import json
+            req = urllib.request.Request(GITHUB_COMMITS_URL)
+            response = urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
+            data = response.read().decode('utf-8')
+            commit_data = json.loads(data)
+        except:
+            # Python 2 style fallback
+            import urllib2
+            import json
+            req = urllib2.Request(GITHUB_COMMITS_URL)
+            response = urllib2.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
+            data = response.read()
+            commit_data = json.loads(data)
+
+        # Extract commit hash
+        if 'sha' in commit_data:
+            full_hash = commit_data['sha']
+            short_hash = full_hash[:7]  # First 7 chars
+
+            latest_commit_hash = full_hash
+            latest_commit_short = short_hash
+
+            debug_msg("Latest commit: " + short_hash)
+            return (full_hash, short_hash)
+        else:
+            debug_msg("No SHA in commit data")
+            latest_commit_hash = "unknown"
+            latest_commit_short = "???"
+            return (None, None)
+
+    except Exception as e:
+        debug_msg("Error fetching commit: " + str(e))
+        latest_commit_hash = "error"
+        latest_commit_short = "ERR"
+        return (None, None)
+
 # ============ INITIALIZATION ============
 def init_script_data():
     """Initialize script data structure"""
     global script_data, MANAGED_SCRIPTS
+
+    # Fetch latest commit hash
+    API.SysMsg("Fetching latest commit info...", HUE_BLUE)
+    fetch_latest_commit()
 
     # Fetch script list from GitHub
     API.SysMsg("Fetching script list from GitHub...", HUE_BLUE)
@@ -544,7 +597,7 @@ def init_script_data():
         API.SysMsg("No scripts found! Check network connection.", HUE_RED)
         return
 
-    API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts in repository", HUE_GREEN)
+    API.SysMsg("Found " + str(len(MANAGED_SCRIPTS)) + " scripts | Commit: " + latest_commit_short, HUE_GREEN)
 
     for category, relative_path in MANAGED_SCRIPTS:
         script_data[relative_path] = {
@@ -1008,9 +1061,10 @@ except Exception as e:
     raise
 
 try:
-    # Instructions with script count
+    # Instructions with script count and GitHub commit
     script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates'"
-    instructions = API.Gumps.CreateGumpTTFLabel(script_count_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
+    commit_text = " | GitHub: " + latest_commit_short
+    instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + commit_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
     instructions.SetPos(0, 28)
     gump.Add(instructions)
 except Exception as e:
