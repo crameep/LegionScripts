@@ -1020,7 +1020,7 @@ gump.SetRect(lastX, lastY, win_width, win_height)
 
 # Background
 API.SysMsg("DEBUG: Adding background...", 88)
-bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+bg = API.Gumps.CreateGumpColorBox("#1a1a2e")
 bg.SetRect(0, 0, win_width, win_height)
 gump.Add(bg)
 
