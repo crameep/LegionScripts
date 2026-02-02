@@ -78,6 +78,10 @@ COMBAT_DISTANCE = 10  # Detect enemies within this range
 # Weight settings
 DEFAULT_WEIGHT_THRESHOLD = 80  # Return home at 80% capacity
 
+# Smelting settings (mining only)
+SMELT_ORE_THRESHOLD = 50  # Smelt when this many ore in backpack
+SMELT_DELAY = 2.0  # Seconds for smelting animation
+
 # Movement settings
 MOVE_ON_DEPLETION_ONLY = True  # Only move when resources depleted (recommended for AOE)
 GATHERS_PER_MOVE = 999  # Disabled when MOVE_ON_DEPLETION_ONLY is True
@@ -117,7 +121,13 @@ KEY_PREFIX = "Gatherer_"
 KEY_TOOL = KEY_PREFIX + "ToolSerial"
 KEY_RUNEBOOK = KEY_PREFIX + "HomeRunebook"
 KEY_RUNEBOOK_SLOT = KEY_PREFIX + "HomeSlot"
-KEY_STORAGE = KEY_PREFIX + "StorageSerial"
+KEY_STORAGE_MINING = KEY_PREFIX + "StorageMining"
+KEY_STORAGE_LUMBERJACKING = KEY_PREFIX + "StorageLumberjacking"
+KEY_STORAGE_GUMP_MINING = KEY_PREFIX + "StorageGumpMining"
+KEY_STORAGE_GUMP_LUMBERJACKING = KEY_PREFIX + "StorageGumpLumberjacking"
+KEY_STORAGE_BUTTON_MINING = KEY_PREFIX + "StorageButtonMining"
+KEY_STORAGE_BUTTON_LUMBERJACKING = KEY_PREFIX + "StorageButtonLumberjacking"
+KEY_FIRE_BEETLE = KEY_PREFIX + "FireBeetle"
 KEY_MOVEMENT_MODE = KEY_PREFIX + "MovementMode"
 KEY_WEIGHT_THRESHOLD = KEY_PREFIX + "WeightThreshold"
 KEY_HOTKEY_PAUSE = KEY_PREFIX + "HotkeyPause"
@@ -156,7 +166,9 @@ spiral_turns = 0  # Turns completed
 
 # Tool/Setup
 tool_serial = 0
+fire_beetle_serial = 0  # Fire beetle for smelting ore
 num_gathering_spots = 1  # How many gathering spots in runebook (slots 2, 3, 4, etc.)
+resource_type = "mining"  # "mining" or "lumberjacking" (auto-detected from tool)
 
 # Hotkeys
 hotkey_pause = "F1"
@@ -335,6 +347,69 @@ def convert_logs_to_boards():
 
     except Exception as e:
         API.SysMsg("Board conversion error: " + str(e), HUE_RED)
+        return False
+
+def get_resource_type():
+    """Detect resource type based on tool graphic"""
+    tool = get_tool()
+    if not tool:
+        return "mining"  # Default
+
+    if tool.Graphic in [PICKAXE_GRAPHIC, SHOVEL_GRAPHIC]:
+        return "mining"
+    elif tool.Graphic in [HATCHET_GRAPHIC, AXE_GRAPHIC, DOUBLE_AXE_GRAPHIC]:
+        return "lumberjacking"
+    else:
+        return "mining"  # Default
+
+def smelt_ore():
+    """Smelt ore using fire beetle"""
+    global ore_count
+
+    # Check if we have enough ore to smelt
+    ore_count = count_resources(ORE_GRAPHIC)
+    if ore_count < SMELT_ORE_THRESHOLD:
+        return False
+
+    # Get fire beetle
+    beetle = get_item_safe(fire_beetle_serial)
+    if not beetle:
+        return False
+
+    # Check if beetle is nearby
+    if beetle.Distance > 2:
+        API.SysMsg("Fire beetle too far away!", HUE_YELLOW)
+        return False
+
+    try:
+        # Use ingots (actually use ore, which smelts into ingots on fire beetle)
+        API.FindType(ORE_GRAPHIC)
+        if not API.Found:
+            return False
+
+        ore_item = get_item_safe(API.Found)
+        if not ore_item:
+            return False
+
+        # Use ore on beetle to smelt
+        cancel_all_targets()
+
+        # Pre-target the beetle
+        API.CancelPreTarget()
+        API.PreTarget(beetle.Serial, "beneficial")
+        API.Pause(0.2)
+
+        # Use ore (will target beetle automatically)
+        API.UseObject(ore_item.Serial, False)
+        API.Pause(SMELT_DELAY)
+
+        API.CancelPreTarget()
+        API.SysMsg("Smelting ore... (" + str(ore_count) + " ore)", HUE_ORANGE)
+        update_resource_counts()
+        return True
+
+    except Exception as e:
+        API.SysMsg("Smelt error: " + str(e), HUE_RED)
         return False
 
 # ============ CORE LOGIC ============
@@ -596,10 +671,11 @@ def on_set_tool():
                 tool_serial = target
                 save_int(KEY_TOOL, tool_serial)
 
-                # Update harvester
-                harvester.tool_serial = tool_serial
+                # Re-initialize framework (resource type may have changed)
+                initialize_framework()
 
                 API.SysMsg("Tool set! " + get_tool_name(item), HUE_GREEN)
+                API.SysMsg("Resource type: " + resource_type.upper(), HUE_YELLOW)
                 update_display()
             else:
                 API.SysMsg("That's not a valid harvesting tool!", HUE_RED)
@@ -643,19 +719,48 @@ def on_set_storage():
             item = API.FindItem(target)
             if item:
                 storage.container_serial = target
-                save_int(KEY_STORAGE, target)
+
+                # Save to correct key based on resource type
+                storage_key = KEY_STORAGE_MINING if resource_type == "mining" else KEY_STORAGE_LUMBERJACKING
+                save_int(storage_key, target)
 
                 # Get container position for pathfinding
                 container_x = getattr(item, 'X', 0)
                 container_y = getattr(item, 'Y', 0)
                 storage.set_container_position(container_x, container_y)
 
-                API.SysMsg("Storage container set!", HUE_GREEN)
+                API.SysMsg("Storage container set for " + resource_type + "!", HUE_GREEN)
                 update_display()
             else:
                 API.SysMsg("Item not found!", HUE_RED)
     except Exception as e:
         API.SysMsg("Storage setup error: " + str(e), HUE_RED)
+
+def on_set_fire_beetle():
+    """Prompt user to target fire beetle (mining only)"""
+    global fire_beetle_serial
+
+    if resource_type != "mining":
+        API.SysMsg("Fire beetle only needed for mining!", HUE_YELLOW)
+        return
+
+    API.SysMsg("Target your fire beetle...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            mob = API.Mobiles.FindMobile(target)
+            if mob:
+                fire_beetle_serial = target
+                save_int(KEY_FIRE_BEETLE, fire_beetle_serial)
+                API.SysMsg("Fire beetle set!", HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("That's not a mobile!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
 
 def adjust_spots(delta):
     """Adjust number of gathering spots by +1 or -1"""
@@ -829,7 +934,23 @@ def update_display():
         if storage.container_serial > 0:
             storage_text = "0x" + hex(storage.container_serial)[2:].upper()
         if "storage_label" in controls:
-            controls["storage_label"].SetText("Storage: " + storage_text)
+            controls["storage_label"].SetText("Storage (" + resource_type[:4] + "): " + storage_text)
+
+        # Fire beetle display (mining only)
+        if "beetle_label" in controls:
+            if resource_type == "mining":
+                beetle_text = "Not Set"
+                if fire_beetle_serial > 0:
+                    beetle = get_item_safe(fire_beetle_serial)
+                    if beetle and beetle.Distance <= 2:
+                        beetle_text = "Nearby!"
+                    elif beetle:
+                        beetle_text = "Far (" + str(beetle.Distance) + ")"
+                    else:
+                        beetle_text = "Not found"
+                controls["beetle_label"].SetText("Beetle: " + beetle_text)
+            else:
+                controls["beetle_label"].SetText("Beetle: N/A (lumber)")
 
         # Spots display
         if "spots_display" in controls:
@@ -908,19 +1029,31 @@ def load_settings():
 
 def initialize_framework():
     """Initialize framework objects after loading persistence"""
-    global travel, storage, weight_mgr, state, combat, harvester, stats, pos_tracker
+    global travel, storage, weight_mgr, state, combat, harvester, stats, pos_tracker, resource_type, fire_beetle_serial
 
     # Load settings first
     load_settings()
+
+    # Detect resource type from tool
+    resource_type = get_resource_type()
 
     # Travel system
     runebook_serial = load_int(KEY_RUNEBOOK, 0)
     runebook_slot = load_int(KEY_RUNEBOOK_SLOT, 1)
     travel = TravelSystem(runebook_serial, num_gathering_spots, runebook_slot)
 
-    # Storage system
-    storage_serial = load_int(KEY_STORAGE, 0)
-    storage = StorageSystem(storage_serial, STORAGE_SHELF_GUMP_ID, STORAGE_SHELF_FILL_BUTTON)
+    # Storage system - use correct storage based on resource type
+    if resource_type == "mining":
+        storage_serial = load_int(KEY_STORAGE_MINING, 0)
+        storage_gump_id = load_int(KEY_STORAGE_GUMP_MINING, 111922706)
+        storage_button = load_int(KEY_STORAGE_BUTTON_MINING, 121)
+        fire_beetle_serial = load_int(KEY_FIRE_BEETLE, 0)
+    else:  # lumberjacking
+        storage_serial = load_int(KEY_STORAGE_LUMBERJACKING, 0)
+        storage_gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 111922706)
+        storage_button = load_int(KEY_STORAGE_BUTTON_LUMBERJACKING, 121)
+
+    storage = StorageSystem(storage_serial, storage_gump_id, storage_button)
 
     # Weight manager
     threshold = load_int(KEY_WEIGHT_THRESHOLD, DEFAULT_WEIGHT_THRESHOLD)
@@ -1060,6 +1193,18 @@ def build_gump():
     test_pathfind_btn.SetPos(270, y_offset - 2)
     gump.Add(test_pathfind_btn)
     API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
+
+    y_offset += 22
+
+    # Fire beetle (mining only)
+    controls["beetle_label"] = API.Gumps.CreateGumpTTFLabel("Beetle: Not Set", 15, "#888888")
+    controls["beetle_label"].SetPos(10, y_offset)
+    gump.Add(controls["beetle_label"])
+
+    beetle_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
+    beetle_btn.SetPos(210, y_offset - 2)
+    gump.Add(beetle_btn)
+    API.Gumps.AddControlOnClick(beetle_btn, on_set_fire_beetle)
 
     y_offset += 30
 
@@ -1238,6 +1383,14 @@ try:
 
         # State machine
         if current_state == "idle":
+            # Check if we should smelt ore (mining only)
+            if resource_type == "mining" and fire_beetle_serial > 0:
+                ore_count = count_resources(ORE_GRAPHIC)
+                if ore_count >= SMELT_ORE_THRESHOLD:
+                    if smelt_ore():
+                        API.Pause(0.5)
+                        continue
+
             # Check if we should dump
             if should_dump():
                 if travel.recall_home():
