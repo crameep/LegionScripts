@@ -1047,13 +1047,12 @@ except Exception as e:
     raise
 
 try:
-    # Instructions with script count
+    # Instructions with script count - TEST: Copy title format exactly
     API.SysMsg("16. Creating instructions label...", 88)
-    script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
-    instr_text = script_count_text + " | Check for updates from GitHub | Select and update | Backups in _backups/"
-    API.SysMsg("17. Instructions text: '" + instr_text + "' (len=" + str(len(instr_text)) + ")", 88)
-    API.SysMsg("18. Calling CreateGumpTTFLabel(text, 11, '#aaaaaa', aligned='center', maxWidth=" + str(win_width) + ")", 88)
-    instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 11, "#aaaaaa", aligned="center", maxWidth=win_width)
+    script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates'"
+    API.SysMsg("17. Instructions text: '" + script_count_text + "' (len=" + str(len(script_count_text)) + ")", 88)
+    API.SysMsg("18. TEST: Using same params as title (font=16, color=#00d4ff)", 88)
+    instructions = API.Gumps.CreateGumpTTFLabel(script_count_text, 16, "#00d4ff", aligned="center", maxWidth=win_width)
     API.SysMsg("19. Instructions label created, setting position...", 88)
     instructions.SetPos(0, 28)
     gump.Add(instructions)
