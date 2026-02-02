@@ -1027,7 +1027,7 @@ gump.Add(bg)
 # Title
 API.SysMsg("DEBUG: Creating title...", 88)
 test_indicator = " [TEST: ON]" if show_test_scripts else ""
-title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16, "#00d4ff")
+title = API.Gumps.CreateGumpTTFLabel("Script Updater v" + __version__ + test_indicator, 16)
 title.SetPos(10, 5)
 gump.Add(title)
 
@@ -1038,7 +1038,7 @@ if MANAGED_SCRIPTS:
 else:
     instr_text = "Click Check Updates to load scripts"
 API.SysMsg("DEBUG: instr_text len=" + str(len(instr_text)), 88)
-instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 8, "#aaaaaa")
+instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 8)
 API.SysMsg("DEBUG: instructions label created", 88)
 instructions.SetPos(10, 28)
 gump.Add(instructions)
