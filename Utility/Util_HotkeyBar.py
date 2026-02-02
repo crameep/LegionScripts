@@ -619,7 +619,7 @@ for cmd_key in ["secure", "lockdown", "release", "thorns"]:
     y_pos += 28
 
 # Status label at bottom
-statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 11, "#00ff00")  # Increased from 9pt
+statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 15, "#00ff00")  # Increased from 9pt
 statusLabel.SetPos(5, y_pos + 5)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
@@ -634,7 +634,7 @@ configBg.IsVisible = False
 gump.Add(configBg)
 
 # Help label
-configHelpLabel = API.Gumps.CreateGumpTTFLabel("Click hotkey button, press key to bind", 8, "#888888")
+configHelpLabel = API.Gumps.CreateGumpTTFLabel("Click hotkey button, press key to bind", 15, "#888888")
 configHelpLabel.SetPos(5, config_y + 3)
 configHelpLabel.IsVisible = False
 gump.Add(configHelpLabel)
@@ -642,7 +642,7 @@ gump.Add(configHelpLabel)
 config_y += 20
 
 # Secure hotkey row
-secureHkLabel = API.Gumps.CreateGumpTTFLabel("Secure:", 11, "#aaaaaa")
+secureHkLabel = API.Gumps.CreateGumpTTFLabel("Secure:", 15, "#aaaaaa")
 secureHkLabel.SetPos(5, config_y + 3)
 secureHkLabel.IsVisible = False
 gump.Add(secureHkLabel)
@@ -657,7 +657,7 @@ gump.Add(secureHkBtn)
 config_y += 24
 
 # Lockdown hotkey row
-lockdownHkLabel = API.Gumps.CreateGumpTTFLabel("Lockdown:", 11, "#aaaaaa")
+lockdownHkLabel = API.Gumps.CreateGumpTTFLabel("Lockdown:", 15, "#aaaaaa")
 lockdownHkLabel.SetPos(5, config_y + 3)
 lockdownHkLabel.IsVisible = False
 gump.Add(lockdownHkLabel)
@@ -672,7 +672,7 @@ gump.Add(lockdownHkBtn)
 config_y += 24
 
 # Release hotkey row
-releaseHkLabel = API.Gumps.CreateGumpTTFLabel("Release:", 11, "#aaaaaa")
+releaseHkLabel = API.Gumps.CreateGumpTTFLabel("Release:", 15, "#aaaaaa")
 releaseHkLabel.SetPos(5, config_y + 3)
 releaseHkLabel.IsVisible = False
 gump.Add(releaseHkLabel)
@@ -687,7 +687,7 @@ gump.Add(releaseHkBtn)
 config_y += 24
 
 # Thorns hotkey row
-thornsHkLabel = API.Gumps.CreateGumpTTFLabel("Thorns:", 11, "#aaaaaa")
+thornsHkLabel = API.Gumps.CreateGumpTTFLabel("Thorns:", 15, "#aaaaaa")
 thornsHkLabel.SetPos(5, config_y + 3)
 thornsHkLabel.IsVisible = False
 gump.Add(thornsHkLabel)

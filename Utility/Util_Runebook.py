@@ -848,7 +848,7 @@ setupBg.IsVisible = False
 gump.Add(setupBg)
 
 # Slot input
-slotLabel = API.Gumps.CreateGumpTTFLabel("Slot:", 8, "#aaaaaa")
+slotLabel = API.Gumps.CreateGumpTTFLabel("Slot:", 15, "#aaaaaa")
 slotLabel.SetPos(5, y + 3)
 slotLabel.IsVisible = False
 gump.Add(slotLabel)
@@ -859,7 +859,7 @@ slotInput.IsVisible = False
 gump.Add(slotInput)
 
 # Name input
-nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 8, "#aaaaaa")
+nameLabel = API.Gumps.CreateGumpTTFLabel("Name:", 15, "#aaaaaa")
 nameLabel.SetPos(63, y + 3)
 nameLabel.IsVisible = False
 gump.Add(nameLabel)
@@ -888,7 +888,7 @@ gump.Add(cancelBtn)
 
 # Status label
 y += 22
-statusLabel = API.Gumps.CreateGumpTTFLabel("", 7, "#888888")
+statusLabel = API.Gumps.CreateGumpTTFLabel("", 15, "#888888")
 statusLabel.SetPos(5, y)
 statusLabel.IsVisible = False
 gump.Add(statusLabel)
@@ -904,7 +904,7 @@ configBg.IsVisible = False
 gump.Add(configBg)
 
 # Help text
-configHelpLabel = API.Gumps.CreateGumpTTFLabel("Click hotkey, press key to bind", 7, "#888888")
+configHelpLabel = API.Gumps.CreateGumpTTFLabel("Click hotkey, press key to bind", 15, "#888888")
 configHelpLabel.SetPos(5, configY + 3)
 configHelpLabel.IsVisible = False
 gump.Add(configHelpLabel)
@@ -912,7 +912,7 @@ gump.Add(configHelpLabel)
 configY += 18
 
 # Home hotkey
-homeHkLabel = API.Gumps.CreateGumpTTFLabel("Home:", 8, "#aaaaaa")
+homeHkLabel = API.Gumps.CreateGumpTTFLabel("Home:", 15, "#aaaaaa")
 homeHkLabel.SetPos(5, configY + 3)
 homeHkLabel.IsVisible = False
 gump.Add(homeHkLabel)
@@ -926,7 +926,7 @@ gump.Add(homeHkBtn)
 
 # Bank hotkey
 configY += 23
-bankHkLabel = API.Gumps.CreateGumpTTFLabel("Bank:", 8, "#aaaaaa")
+bankHkLabel = API.Gumps.CreateGumpTTFLabel("Bank:", 15, "#aaaaaa")
 bankHkLabel.SetPos(5, configY + 3)
 bankHkLabel.IsVisible = False
 gump.Add(bankHkLabel)
@@ -940,7 +940,7 @@ gump.Add(bankHkBtn)
 
 # Custom1 hotkey
 configY += 23
-custom1HkLabel = API.Gumps.CreateGumpTTFLabel("Custom1:", 8, "#aaaaaa")
+custom1HkLabel = API.Gumps.CreateGumpTTFLabel("Custom1:", 15, "#aaaaaa")
 custom1HkLabel.SetPos(5, configY + 3)
 custom1HkLabel.IsVisible = False
 gump.Add(custom1HkLabel)
@@ -954,7 +954,7 @@ gump.Add(custom1HkBtn)
 
 # Custom2 hotkey
 configY += 23
-custom2HkLabel = API.Gumps.CreateGumpTTFLabel("Custom2:", 8, "#aaaaaa")
+custom2HkLabel = API.Gumps.CreateGumpTTFLabel("Custom2:", 15, "#aaaaaa")
 custom2HkLabel.SetPos(5, configY + 3)
 custom2HkLabel.IsVisible = False
 gump.Add(custom2HkLabel)

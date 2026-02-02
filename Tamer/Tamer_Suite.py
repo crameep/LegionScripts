@@ -1444,7 +1444,7 @@ def build_config_gump():
     config_gump.Add(cfg_bg)
 
     # Title (no separate bar - integrated into background)
-    title = API.Gumps.CreateGumpTTFLabel("Tamer Suite Configuration v3.0", 13, "#ffaa00")
+    title = API.Gumps.CreateGumpTTFLabel("Tamer Suite Configuration v3.0", 15, "#ffaa00")
     title.SetPos(100, 8)
     config_gump.Add(title)
 
@@ -1461,14 +1461,14 @@ def build_config_gump():
     config_gump.Add(heal_box)
 
     # Header
-    heal_hdr = API.Gumps.CreateGumpTTFLabel("HEALING", 10, "#00ff88")
+    heal_hdr = API.Gumps.CreateGumpTTFLabel("HEALING", 15, "#00ff88")
     heal_hdr.SetPos(col1_x + 45, col1_y + 3)
     config_gump.Add(heal_hdr)
 
     col1_y += 16
 
     # Magery toggle
-    mag_lbl = API.Gumps.CreateGumpTTFLabel("Magery:", 9, "#dddddd")
+    mag_lbl = API.Gumps.CreateGumpTTFLabel("Magery:", 15, "#dddddd")
     mag_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(mag_lbl)
 
@@ -1487,7 +1487,7 @@ def build_config_gump():
     col1_y += 17
 
     # Heal Self
-    hs_lbl = API.Gumps.CreateGumpTTFLabel("Heal Self:", 9, "#dddddd")
+    hs_lbl = API.Gumps.CreateGumpTTFLabel("Heal Self:", 15, "#dddddd")
     hs_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(hs_lbl)
 
@@ -1506,7 +1506,7 @@ def build_config_gump():
     col1_y += 17
 
     # Pet Rez
-    pr_lbl = API.Gumps.CreateGumpTTFLabel("Pet Rez:", 9, "#dddddd")
+    pr_lbl = API.Gumps.CreateGumpTTFLabel("Pet Rez:", 15, "#dddddd")
     pr_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(pr_lbl)
 
@@ -1525,7 +1525,7 @@ def build_config_gump():
     col1_y += 17
 
     # Skip OOR
-    so_lbl = API.Gumps.CreateGumpTTFLabel("Skip OOR:", 9, "#dddddd")
+    so_lbl = API.Gumps.CreateGumpTTFLabel("Skip OOR:", 15, "#dddddd")
     so_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(so_lbl)
 
@@ -1544,7 +1544,7 @@ def build_config_gump():
     col1_y += 17
 
     # Potions
-    pot_lbl = API.Gumps.CreateGumpTTFLabel("Potions:", 9, "#dddddd")
+    pot_lbl = API.Gumps.CreateGumpTTFLabel("Potions:", 15, "#dddddd")
     pot_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(pot_lbl)
 
@@ -1563,7 +1563,7 @@ def build_config_gump():
     col1_y += 17
 
     # Self Bandage Timer
-    self_timer_lbl = API.Gumps.CreateGumpTTFLabel("Self Band:", 9, "#dddddd")
+    self_timer_lbl = API.Gumps.CreateGumpTTFLabel("Self Band:", 15, "#dddddd")
     self_timer_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(self_timer_lbl)
 
@@ -1573,7 +1573,7 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(self_dec, lambda: adjust_self_delay(False))
     config_gump.Add(self_dec)
 
-    config_controls["self_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(SELF_DELAY), 9, "#ffaa00")
+    config_controls["self_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(SELF_DELAY), 15, "#ffaa00")
     config_controls["self_delay_val"].SetPos(col1_x + 88, col1_y + 3)
     config_gump.Add(config_controls["self_delay_val"])
 
@@ -1586,7 +1586,7 @@ def build_config_gump():
     col1_y += 17
 
     # Pet Bandage Timer
-    vet_timer_lbl = API.Gumps.CreateGumpTTFLabel("Pet Band:", 9, "#dddddd")
+    vet_timer_lbl = API.Gumps.CreateGumpTTFLabel("Pet Band:", 15, "#dddddd")
     vet_timer_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(vet_timer_lbl)
 
@@ -1596,7 +1596,7 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(vet_dec, lambda: adjust_vet_delay(False))
     config_gump.Add(vet_dec)
 
-    config_controls["vet_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(VET_DELAY), 9, "#ffaa00")
+    config_controls["vet_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(VET_DELAY), 15, "#ffaa00")
     config_controls["vet_delay_val"].SetPos(col1_x + 88, col1_y + 3)
     config_gump.Add(config_controls["vet_delay_val"])
 
@@ -1609,7 +1609,7 @@ def build_config_gump():
     col1_y += 17
 
     # Vet Kit Timer
-    vet_kit_timer_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 9, "#dddddd")
+    vet_kit_timer_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 15, "#dddddd")
     vet_kit_timer_lbl.SetPos(col1_x + 4, col1_y + 3)
     config_gump.Add(vet_kit_timer_lbl)
 
@@ -1619,7 +1619,7 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(vet_kit_dec, lambda: adjust_vet_kit_delay(False))
     config_gump.Add(vet_kit_dec)
 
-    config_controls["vet_kit_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(VET_KIT_DELAY), 9, "#ffaa00")
+    config_controls["vet_kit_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(VET_KIT_DELAY), 15, "#ffaa00")
     config_controls["vet_kit_delay_val"].SetPos(col1_x + 88, col1_y + 3)
     config_gump.Add(config_controls["vet_kit_delay_val"])
 
@@ -1632,13 +1632,13 @@ def build_config_gump():
     col1_y += 20
 
     # Tank Priority
-    tank_lbl = API.Gumps.CreateGumpTTFLabel("Tank Priority:", 9, "#dddddd")
+    tank_lbl = API.Gumps.CreateGumpTTFLabel("Tank Priority:", 15, "#dddddd")
     tank_lbl.SetPos(col1_x + 4, col1_y)
     config_gump.Add(tank_lbl)
 
     col1_y += 12
     tank_name = get_tank_name() if TANK_PET != 0 else "None"
-    tank_val = API.Gumps.CreateGumpTTFLabel(tank_name, 9, "#ffaaff" if TANK_PET != 0 else "#aaaaaa")
+    tank_val = API.Gumps.CreateGumpTTFLabel(tank_name, 15, "#ffaaff" if TANK_PET != 0 else "#aaaaaa")
     tank_val.SetPos(col1_x + 4, col1_y)
     config_gump.Add(tank_val)
 
@@ -1665,14 +1665,14 @@ def build_config_gump():
     config_gump.Add(cmd_box)
 
     # Header
-    cmd_hdr = API.Gumps.CreateGumpTTFLabel("COMMANDS", 10, "#ff6666")
+    cmd_hdr = API.Gumps.CreateGumpTTFLabel("COMMANDS", 15, "#ff6666")
     cmd_hdr.SetPos(col2_x + 40, col2_y + 3)
     config_gump.Add(cmd_hdr)
 
     col2_y += 16
 
     # REDS
-    red_lbl = API.Gumps.CreateGumpTTFLabel("REDS:", 9, "#dddddd")
+    red_lbl = API.Gumps.CreateGumpTTFLabel("REDS:", 15, "#dddddd")
     red_lbl.SetPos(col2_x + 4, col2_y + 3)
     config_gump.Add(red_lbl)
 
@@ -1691,7 +1691,7 @@ def build_config_gump():
     col2_y += 17
 
     # GRAYS
-    gray_lbl = API.Gumps.CreateGumpTTFLabel("GRAYS:", 9, "#dddddd")
+    gray_lbl = API.Gumps.CreateGumpTTFLabel("GRAYS:", 15, "#dddddd")
     gray_lbl.SetPos(col2_x + 4, col2_y + 3)
     config_gump.Add(gray_lbl)
 
@@ -1710,7 +1710,7 @@ def build_config_gump():
     col2_y += 17
 
     # Mode
-    mode_lbl = API.Gumps.CreateGumpTTFLabel("Mode:", 9, "#dddddd")
+    mode_lbl = API.Gumps.CreateGumpTTFLabel("Mode:", 15, "#dddddd")
     mode_lbl.SetPos(col2_x + 4, col2_y + 3)
     config_gump.Add(mode_lbl)
 
@@ -1729,7 +1729,7 @@ def build_config_gump():
     col2_y += 17
 
     # Auto-Target
-    at_lbl = API.Gumps.CreateGumpTTFLabel("Auto-Target:", 9, "#dddddd")
+    at_lbl = API.Gumps.CreateGumpTTFLabel("Auto-Target:", 15, "#dddddd")
     at_lbl.SetPos(col2_x + 4, col2_y + 3)
     config_gump.Add(at_lbl)
 
@@ -1755,20 +1755,20 @@ def build_config_gump():
     config_gump.Add(eq_box)
 
     # Header
-    eq_hdr = API.Gumps.CreateGumpTTFLabel("EQUIPMENT", 10, "#ffaa00")
+    eq_hdr = API.Gumps.CreateGumpTTFLabel("EQUIPMENT", 15, "#ffaa00")
     eq_hdr.SetPos(col3_x + 40, col3_y + 3)
     config_gump.Add(eq_hdr)
 
     col3_y += 16
 
     # Vet Kit
-    vk_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 9, "#dddddd")
+    vk_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 15, "#dddddd")
     vk_lbl.SetPos(col3_x + 4, col3_y)
     config_gump.Add(vk_lbl)
 
     col3_y += 12
     vk_val_text = "#" + str(VET_KIT_GRAPHIC) if VET_KIT_GRAPHIC != 0 else "Not Set"
-    vk_val = API.Gumps.CreateGumpTTFLabel(vk_val_text, 9, "#aaffaa" if VET_KIT_GRAPHIC != 0 else "#aaaaaa")
+    vk_val = API.Gumps.CreateGumpTTFLabel(vk_val_text, 15, "#aaffaa" if VET_KIT_GRAPHIC != 0 else "#aaaaaa")
     vk_val.SetPos(col3_x + 4, col3_y)
     config_gump.Add(vk_val)
 
@@ -1788,13 +1788,13 @@ def build_config_gump():
     col3_y += 22
 
     # Trapped Pouch
-    tp_lbl = API.Gumps.CreateGumpTTFLabel("Pouch:", 9, "#dddddd")
+    tp_lbl = API.Gumps.CreateGumpTTFLabel("Pouch:", 15, "#dddddd")
     tp_lbl.SetPos(col3_x + 4, col3_y)
     config_gump.Add(tp_lbl)
 
     col3_y += 12
     tp_val_text = hex(trapped_pouch_serial) if trapped_pouch_serial != 0 else "Not Set"
-    tp_val = API.Gumps.CreateGumpTTFLabel(tp_val_text, 9, "#aaffaa" if trapped_pouch_serial != 0 else "#aaaaaa")
+    tp_val = API.Gumps.CreateGumpTTFLabel(tp_val_text, 15, "#aaffaa" if trapped_pouch_serial != 0 else "#aaaaaa")
     tp_val.SetPos(col3_x + 4, col3_y)
     config_gump.Add(tp_val)
 
@@ -1814,7 +1814,7 @@ def build_config_gump():
     col3_y += 21
 
     # Use Pouch
-    up_lbl = API.Gumps.CreateGumpTTFLabel("Use Pouch:", 9, "#dddddd")
+    up_lbl = API.Gumps.CreateGumpTTFLabel("Use Pouch:", 15, "#dddddd")
     up_lbl.SetPos(col3_x + 4, col3_y + 3)
     config_gump.Add(up_lbl)
 
@@ -1837,7 +1837,7 @@ def build_config_gump():
     pk_box.SetRect(8, sec2_y, 504, 75)
     config_gump.Add(pk_box)
 
-    pk_hdr = API.Gumps.CreateGumpTTFLabel("PET HOTKEYS", 10, "#ffaa00")
+    pk_hdr = API.Gumps.CreateGumpTTFLabel("PET HOTKEYS", 15, "#ffaa00")
     pk_hdr.SetPos(200, sec2_y + 3)
     config_gump.Add(pk_hdr)
 
@@ -1852,7 +1852,7 @@ def build_config_gump():
         else:
             lbl_text = "Pet " + str(i+1) + ":"
 
-        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 15, "#dddddd")
         pk_lbl.SetPos(15, pk_row_y + 3)
         config_gump.Add(pk_lbl)
 
@@ -1881,7 +1881,7 @@ def build_config_gump():
         else:
             lbl_text = "Pet " + str(i+1) + ":"
 
-        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        pk_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 15, "#dddddd")
         pk_lbl.SetPos(265, pk_row_y + 3)
         config_gump.Add(pk_lbl)
 
@@ -1907,7 +1907,7 @@ def build_config_gump():
     om_box.SetRect(8, sec3_y, 504, 75)
     config_gump.Add(om_box)
 
-    om_hdr = API.Gumps.CreateGumpTTFLabel("ORDER MODE (any skip = individual cmds)", 10, "#66aaff")
+    om_hdr = API.Gumps.CreateGumpTTFLabel("ORDER MODE (any skip = individual cmds)", 15, "#66aaff")
     om_hdr.SetPos(115, sec3_y + 3)
     config_gump.Add(om_hdr)
 
@@ -1924,7 +1924,7 @@ def build_config_gump():
             lbl_text = "Pet " + str(i+1) + ":"
             is_active = True
 
-        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 15, "#dddddd")
         om_lbl.SetPos(15, om_row_y + 3)
         config_gump.Add(om_lbl)
 
@@ -1954,7 +1954,7 @@ def build_config_gump():
             lbl_text = "Pet " + str(i+1) + ":"
             is_active = True
 
-        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 9, "#dddddd")
+        om_lbl = API.Gumps.CreateGumpTTFLabel(lbl_text, 15, "#dddddd")
         om_lbl.SetPos(295, om_row_y + 3)
         config_gump.Add(om_lbl)
 
@@ -1979,7 +1979,7 @@ def build_config_gump():
     ch_box.SetRect(8, sec4_y, 504, 78)
     config_gump.Add(ch_box)
 
-    ch_hdr = API.Gumps.CreateGumpTTFLabel("COMMAND HOTKEYS", 10, "#ff8800")
+    ch_hdr = API.Gumps.CreateGumpTTFLabel("COMMAND HOTKEYS", 15, "#ff8800")
     ch_hdr.SetPos(185, sec4_y + 3)
     config_gump.Add(ch_hdr)
 
@@ -1987,7 +1987,7 @@ def build_config_gump():
     cmd_y = sec4_y + 18
 
     # Pause
-    ch_pause_lbl = API.Gumps.CreateGumpTTFLabel("Pause:", 9, "#dddddd")
+    ch_pause_lbl = API.Gumps.CreateGumpTTFLabel("Pause:", 15, "#dddddd")
     ch_pause_lbl.SetPos(15, cmd_y + 3)
     config_gump.Add(ch_pause_lbl)
 
@@ -2004,7 +2004,7 @@ def build_config_gump():
     config_gump.Add(ch_pause_set)
 
     # Kill
-    ch_kill_lbl = API.Gumps.CreateGumpTTFLabel("Kill:", 9, "#dddddd")
+    ch_kill_lbl = API.Gumps.CreateGumpTTFLabel("Kill:", 15, "#dddddd")
     ch_kill_lbl.SetPos(170, cmd_y + 3)
     config_gump.Add(ch_kill_lbl)
 
@@ -2021,7 +2021,7 @@ def build_config_gump():
     config_gump.Add(ch_kill_set)
 
     # Guard
-    ch_guard_lbl = API.Gumps.CreateGumpTTFLabel("Guard:", 9, "#dddddd")
+    ch_guard_lbl = API.Gumps.CreateGumpTTFLabel("Guard:", 15, "#dddddd")
     ch_guard_lbl.SetPos(300, cmd_y + 3)
     config_gump.Add(ch_guard_lbl)
 
@@ -2041,7 +2041,7 @@ def build_config_gump():
     cmd_y += 20
 
     # Follow
-    ch_follow_lbl = API.Gumps.CreateGumpTTFLabel("Follow:", 9, "#dddddd")
+    ch_follow_lbl = API.Gumps.CreateGumpTTFLabel("Follow:", 15, "#dddddd")
     ch_follow_lbl.SetPos(15, cmd_y + 3)
     config_gump.Add(ch_follow_lbl)
 
@@ -2058,7 +2058,7 @@ def build_config_gump():
     config_gump.Add(ch_follow_set)
 
     # Stay
-    ch_stay_lbl = API.Gumps.CreateGumpTTFLabel("Stay:", 9, "#dddddd")
+    ch_stay_lbl = API.Gumps.CreateGumpTTFLabel("Stay:", 15, "#dddddd")
     ch_stay_lbl.SetPos(160, cmd_y + 3)
     config_gump.Add(ch_stay_lbl)
 
@@ -2881,7 +2881,7 @@ API.Gumps.AddControlOnClick(expandBtn, toggle_expand)
 gump.Add(expandBtn)
 
 # Bandage count (top center) - ALWAYS VISIBLE
-bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 9, "#AAFFAA", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
+bandageLabel = API.Gumps.CreateGumpTTFLabel("Bandages: ???", 15, "#AAFFAA", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 bandageLabel.SetPos(0, 24)
 gump.Add(bandageLabel)
 
@@ -2905,7 +2905,7 @@ modeBtn.IsVisible = is_expanded
 API.Gumps.AddControlOnClick(modeBtn, toggle_mode)
 gump.Add(modeBtn)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 9, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Running", 15, "#00ff00")
 statusLabel.SetPos(x + 145, y + 5)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
@@ -2954,7 +2954,7 @@ gump.Add(stayAllBtn)
 y += 24
 
 # ========== PETS SECTION ==========
-petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 9, "#00ffaa", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
+petsTitle = API.Gumps.CreateGumpTTFLabel("=== PETS ===", 15, "#00ffaa", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 petsTitle.SetPos(0, y)
 petsTitle.IsVisible = is_expanded
 gump.Add(petsTitle)

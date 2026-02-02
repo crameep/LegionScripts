@@ -812,20 +812,20 @@ gump.Add(expandBtn)
 leftMargin = 5
 y = 26
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 11, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Status: ACTIVE", 15, "#00ff00")
 statusLabel.SetPos(leftMargin, y)
 statusLabel.IsVisible = is_expanded
 gump.Add(statusLabel)
 
 y += 13
-satchelLabel = API.Gumps.CreateGumpTTFLabel("Container: [Not Set]", 11, "#ff6666")
+satchelLabel = API.Gumps.CreateGumpTTFLabel("Container: [Not Set]", 15, "#ff6666")
 satchelLabel.SetPos(leftMargin, y)
 satchelLabel.IsVisible = is_expanded
 gump.Add(satchelLabel)
 
 y += 14
 # Income display with mode toggle button and reset button
-incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 13, "#00ff88")
+incomeLabel = API.Gumps.CreateGumpTTFLabel("0/m | 0/hr", 15, "#00ff88")
 incomeLabel.SetPos(leftMargin, y)
 incomeLabel.IsVisible = is_expanded
 gump.Add(incomeLabel)
@@ -847,7 +847,7 @@ API.Gumps.AddControlOnClick(incomeModeBtn, toggle_income_mode)
 gump.Add(incomeModeBtn)
 
 y += 16
-sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 14, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
+sessionLabel = API.Gumps.CreateGumpTTFLabel("Banked: 0 gold", 15, "#ffcc00", aligned="center", maxWidth=WINDOW_WIDTH_NORMAL)
 sessionLabel.SetPos(0, y)
 sessionLabel.IsVisible = is_expanded
 gump.Add(sessionLabel)
