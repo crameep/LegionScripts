@@ -1927,7 +1927,7 @@ try:
             # Debug: Show countdown every 0.5s
             if int(elapsed * 2) != int((elapsed - 0.1) * 2):  # Every 0.5s
                 remaining = max(0, 2.0 - elapsed)
-                API.SysMsg("Recalling in " + str(round(remaining, 1)) + "s...", HUE_BLUE)
+                API.SysMsg("Recalling in " + str(round(remaining, 1)) + "s...", HUE_GRAY)
 
             if elapsed >= 2.0:
                 API.SysMsg("2 seconds elapsed, attempting recall...", HUE_YELLOW)
