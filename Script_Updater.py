@@ -1033,9 +1033,12 @@ gump.Add(title)
 
 # Instructions with script count
 API.SysMsg("DEBUG: Creating instructions...", 88)
-script_count_text = str(script_count) + " scripts" if MANAGED_SCRIPTS else "Click 'Check Updates' to load scripts"
-API.SysMsg("DEBUG: script_count_text='" + script_count_text + "'", 88)
-instructions = API.Gumps.CreateGumpTTFLabel(script_count_text + " | Check for updates", 8, "#aaaaaa")
+if MANAGED_SCRIPTS:
+    instr_text = str(script_count) + " scripts - Check for updates"
+else:
+    instr_text = "Click Check Updates to load scripts"
+API.SysMsg("DEBUG: instr_text len=" + str(len(instr_text)), 88)
+instructions = API.Gumps.CreateGumpTTFLabel(instr_text, 8, "#aaaaaa")
 API.SysMsg("DEBUG: instructions label created", 88)
 instructions.SetPos(10, 28)
 gump.Add(instructions)
