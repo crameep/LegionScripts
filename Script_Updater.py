@@ -1046,7 +1046,7 @@ API.SysMsg("DEBUG: instructions added to gump", 88)
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 9, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 9)
 header.SetPos(10, y)
 gump.Add(header)
 
@@ -1106,15 +1106,17 @@ gump.Add(showTestBtn)
 
 # Status bar
 y += 25
-statusBg = API.Gumps.CreateGumpColorBox(0.9, "#000000")
+statusBg = API.Gumps.CreateGumpColorBox(0)  # Black background
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 10, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 10)
 statusLabel.SetPos(10, y + 4)
 gump.Add(statusLabel)
 
+API.SysMsg("DEBUG: About to display gump...", 88)
 API.Gumps.AddGump(gump)
+API.SysMsg("DEBUG: Gump displayed successfully!", 68)
 
 # Initial display update
 update_script_list()
