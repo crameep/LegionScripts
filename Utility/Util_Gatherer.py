@@ -1753,9 +1753,15 @@ try:
 
                         # Update counts after smelting
                         update_resource_counts()
-                        API.SysMsg("Smelting complete! Now recalling home...", HUE_GREEN)
+                        API.SysMsg("Smelting complete!", HUE_GREEN)
 
-                # Now recall home and dump
+                        # Check if weight is now OK after smelting (ingots are lighter than ore)
+                        if not should_dump():
+                            API.SysMsg("Weight OK after smelting! Continuing to mine...", HUE_GREEN)
+                            continue  # Back to mining, skip the dump
+
+                # Weight still too high - recall home and dump
+                API.SysMsg("Recalling home to dump...", HUE_YELLOW)
                 if travel.recall_home():
                     state.set_state("dumping")
                 else:
