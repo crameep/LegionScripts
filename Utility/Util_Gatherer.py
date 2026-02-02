@@ -762,35 +762,66 @@ def on_set_fire_beetle():
     except Exception as e:
         API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
 
+def on_capture_storage_gump():
+    """Capture storage container gump ID"""
+    global storage
+
+    API.SysMsg("=== CAPTURE STORAGE GUMP ===", HUE_ORANGE)
+    API.SysMsg("1. Open your storage container NOW", HUE_YELLOW)
+    API.SysMsg("2. Script will detect the gump...", HUE_YELLOW)
+
+    try:
+        # Record current open gumps (to filter them out)
+        # Wait for a new gump to appear
+        API.WaitForGump(delay=10.0)
+
+        # After user interacts with gump, we need to get its ID
+        # Since API doesn't provide easy gump ID detection, we'll use a workaround:
+        # Have user open container, then we try common gump IDs or use inspector
+
+        API.SysMsg("Gump should now be open.", HUE_YELLOW)
+        API.SysMsg("Look at the gump - note any unique ID shown", HUE_YELLOW)
+        API.SysMsg("Then click [SET ID] button to enter it manually", HUE_YELLOW)
+        API.SysMsg("Or use GumpInspector to find the exact ID", HUE_YELLOW)
+
+    except Exception as e:
+        API.SysMsg("Gump capture error: " + str(e), HUE_RED)
+
+def on_set_storage_gump_manual():
+    """Manually set storage gump ID using text input"""
+    API.SysMsg("=== SET STORAGE GUMP ID ===", HUE_ORANGE)
+    API.SysMsg("Use GumpInspector to find your storage gump ID", HUE_YELLOW)
+    API.SysMsg("Then use Python console:", HUE_YELLOW)
+
+    if resource_type == "mining":
+        gump_key = KEY_STORAGE_GUMP_MINING
+        button_key = KEY_STORAGE_BUTTON_MINING
+    else:
+        gump_key = KEY_STORAGE_GUMP_LUMBERJACKING
+        button_key = KEY_STORAGE_BUTTON_LUMBERJACKING
+
+    API.SysMsg("For GUMP ID:", HUE_YELLOW)
+    API.SysMsg("  API.SavePersistentVar('" + gump_key + "', 'YOUR_GUMP_ID', API.PersistentVar.Char)", HUE_GRAY)
+    API.SysMsg("For BUTTON ID:", HUE_YELLOW)
+    API.SysMsg("  API.SavePersistentVar('" + button_key + "', 'YOUR_BUTTON_ID', API.PersistentVar.Char)", HUE_GRAY)
+    API.SysMsg("Then reload Gatherer script", HUE_YELLOW)
+
 def on_show_storage_info():
-    """Show current storage gump/button settings and instructions"""
+    """Show current storage gump/button settings"""
     # Show current values
     if resource_type == "mining":
         gump_id = load_int(KEY_STORAGE_GUMP_MINING, 111922706)
         button_id = load_int(KEY_STORAGE_BUTTON_MINING, 121)
-        gump_key = KEY_STORAGE_GUMP_MINING
-        button_key = KEY_STORAGE_BUTTON_MINING
         res_type = "MINING"
     else:
         gump_id = load_int(KEY_STORAGE_GUMP_LUMBERJACKING, 111922706)
         button_id = load_int(KEY_STORAGE_BUTTON_LUMBERJACKING, 121)
-        gump_key = KEY_STORAGE_GUMP_LUMBERJACKING
-        button_key = KEY_STORAGE_BUTTON_LUMBERJACKING
         res_type = "LUMBERJACKING"
 
-    API.SysMsg("=== " + res_type + " STORAGE SETTINGS ===", HUE_ORANGE)
-    API.SysMsg("Current Gump ID: " + str(gump_id), HUE_YELLOW)
-    API.SysMsg("Current Button ID: " + str(button_id), HUE_YELLOW)
-    API.SysMsg("", HUE_YELLOW)
-    API.SysMsg("To change these settings:", HUE_YELLOW)
-    API.SysMsg("1. Run Util_GumpInspector script", HUE_YELLOW)
-    API.SysMsg("2. Open your storage container", HUE_YELLOW)
-    API.SysMsg("3. Click buttons to see their IDs", HUE_YELLOW)
-    API.SysMsg("4. Note Gump ID and 'Fill/Restock' button ID", HUE_YELLOW)
-    API.SysMsg("5. Use Python console to save:", HUE_YELLOW)
-    API.SysMsg("   API.SavePersistentVar('" + gump_key + "', 'GUMP_ID', API.PersistentVar.Char)", HUE_GRAY)
-    API.SysMsg("   API.SavePersistentVar('" + button_key + "', 'BUTTON_ID', API.PersistentVar.Char)", HUE_GRAY)
-    API.SysMsg("6. Reload this script", HUE_YELLOW)
+    API.SysMsg("=== " + res_type + " STORAGE ===", HUE_ORANGE)
+    API.SysMsg("Gump ID: " + str(gump_id), HUE_YELLOW)
+    API.SysMsg("Button ID: " + str(button_id), HUE_YELLOW)
+    API.SysMsg("Click [SET ID] to configure", HUE_YELLOW)
 
 def adjust_spots(delta):
     """Adjust number of gathering spots by +1 or -1"""
@@ -1224,19 +1255,25 @@ def build_gump():
     controls["storage_label"].SetPos(10, y_offset)
     gump.Add(controls["storage_label"])
 
-    storage_btn = API.Gumps.CreateSimpleButton("SET", 50, 20)
-    storage_btn.SetPos(180, y_offset - 2)
+    storage_btn = API.Gumps.CreateSimpleButton("SET", 40, 20)
+    storage_btn.SetPos(170, y_offset - 2)
     gump.Add(storage_btn)
     API.Gumps.AddControlOnClick(storage_btn, on_set_storage)
 
-    # Storage info button (shows gump/button IDs)
-    storage_info_btn = API.Gumps.CreateSimpleButton("INFO", 50, 20)
-    storage_info_btn.SetPos(235, y_offset - 2)
+    # Storage gump/button ID setter
+    storage_id_btn = API.Gumps.CreateSimpleButton("ID", 35, 20)
+    storage_id_btn.SetPos(215, y_offset - 2)
+    gump.Add(storage_id_btn)
+    API.Gumps.AddControlOnClick(storage_id_btn, on_set_storage_gump_manual)
+
+    # Storage info button
+    storage_info_btn = API.Gumps.CreateSimpleButton("?", 30, 20)
+    storage_info_btn.SetPos(255, y_offset - 2)
     gump.Add(storage_info_btn)
     API.Gumps.AddControlOnClick(storage_info_btn, on_show_storage_info)
 
     # Test pathfind button
-    test_pathfind_btn = API.Gumps.CreateSimpleButton("TEST", 50, 20)
+    test_pathfind_btn = API.Gumps.CreateSimpleButton("TST", 35, 20)
     test_pathfind_btn.SetPos(290, y_offset - 2)
     gump.Add(test_pathfind_btn)
     API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
