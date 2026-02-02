@@ -406,29 +406,42 @@ def smelt_ore(skip_threshold=False):
     API.SysMsg("Fire beetle found and nearby! Distance: " + str(beetle.Distance), HUE_GREEN)
 
     try:
-        # Use ingots (actually use ore, which smelts into ingots on fire beetle)
+        # Find ore in backpack
         API.FindType(ORE_GRAPHIC)
         if not API.Found:
+            API.SysMsg("No ore found in backpack!", HUE_RED)
             return False
 
         ore_item = get_item_safe(API.Found)
         if not ore_item:
+            API.SysMsg("Ore item not accessible!", HUE_RED)
             return False
 
-        # Use ore on beetle to smelt
-        cancel_all_targets()
+        API.SysMsg("Found ore stack, setting up pre-target...", HUE_BLUE)
 
-        # Pre-target the beetle
-        API.CancelPreTarget()
-        API.PreTarget(beetle.Serial, "beneficial")
-        API.Pause(0.2)
+        # Cancel any existing targets first
+        if API.HasTarget():
+            API.CancelTarget()
+        if API.CancelPreTarget():
+            API.Pause(0.1)
 
-        # Use ore (will target beetle automatically)
+        # CRITICAL: Set PreTarget BEFORE using the ore
+        # This tells the client to auto-target the beetle when the cursor appears
+        API.PreTarget(beetle.Serial, "neutral")
+        API.Pause(0.3)
+
+        API.SysMsg("Using ore (should auto-target beetle)...", HUE_BLUE)
+
+        # Use ore - this opens target cursor, which should auto-apply to beetle
         API.UseObject(ore_item.Serial, False)
-        API.Pause(SMELT_DELAY)
+        API.Pause(SMELT_DELAY + 1.0)
 
+        # Clean up
+        if API.HasTarget():
+            API.CancelTarget()
         API.CancelPreTarget()
-        API.SysMsg("Smelting ore... (" + str(ore_count) + " ore)", HUE_ORANGE)
+
+        API.SysMsg("Smelting complete! (" + str(ore_count) + " ore -> ingots)", HUE_ORANGE)
         update_resource_counts()
         return True
 
