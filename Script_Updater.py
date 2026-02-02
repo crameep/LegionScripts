@@ -128,6 +128,7 @@ def parse_version(script_path):
                 # Show first 500 chars to diagnose
                 preview = content[:500].replace('\n', '\\n').replace('\r', '\\r')
     except Exception as e:
+        pass
     return None
 
 def compare_versions(v1, v2):
@@ -175,6 +176,7 @@ def get_local_version(relative_path):
             version = parse_version(path)
             return version
     except Exception as e:
+        pass
     return None
 
 def download_script(relative_path):
@@ -195,6 +197,7 @@ def download_script(relative_path):
             content = response.read()
 
         if len(content) < 100:
+            pass
         debug_msg("Downloaded " + str(len(content)) + " bytes")
         return (True, content)
     except Exception as e:
@@ -272,11 +275,14 @@ def write_script(relative_path, content):
             try:
                 test_version = parse_version(path)
                 if test_version:
+                    pass
                 else:
+                    pass
             except:
                 pass
         else:
 
+            pass
         debug_msg("Wrote " + str(len(content)) + " bytes to " + relative_path)
         return (True, None)
     except Exception as e:
