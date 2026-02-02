@@ -781,23 +781,22 @@ def resume_gathering():
         API.SysMsg("Already running!", HUE_YELLOW)
         return
 
-    if not travel.at_home:
-        API.SysMsg("Not at home! Can't resume.", HUE_RED)
-        return
-
     # Show which spot we're going to
     next_spot = travel.current_spot + 1
     next_slot = 2 + travel.current_spot
+
+    API.SysMsg("Attempting to recall to gathering spot " + str(next_spot) + "...", HUE_YELLOW)
 
     # Recall to next gathering spot
     if travel.rotate_to_next_spot():
         # Successfully recalled - unpause and continue
         PAUSED = False
-        API.SysMsg("RESUMED - Gathering at spot " + str(next_spot) + "/" + str(num_gathering_spots) + " (slot " + str(next_slot) + ")", HUE_GREEN)
+        travel.at_home = False  # Mark as not at home
+        API.SysMsg("RESUMED - Now at spot " + str(next_spot) + "/" + str(num_gathering_spots) + " (slot " + str(next_slot) + ")", HUE_GREEN)
         update_display()
     else:
         # Recall failed - stay paused
-        API.SysMsg("Failed to recall to gathering spot!", HUE_RED)
+        API.SysMsg("Failed to recall! Make sure you're at home with runebook.", HUE_RED)
 
 # ============ DISPLAY UPDATES ============
 
@@ -983,13 +982,15 @@ def build_gump():
     controls["status_label"].SetPos(200, y_offset)
     gump.Add(controls["status_label"])
 
+    y_offset += 22  # Move to next row
+
     # Resume button (shows after dump)
     controls["resume_btn"] = API.Gumps.CreateSimpleButton("RESUME", 100, 22)
-    controls["resume_btn"].SetPos(120, y_offset + 20)
+    controls["resume_btn"].SetPos(120, y_offset)
     gump.Add(controls["resume_btn"])
     API.Gumps.AddControlOnClick(controls["resume_btn"], resume_gathering)
 
-    y_offset += 20  # Extra space for resume button row
+    y_offset += 28  # Extra space for resume button + gap
 
     # Setup section
     controls["tool_label"] = API.Gumps.CreateGumpTTFLabel("Tool: Not Set", 15, "#ffffff")
