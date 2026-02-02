@@ -417,16 +417,16 @@ def smelt_ore(skip_threshold=False):
             API.SysMsg("Ore item not accessible!", HUE_RED)
             return False
 
-        # Use same pattern as convert_logs_to_boards (which works automatically)
+        # Smelting sequence: Use ore, then target beetle
         # Cancel any existing targets
         cancel_all_targets()
 
-        # Pre-target the fire beetle
+        # Pre-target the fire beetle FIRST
         API.PreTarget(beetle.Serial, "neutral")
-        API.Pause(0.1)
+        API.Pause(0.2)
 
-        # Use ore on the beetle (pass OBJECT not SERIAL - this is critical!)
-        API.UseObject(ore_item, False)
+        # Use ore SERIAL (not object) - this opens cursor which PreTarget handles
+        API.UseObject(ore_item.Serial, False)
         API.Pause(SMELT_DELAY)
 
         # Clean up
