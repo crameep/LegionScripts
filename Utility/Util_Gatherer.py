@@ -377,14 +377,15 @@ def smelt_ore():
     if ore_count < SMELT_ORE_THRESHOLD:
         return False
 
-    # Get fire beetle
-    beetle = get_item_safe(fire_beetle_serial)
-    if not beetle:
+    # Get fire beetle (it's a mobile, not an item!)
+    beetle = API.FindMobile(fire_beetle_serial)
+    if not beetle or beetle.IsDead:
+        API.SysMsg("Fire beetle not found or dead!", HUE_YELLOW)
         return False
 
     # Check if beetle is nearby
     if beetle.Distance > 2:
-        API.SysMsg("Fire beetle too far away!", HUE_YELLOW)
+        API.SysMsg("Fire beetle too far away! (" + str(beetle.Distance) + " tiles)", HUE_YELLOW)
         return False
 
     try:
