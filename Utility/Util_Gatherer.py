@@ -375,18 +375,27 @@ def smelt_ore():
     # Check if we have enough ore to smelt
     ore_count = count_resources(ORE_GRAPHIC)
     if ore_count < SMELT_ORE_THRESHOLD:
+        # Not enough ore - this is normal, no message needed
         return False
+
+    API.SysMsg("Attempting to smelt " + str(ore_count) + " ore...", HUE_ORANGE)
 
     # Get fire beetle (it's a mobile, not an item!)
     beetle = API.FindMobile(fire_beetle_serial)
-    if not beetle or beetle.IsDead:
-        API.SysMsg("Fire beetle not found or dead!", HUE_YELLOW)
+    if not beetle:
+        API.SysMsg("Fire beetle not found! Serial: 0x" + hex(fire_beetle_serial)[2:].upper(), HUE_RED)
+        return False
+
+    if beetle.IsDead:
+        API.SysMsg("Fire beetle is dead!", HUE_RED)
         return False
 
     # Check if beetle is nearby
     if beetle.Distance > 2:
         API.SysMsg("Fire beetle too far away! (" + str(beetle.Distance) + " tiles)", HUE_YELLOW)
         return False
+
+    API.SysMsg("Fire beetle found and nearby! Distance: " + str(beetle.Distance), HUE_GREEN)
 
     try:
         # Use ingots (actually use ore, which smelts into ingots on fire beetle)
@@ -1697,9 +1706,18 @@ try:
             if resource_type == "mining" and fire_beetle_serial > 0:
                 ore_count = count_resources(ORE_GRAPHIC)
                 if ore_count >= SMELT_ORE_THRESHOLD:
+                    API.SysMsg("SMELT CHECK: " + str(ore_count) + " ore, threshold " + str(SMELT_ORE_THRESHOLD), HUE_BLUE)
                     if smelt_ore():
                         API.Pause(0.5)
                         continue
+            elif resource_type != "mining":
+                # Debug: Show why we're not smelting
+                if time.time() % 10 < 0.1:  # Once every 10 seconds
+                    API.SysMsg("Not mining - resource type: " + resource_type, HUE_GRAY)
+            elif fire_beetle_serial == 0:
+                # Debug: Show why we're not smelting
+                if time.time() % 10 < 0.1:  # Once every 10 seconds
+                    API.SysMsg("No fire beetle configured!", HUE_GRAY)
 
             # Check if we should dump
             if should_dump():
