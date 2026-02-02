@@ -1201,11 +1201,12 @@ def update_display():
             if resource_type == "mining":
                 beetle_text = "Not Set"
                 if fire_beetle_serial > 0:
-                    beetle = get_item_safe(fire_beetle_serial)
-                    if beetle and beetle.Distance <= 2:
-                        beetle_text = "Nearby!"
-                    elif beetle:
-                        beetle_text = "Far (" + str(beetle.Distance) + ")"
+                    beetle = API.FindMobile(fire_beetle_serial)
+                    if beetle and not beetle.IsDead:
+                        if beetle.Distance <= 2:
+                            beetle_text = "Nearby!"
+                        else:
+                            beetle_text = "Far (" + str(beetle.Distance) + ")"
                     else:
                         beetle_text = "Not found"
                 controls["beetle_label"].SetText("Beetle: " + beetle_text)
@@ -1360,7 +1361,8 @@ def on_gump_closed():
     global PAUSED
     PAUSED = True  # Pause when gump closes
     cleanup()
-    API.SysMsg("Gatherer gump closed - script paused", HUE_YELLOW)
+    API.SysMsg("Gatherer gump closed - stopping script", HUE_YELLOW)
+    API.Stop()  # Stop the script when gump is closed
 
 # ============ BUILD GUI ============
 
