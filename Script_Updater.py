@@ -1063,7 +1063,7 @@ except Exception as e:
 
 # Column headers
 y = 48
-header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 11, "#ffaa00")
+header = API.Gumps.CreateGumpTTFLabel("[ ] [Category] Script Name         | Local  | Remote | Status", 16, "#ffaa00")
 header.SetPos(10, y)
 gump.Add(header)
 
@@ -1127,7 +1127,7 @@ statusBg = API.Gumps.CreateGumpColorBox(0.9, "#000000")
 statusBg.SetRect(5, y, win_width - 10, 25)
 gump.Add(statusBg)
 
-statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 10, "#00ff00")
+statusLabel = API.Gumps.CreateGumpTTFLabel("Ready", 16, "#00ff00")
 statusLabel.SetPos(10, y + 4)
 gump.Add(statusLabel)
 
