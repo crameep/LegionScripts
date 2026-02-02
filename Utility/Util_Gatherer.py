@@ -417,29 +417,73 @@ def smelt_ore(skip_threshold=False):
             API.SysMsg("Ore item not accessible!", HUE_RED)
             return False
 
-        API.SysMsg("Found ore stack, setting up pre-target...", HUE_BLUE)
+        API.SysMsg("Found ore stack, using ore...", HUE_BLUE)
 
         # Cancel any existing targets first
         if API.HasTarget():
             API.CancelTarget()
-        if API.CancelPreTarget():
-            API.Pause(0.1)
+        API.Pause(0.1)
 
-        # CRITICAL: Set PreTarget BEFORE using the ore
-        # This tells the client to auto-target the beetle when the cursor appears
-        API.PreTarget(beetle.Serial, "neutral")
-        API.Pause(0.3)
-
-        API.SysMsg("Using ore (should auto-target beetle)...", HUE_BLUE)
-
-        # Use ore - this opens target cursor, which should auto-apply to beetle
+        # Use ore to open target cursor
         API.UseObject(ore_item.Serial, False)
-        API.Pause(SMELT_DELAY + 1.0)
+        API.Pause(0.5)
+
+        # Wait for target cursor to appear
+        wait_count = 0
+        while not API.HasTarget() and wait_count < 20:
+            API.Pause(0.1)
+            wait_count += 1
+
+        if not API.HasTarget():
+            API.SysMsg("Target cursor didn't appear!", HUE_RED)
+            return False
+
+        API.SysMsg("Target cursor active, attempting to target beetle...", HUE_BLUE)
+
+        # Try different targeting methods (some may be undocumented but might work)
+        target_success = False
+
+        # Method 1: Try API.Target() even though it's supposedly deprecated
+        try:
+            API.Target(beetle.Serial)
+            target_success = True
+            API.SysMsg("Target sent via API.Target()", HUE_GREEN)
+        except Exception as e:
+            API.SysMsg("API.Target() failed: " + str(e), HUE_GRAY)
+
+        # Method 2: Try API.TargetSerial()
+        if not target_success:
+            try:
+                API.TargetSerial(beetle.Serial)
+                target_success = True
+                API.SysMsg("Target sent via API.TargetSerial()", HUE_GREEN)
+            except Exception as e:
+                API.SysMsg("API.TargetSerial() failed: " + str(e), HUE_GRAY)
+
+        # Method 3: Try using the mobile object directly
+        if not target_success:
+            try:
+                API.TargetEntity(beetle)
+                target_success = True
+                API.SysMsg("Target sent via API.TargetEntity()", HUE_GREEN)
+            except Exception as e:
+                API.SysMsg("API.TargetEntity() failed: " + str(e), HUE_GRAY)
+
+        if not target_success:
+            API.SysMsg("All targeting methods failed! Manual target needed.", HUE_RED)
+            API.SysMsg("Please click the fire beetle manually...", HUE_YELLOW)
+            # Wait for manual targeting
+            manual_wait = 0
+            while API.HasTarget() and manual_wait < 50:
+                API.Pause(0.1)
+                manual_wait += 1
+
+        # Wait for smelting to complete
+        API.Pause(SMELT_DELAY)
 
         # Clean up
         if API.HasTarget():
             API.CancelTarget()
-        API.CancelPreTarget()
 
         API.SysMsg("Smelting complete! (" + str(ore_count) + " ore -> ingots)", HUE_ORANGE)
         update_resource_counts()
