@@ -79,7 +79,7 @@ COMBAT_DISTANCE = 10  # Detect enemies within this range
 DEFAULT_WEIGHT_THRESHOLD = 80  # Return home at 80% capacity
 
 # Smelting settings (mining only)
-SMELT_ORE_THRESHOLD = 50  # Smelt when this many ore in backpack
+SMELT_ORE_THRESHOLD = 20  # Smelt when this many ore in backpack (lower to avoid weight issues)
 SMELT_DELAY = 2.0  # Seconds for smelting animation
 
 # Movement settings
@@ -368,13 +368,21 @@ def get_resource_type():
     else:
         return "mining"  # Default
 
-def smelt_ore():
-    """Smelt ore using fire beetle"""
+def smelt_ore(skip_threshold=False):
+    """Smelt ore using fire beetle
+
+    Args:
+        skip_threshold: If True, smelt even if ore count < 50 (for pre-dump smelting)
+    """
     global ore_count
 
     # Check if we have enough ore to smelt
     ore_count = count_resources(ORE_GRAPHIC)
-    if ore_count < SMELT_ORE_THRESHOLD:
+
+    if ore_count == 0:
+        return False  # No ore at all
+
+    if not skip_threshold and ore_count < SMELT_ORE_THRESHOLD:
         # Not enough ore - this is normal, no message needed
         return False
 
@@ -1721,6 +1729,29 @@ try:
 
             # Check if we should dump
             if should_dump():
+                # Smelt ALL remaining ore before dumping (mining only)
+                if resource_type == "mining" and fire_beetle_serial > 0:
+                    ore_count = count_resources(ORE_GRAPHIC)
+                    if ore_count > 0:
+                        API.SysMsg("Smelting all ore before dump...", HUE_ORANGE)
+                        # Smelt all ore stacks (may need multiple iterations)
+                        max_smelt_attempts = 10  # Safety limit
+                        smelt_attempts = 0
+                        while count_resources(ORE_GRAPHIC) > 0 and smelt_attempts < max_smelt_attempts:
+                            if not smelt_ore(skip_threshold=True):
+                                API.SysMsg("Smelt failed, continuing to dump anyway", HUE_YELLOW)
+                                break
+                            API.Pause(SMELT_DELAY)
+                            smelt_attempts += 1
+
+                        if smelt_attempts >= max_smelt_attempts:
+                            API.SysMsg("Max smelt attempts reached, continuing to dump", HUE_YELLOW)
+
+                        # Update counts after smelting
+                        update_resource_counts()
+                        API.SysMsg("Smelting complete! Now recalling home...", HUE_GREEN)
+
+                # Now recall home and dump
                 if travel.recall_home():
                     state.set_state("dumping")
                 else:
