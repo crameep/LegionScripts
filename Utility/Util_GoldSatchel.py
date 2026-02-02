@@ -29,19 +29,20 @@
 import API
 import time
 import sys
+import os
 
-# Add LegionUtils to path
-sys.path.append(r"G:\Ultima Online\TazUO-Launcher.win-x64\TazUO\LegionScripts\CoryCustom\refactors")
+# Add parent directory (CoryCustom root) to path for library imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from LegionUtils import (
     # Phase 1: Foundation utilities
     format_gold_compact, is_in_combat, get_item_safe,
     cancel_all_targets, request_target,
     load_bool, save_bool, load_int, save_int,
     # Phase 2: Standalone utilities
-    ErrorManager, WindowPositionTracker, CooldownTracker,
+    ErrorManager, CooldownTracker, ResourceRateTracker,
     get_item_count,
     # Phase 4: Complex systems
-    HotkeyManager
+    HotkeyManager, WindowPositionTracker
 )
 
 __version__ = "4.0"  # Refactored with LegionUtils v3.0
@@ -84,6 +85,8 @@ is_expanded = True
 show_config = False  # Config panel visibility
 session_gold = 0
 last_scan_time = 0
+script_should_stop = False  # Flag for clean shutdown
+pos_tracker = None  # WindowPositionTracker instance
 
 # Error management
 errors = ErrorManager(cooldown=5.0)
@@ -94,12 +97,8 @@ loot_bag_serial = 0
 salvage_cooldown = CooldownTracker(SALVAGE_INTERVAL)
 
 # Income tracking
-session_start_time = 0
-total_income = 0  # Total gold looted (delta tracking)
-last_known_gold = 0  # Last check amount
+income_tracker = ResourceRateTracker("gold", check_interval=2.0, notify_threshold=100)
 income_display_mode = 0  # 0=compact, 1=full, 2=detailed
-INCOME_CHECK_INTERVAL = 2.0  # Check gold changes every 2s
-last_income_check = 0
 
 # GUI elements
 gump = None
@@ -176,51 +175,6 @@ def count_all_gold():
     except Exception as e:
         debug_msg("Error counting gold: " + str(e))
         return 0
-
-def check_income_delta():
-    """Check for gold increases and update total_income"""
-    global total_income, last_known_gold, last_income_check
-
-    # Only check every INCOME_CHECK_INTERVAL seconds
-    if time.time() - last_income_check < INCOME_CHECK_INTERVAL:
-        return
-
-    last_income_check = time.time()
-
-    current_gold = count_all_gold()
-
-    # On first check, just set baseline
-    if last_known_gold == 0:
-        last_known_gold = current_gold
-        return
-
-    # Check for increase (looting)
-    if current_gold > last_known_gold:
-        delta = current_gold - last_known_gold
-        total_income += delta
-        # Only show message if significant amount (100+)
-        if delta >= 100:
-            API.SysMsg("+" + format_gold_compact(delta) + " gold looted!", 68)
-
-    # Update baseline (handles both increases and decreases)
-    last_known_gold = current_gold
-
-def get_income_rates():
-    """Calculate income rates (per min, per 10min, per hour)"""
-    if session_start_time == 0:
-        return (0, 0, 0)
-
-    elapsed_seconds = time.time() - session_start_time
-    elapsed_minutes = elapsed_seconds / 60.0
-
-    if elapsed_minutes < 0.1:  # Less than 6 seconds
-        return (0, 0, 0)
-
-    gold_per_min = total_income / elapsed_minutes
-    gold_per_10min = gold_per_min * 10
-    gold_per_hour = gold_per_min * 60
-
-    return (gold_per_min, gold_per_10min, gold_per_hour)
 
 def move_gold_to_satchel():
     """Move one gold pile from backpack to container"""
@@ -688,10 +642,7 @@ def reset_session():
 
 def reset_income():
     """Reset only the income counter, not the banked total"""
-    global total_income, last_known_gold, session_start_time
-    total_income = 0
-    last_known_gold = count_all_gold()  # Reset baseline to current gold
-    session_start_time = time.time()
+    income_tracker.reset()
     update_display()
     API.SysMsg("Income counter reset", 68)
 
@@ -780,12 +731,12 @@ def update_display():
                 satchelLabel.SetText("Container: 0x" + format(satchel_serial, 'X') + " [NOT FOUND]")
 
         # Update income display
-        per_min, per_10min, per_hour = get_income_rates()
+        per_min, per_10min, per_hour = income_tracker.get_rates()
 
         if income_display_mode == 0:  # Compact - rates only
             income_text = format_gold_compact(per_min) + "/m | " + format_gold_compact(per_hour) + "/hr"
         elif income_display_mode == 1:  # Full - total + main rate
-            income_text = format_gold_compact(total_income) + " (" + format_gold_compact(per_min) + "/m)"
+            income_text = format_gold_compact(income_tracker.total_gained) + " (" + format_gold_compact(per_min) + "/m)"
         else:  # Detailed (mode 2) - all rates
             income_text = format_gold_compact(per_min) + "/m | " + format_gold_compact(per_10min) + "/10m | " + format_gold_compact(per_hour) + "/hr"
 
@@ -821,11 +772,20 @@ initial_height = NORMAL_HEIGHT if is_expanded else COLLAPSED_HEIGHT
 
 gump = API.Gumps.CreateGump()
 
-# Window position tracking
+# Initialize position tracker
 pos_tracker = WindowPositionTracker(gump, SETTINGS_KEY, 100, 100)
 gump.SetRect(pos_tracker.last_x, pos_tracker.last_y, initial_width, initial_height)
 
-API.Gumps.AddControlOnDisposed(gump, lambda: pos_tracker.save())
+def on_gump_closed():
+    """Cleanup when window is closed"""
+    global script_should_stop
+    try:
+        pos_tracker.save()
+    except Exception as e:
+        API.SysMsg("Error saving position: " + str(e), 32)
+    script_should_stop = True  # Signal main loop to stop
+
+API.Gumps.AddControlOnDisposed(gump, on_gump_closed)
 
 bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, initial_width, initial_height)
@@ -1071,12 +1031,15 @@ DISPLAY_UPDATE_INTERVAL = 0.5
 next_scan = time.time() + SCAN_INTERVAL
 next_display = time.time() + DISPLAY_UPDATE_INTERVAL
 
-while not API.StopRequested:
+while not API.StopRequested and not script_should_stop:
     try:
         API.ProcessCallbacks()
 
+        # Track window position periodically
+        pos_tracker.update()
+
         # Track income from looting
-        check_income_delta()
+        income_tracker.update(count_all_gold())
 
         if enabled and time.time() >= next_scan:
             move_gold_to_satchel()

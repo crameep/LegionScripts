@@ -134,6 +134,7 @@ AUTO_TARGET_KEY = "TamerSuite_AutoTarget"
 EXPANDED_KEY = "TamerSuite_Expanded"
 SELF_DELAY_KEY = "TamerSuite_SelfDelay"
 VET_DELAY_KEY = "TamerSuite_VetDelay"
+VET_KIT_DELAY_KEY = "TamerSuite_VetKitDelay"
 
 # Hotkey binding persistence (command hotkeys)
 PAUSE_HOTKEY_KEY = "TamerSuite_HK_Pause"
@@ -385,19 +386,21 @@ def check_critical_alerts():
                 play_sound_alert(SOUND_PET_DIED)
 
 def clear_stray_cursor():
-    try:
-        API.CancelPreTarget()
-    except:
-        pass
+    """Immediate cursor cleanup - prevents leftover cursors"""
     try:
         if API.HasTarget():
             API.CancelTarget()
     except:
         pass
+    try:
+        API.CancelPreTarget()
+    except:
+        pass
 
 def cancel_all_targets():
+    """Clear all targeting cursors - call before every targeting operation"""
     clear_stray_cursor()
-    API.Pause(0.1)
+    API.Pause(0.05)  # Brief pause for server sync
 
 def get_potion_count(graphic):
     """Count total potions of given graphic in backpack"""
@@ -532,6 +535,13 @@ def handle_auto_target():
     if current_attack_target == 0:
         return
 
+    # Skip auto-target if actively healing to avoid interference
+    if HEAL_STATE != "idle":
+        return
+
+    # Clear any stray cursors before auto-targeting
+    clear_stray_cursor()
+
     target = API.FindMobile(current_attack_target)
 
     target_distance = target.Distance if target and hasattr(target, 'Distance') else 999
@@ -544,12 +554,18 @@ def handle_auto_target():
 
         next_enemy = API.NearestMobile(notorieties, AUTO_TARGET_RANGE)
         if next_enemy and next_enemy.Serial != API.Player.Serial and not next_enemy.IsDead:
-            API.Msg("all kill")
-            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                API.Target(next_enemy.Serial)
-                current_attack_target = next_enemy.Serial
-                update_combat_flag()
-                API.HeadMsg("NEXT!", next_enemy.Serial, 68)
+            try:
+                API.Msg("all kill")
+                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
+                    API.Target(next_enemy.Serial)
+                    current_attack_target = next_enemy.Serial
+                    update_combat_flag()
+                    API.HeadMsg("NEXT!", next_enemy.Serial, 68)
+            except:
+                pass
+            finally:
+                # Clean up any leftover cursors from WaitForTarget/Target
+                clear_stray_cursor()
                 API.SysMsg("Auto-targeting: " + get_mob_name(next_enemy), 68)
         else:
             current_attack_target = 0
@@ -789,31 +805,30 @@ def start_heal_action(target, action_type, duration, is_self):
     if action_type == "rez":
         try:
             cancel_all_targets()
-            try:
-                API.PreTarget(target, "beneficial")
-                API.Pause(0.1)
-                if API.FindType(BANDAGE):
-                    API.HeadMsg("Rezzing!", target, 38)
-                    API.UseObject(API.Found, False)
-                    API.Pause(0.1)
+            API.PreTarget(target, "beneficial")
+            API.Pause(0.2)
 
-                    HEAL_STATE = "rezzing"
-                    heal_start_time = time.time()
-                    heal_target = target
-                    heal_duration = duration
-                    heal_action_type = action_type
-                    name = get_mob_name(mob)
-                    statusLabel.SetText("Rezzing: " + name)
-                else:
-                    if not out_of_bandages_warned:
-                        API.SysMsg("Bandage not found!", 43)
-                        out_of_bandages_warned = True
-                        out_of_bandages_cooldown = time.time()
-            finally:
-                API.CancelPreTarget()
+            if API.FindType(BANDAGE):
+                API.UseObject(API.Found, False)
+                API.Pause(0.3)  # Wait for pretarget consumption
+                API.HeadMsg("Rezzing!", target, 38)
+
+                HEAL_STATE = "rezzing"
+                heal_start_time = time.time()
+                heal_target = target
+                heal_duration = duration
+                heal_action_type = action_type
+                name = get_mob_name(mob)
+                statusLabel.SetText("Rezzing: " + name)
+            else:
+                if not out_of_bandages_warned:
+                    API.SysMsg("Bandage not found!", 43)
+                    out_of_bandages_warned = True
+                    out_of_bandages_cooldown = time.time()
         except Exception as e:
             API.SysMsg("Rez error: " + str(e), 32)
         finally:
+            API.CancelPreTarget()
             clear_stray_cursor()
         return
 
@@ -821,14 +836,12 @@ def start_heal_action(target, action_type, duration, is_self):
         if USE_MAGERY:
             try:
                 cancel_all_targets()
-                try:
-                    API.PreTarget(target, "beneficial")
-                    API.Pause(0.1)
-                    API.Cast("Cure")
-                    API.Pause(0.1)
-                    API.HeadMsg("Curing!", target, 68)
-                finally:
-                    API.CancelPreTarget()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.2)
+
+                API.Cast("Cure")
+                API.Pause(0.3)  # Wait for pretarget consumption
+                API.HeadMsg("Curing!", target, 68)
 
                 HEAL_STATE = "healing"
                 heal_start_time = time.time()
@@ -840,37 +853,37 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Cure error: " + str(e), 32)
             finally:
+                API.CancelPreTarget()
                 clear_stray_cursor()
         else:
             if not check_bandages():
                 return
             try:
                 cancel_all_targets()
-                try:
-                    API.PreTarget(target, "beneficial")
-                    API.Pause(0.1)
-                    if API.FindType(BANDAGE):
-                        API.HeadMsg("Curing!", target, 68)
-                        API.UseObject(API.Found, False)
-                        API.Pause(0.1)
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.2)
 
-                        HEAL_STATE = "healing"
-                        heal_start_time = time.time()
-                        heal_target = target
-                        heal_duration = duration
-                        heal_action_type = action_type
-                        name = get_mob_name(mob)
-                        statusLabel.SetText("Curing: " + name)
-                    else:
-                        if not out_of_bandages_warned:
-                            API.SysMsg("Bandage not found!", 43)
-                            out_of_bandages_warned = True
-                            out_of_bandages_cooldown = time.time()
-                finally:
-                    API.CancelPreTarget()
+                if API.FindType(BANDAGE):
+                    API.UseObject(API.Found, False)
+                    API.Pause(0.3)  # Wait for pretarget consumption
+                    API.HeadMsg("Curing!", target, 68)
+
+                    HEAL_STATE = "healing"
+                    heal_start_time = time.time()
+                    heal_target = target
+                    heal_duration = duration
+                    heal_action_type = action_type
+                    name = get_mob_name(mob)
+                    statusLabel.SetText("Curing: " + name)
+                else:
+                    if not out_of_bandages_warned:
+                        API.SysMsg("Bandage not found!", 43)
+                        out_of_bandages_warned = True
+                        out_of_bandages_cooldown = time.time()
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
+                API.CancelPreTarget()
                 clear_stray_cursor()
         return
 
@@ -878,14 +891,12 @@ def start_heal_action(target, action_type, duration, is_self):
         if USE_MAGERY:
             try:
                 cancel_all_targets()
-                try:
-                    API.PreTarget(target, "beneficial")
-                    API.Pause(0.1)
-                    API.Cast("Greater Heal")
-                    API.Pause(0.1)
-                    API.HeadMsg("Healing!", target, 68)
-                finally:
-                    API.CancelPreTarget()
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.2)
+
+                API.Cast("Greater Heal")
+                API.Pause(0.3)  # Wait for pretarget consumption
+                API.HeadMsg("Healing!", target, 68)
 
                 HEAL_STATE = "healing"
                 heal_start_time = time.time()
@@ -897,37 +908,37 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
+                API.CancelPreTarget()
                 clear_stray_cursor()
         else:
             if not check_bandages():
                 return
             try:
                 cancel_all_targets()
-                try:
-                    API.PreTarget(target, "beneficial")
-                    API.Pause(0.1)
-                    if API.FindType(BANDAGE):
-                        API.HeadMsg("Healing!", target, 68)
-                        API.UseObject(API.Found, False)
-                        API.Pause(0.1)
+                API.PreTarget(target, "beneficial")
+                API.Pause(0.2)
 
-                        HEAL_STATE = "healing"
-                        heal_start_time = time.time()
-                        heal_target = target
-                        heal_duration = duration
-                        heal_action_type = action_type
-                        name = get_mob_name(mob)
-                        statusLabel.SetText("Healing: " + name)
-                    else:
-                        if not out_of_bandages_warned:
-                            API.SysMsg("Bandage not found!", 43)
-                            out_of_bandages_warned = True
-                            out_of_bandages_cooldown = time.time()
-                finally:
-                    API.CancelPreTarget()
+                if API.FindType(BANDAGE):
+                    API.UseObject(API.Found, False)
+                    API.Pause(0.3)  # Wait for pretarget consumption
+                    API.HeadMsg("Healing!", target, 68)
+
+                    HEAL_STATE = "healing"
+                    heal_start_time = time.time()
+                    heal_target = target
+                    heal_duration = duration
+                    heal_action_type = action_type
+                    name = get_mob_name(mob)
+                    statusLabel.SetText("Healing: " + name)
+                else:
+                    if not out_of_bandages_warned:
+                        API.SysMsg("Bandage not found!", 43)
+                        out_of_bandages_warned = True
+                        out_of_bandages_cooldown = time.time()
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
+                API.CancelPreTarget()
                 clear_stray_cursor()
 
 def check_heal_complete():
@@ -938,7 +949,7 @@ def check_heal_complete():
 
     # Special check for resurrection - exit early if pet is alive
     if HEAL_STATE == "rezzing" and heal_target != 0:
-        mob = API.Mobiles.FindMobile(heal_target)
+        mob = API.FindMobile(heal_target)
         if mob and not mob.IsDead:
             # Pet is alive! Exit rezzing state immediately
             HEAL_STATE = "idle"
@@ -986,25 +997,24 @@ def attempt_friend_rez():
 
     try:
         cancel_all_targets()
-        try:
-            API.PreTarget(rez_friend_target, "beneficial")
-            API.Pause(0.1)
-            if API.FindType(BANDAGE):
-                API.UseObject(API.Found, False)
-                API.Pause(0.1)
+        API.PreTarget(rez_friend_target, "beneficial")
+        API.Pause(0.2)
 
-                rez_friend_attempts += 1
-                API.Pause(REZ_FRIEND_DELAY)
-            else:
-                if not out_of_bandages_warned:
-                    API.SysMsg("Bandage not found for friend rez!", 43)
-                    out_of_bandages_warned = True
-                    out_of_bandages_cooldown = time.time()
-        finally:
-            API.CancelPreTarget()
+        if API.FindType(BANDAGE):
+            API.UseObject(API.Found, False)
+            API.Pause(0.3)  # Wait for pretarget consumption
+
+            rez_friend_attempts += 1
+            API.Pause(REZ_FRIEND_DELAY)
+        else:
+            if not out_of_bandages_warned:
+                API.SysMsg("Bandage not found for friend rez!", 43)
+                out_of_bandages_warned = True
+                out_of_bandages_cooldown = time.time()
     except Exception as e:
         API.SysMsg("Friend rez error: " + str(e), 32)
     finally:
+        API.CancelPreTarget()
         clear_stray_cursor()
 
 # ============ COMMANDS ============
@@ -1077,14 +1087,20 @@ def all_kill_hotkey():
     update_combat_flag()
 
     if not should_use_order_mode():
-        API.Msg("all kill")
-        if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-            API.Target(enemy.Serial)
-            API.Attack(enemy.Serial)
-            API.HeadMsg("KILL!", enemy.Serial, 32)
-            API.SysMsg("All kill: " + get_mob_name(enemy), 68)
-        else:
-            API.SysMsg("No target cursor", 32)
+        try:
+            cancel_all_targets()  # Clear before targeting
+            API.Msg("all kill")
+            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
+                API.Target(enemy.Serial)
+                API.Attack(enemy.Serial)
+                API.HeadMsg("KILL!", enemy.Serial, 32)
+                API.SysMsg("All kill: " + get_mob_name(enemy), 68)
+            else:
+                API.SysMsg("No target cursor", 32)
+        except:
+            pass
+        finally:
+            clear_stray_cursor()
     else:
         execute_order_mode("all kill", enemy.Serial)
 
@@ -1107,33 +1123,39 @@ def all_stay():
         execute_order_mode("all stay", 0)
 
 def execute_order_mode(base_cmd, attack_target):
+    # Defensive: ensure no pretargets active
+    cancel_all_targets()
+
     active_pets = [s for s in PETS if PET_ACTIVE.get(s, True)]
 
     if not active_pets:
         API.SysMsg("No active pets in ORDER mode!", 43)
         return
 
-    for i, serial in enumerate(active_pets):
-        name = PET_NAMES.get(serial, "Pet")
-        mob = API.FindMobile(serial)
-        if not mob:
-            continue
-        dist = get_distance(mob)
-        if dist > MAX_FOLLOW_RANGE:
-            continue
+    try:
+        for i, serial in enumerate(active_pets):
+            name = PET_NAMES.get(serial, "Pet")
+            mob = API.FindMobile(serial)
+            if not mob:
+                continue
+            dist = get_distance(mob)
+            if dist > MAX_FOLLOW_RANGE:
+                continue
 
-        if i > 0:
-            API.Pause(COMMAND_DELAY)
+            if i > 0:
+                API.Pause(COMMAND_DELAY)
 
-        cmd = base_cmd.replace("all", name)
-        API.Msg(cmd)
-        API.SysMsg("  " + str(i+1) + ". " + name + " -> " + base_cmd.replace("all ", ""), 88)
+            cmd = base_cmd.replace("all", name)
+            API.Msg(cmd)
+            API.SysMsg("  " + str(i+1) + ". " + name + " -> " + base_cmd.replace("all ", ""), 88)
 
-        if attack_target != 0:
-            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                API.Target(attack_target)
-                API.HeadMsg("KILL!", attack_target, 32)
-            API.Pause(0.2)
+            if attack_target != 0:
+                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
+                    API.Target(attack_target)
+                    API.HeadMsg("KILL!", attack_target, 32)
+                API.Pause(0.2)
+    finally:
+        clear_stray_cursor()
 
 def say_bank():
     API.Msg("bank")
@@ -1376,6 +1398,21 @@ def adjust_vet_delay(increment):
     if "vet_delay_val" in config_controls:
         config_controls["vet_delay_val"].SetText("{:.1f}s".format(VET_DELAY))
 
+def adjust_vet_kit_delay(increment):
+    """Increment or decrement VET_KIT_DELAY by 0.1s"""
+    global VET_KIT_DELAY
+    if increment:
+        VET_KIT_DELAY = min(10.0, VET_KIT_DELAY + 0.1)
+    else:
+        VET_KIT_DELAY = max(0.5, VET_KIT_DELAY - 0.1)
+
+    # Save immediately
+    API.SavePersistentVar(VET_KIT_DELAY_KEY, str(VET_KIT_DELAY), API.PersistentVar.Char)
+
+    # Update display
+    if "vet_kit_delay_val" in config_controls:
+        config_controls["vet_kit_delay_val"].SetText("{:.1f}s".format(VET_KIT_DELAY))
+
 # ============ NEW CONFIG WINDOW (SEPARATE GUMP) ============
 def build_config_gump():
     """Create and display the separate config window (520x440px)"""
@@ -1568,6 +1605,29 @@ def build_config_gump():
     vet_inc.SetBackgroundHue(90)
     API.Gumps.AddControlOnClick(vet_inc, lambda: adjust_vet_delay(True))
     config_gump.Add(vet_inc)
+
+    col1_y += 17
+
+    # Vet Kit Timer
+    vet_kit_timer_lbl = API.Gumps.CreateGumpTTFLabel("Vet Kit:", 9, "#dddddd")
+    vet_kit_timer_lbl.SetPos(col1_x + 4, col1_y + 3)
+    config_gump.Add(vet_kit_timer_lbl)
+
+    vet_kit_dec = API.Gumps.CreateSimpleButton("[-]", 25, 18)
+    vet_kit_dec.SetPos(col1_x + 60, col1_y)
+    vet_kit_dec.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(vet_kit_dec, lambda: adjust_vet_kit_delay(False))
+    config_gump.Add(vet_kit_dec)
+
+    config_controls["vet_kit_delay_val"] = API.Gumps.CreateGumpTTFLabel("{:.1f}s".format(VET_KIT_DELAY), 9, "#ffaa00")
+    config_controls["vet_kit_delay_val"].SetPos(col1_x + 88, col1_y + 3)
+    config_gump.Add(config_controls["vet_kit_delay_val"])
+
+    vet_kit_inc = API.Gumps.CreateSimpleButton("[+]", 25, 18)
+    vet_kit_inc.SetPos(col1_x + 132, col1_y)
+    vet_kit_inc.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(vet_kit_inc, lambda: adjust_vet_kit_delay(True))
+    config_gump.Add(vet_kit_inc)
 
     col1_y += 20
 
@@ -2684,7 +2744,7 @@ def load_settings():
     global USE_MAGERY, USE_REZ, HEAL_SELF, TANK_PET, VET_KIT_GRAPHIC
     global TARGET_REDS, TARGET_GRAYS, ATTACK_MODE, SKIP_OUT_OF_RANGE
     global USE_POTIONS, trapped_pouch_serial, use_trapped_pouch, auto_target
-    global is_expanded, SELF_DELAY, VET_DELAY
+    global is_expanded, SELF_DELAY, VET_DELAY, VET_KIT_DELAY
 
     USE_MAGERY = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char) == "True"
     USE_REZ = API.GetPersistentVar(REZ_KEY, "False", API.PersistentVar.Char) == "True"

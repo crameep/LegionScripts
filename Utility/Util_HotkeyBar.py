@@ -39,6 +39,7 @@ TARGET_TIMEOUT = 5.0  # Seconds to wait for target cursor
 
 # ============ CONSTANTS ============
 SETTINGS_KEY = "UtilHotkeys"
+THORNS_GRAPHIC = 0x0f42  # Magical thorns item graphic
 
 # Command definitions
 COMMANDS = {
@@ -56,6 +57,11 @@ COMMANDS = {
         "phrase": "I wish to release this",  # FIXED: Was "I release this"
         "label": "Release",
         "description": "Release a secured/locked item"
+    },
+    "thorns": {
+        "phrase": None,  # Uses item, not phrase
+        "label": "Thorns",
+        "description": "Use magical thorns and target ground"
     }
 }
 
@@ -63,8 +69,8 @@ COMMANDS = {
 WINDOW_WIDTH_NORMAL = 155
 WINDOW_WIDTH_CONFIG = 190
 COLLAPSED_HEIGHT = 24
-NORMAL_HEIGHT = 130  # 3 buttons + status
-CONFIG_HEIGHT = 230  # normal + config panel (~100px)
+NORMAL_HEIGHT = 158  # 4 buttons + status (was 130 for 3 buttons)
+CONFIG_HEIGHT = 258  # normal + config panel (~100px)
 
 # Button dimensions
 CMD_BTN_WIDTH = 145  # Command buttons (wide for integrated hotkey display)
@@ -81,6 +87,7 @@ HUE_LISTENING = 38   # Purple
 SECURE_HOTKEY_KEY = "UtilHotkeys_SecureHotkey"
 LOCKDOWN_HOTKEY_KEY = "UtilHotkeys_LockdownHotkey"
 RELEASE_HOTKEY_KEY = "UtilHotkeys_ReleaseHotkey"
+THORNS_HOTKEY_KEY = "UtilHotkeys_ThornsHotkey"
 
 # ============ RUNTIME STATE ============
 is_expanded = True
@@ -92,7 +99,8 @@ listening_for_cmd = None  # "secure", "lockdown", "release", or None
 hotkey_bindings = {
     "secure": "CTRL+1",
     "lockdown": "CTRL+2",
-    "release": "CTRL+3"
+    "release": "CTRL+3",
+    "thorns": ""  # Empty = unbound
 }
 
 # GUI element references
@@ -171,19 +179,39 @@ def execute_command(cmd_key):
     update_status("Executing " + cmd["label"] + "...", HUE_EXECUTING)
 
     try:
-        # Say the command phrase
-        API.Msg(cmd["phrase"])
+        # Special handling for thorns (uses item, not phrase)
+        if cmd_key == "thorns":
+            # Find thorns in backpack
+            API.FindType(THORNS_GRAPHIC)
+            if not API.Found:
+                API.SysMsg("No magical thorns found in backpack!", HUE_ERROR)
+                update_status("Ready", 68)
+                executing_command = None
+                if cmd_key in command_buttons:
+                    command_buttons[cmd_key].SetBackgroundHue(HUE_NORMAL)
+                return
 
-        # Request target
-        update_status("Target item...", HUE_EXECUTING)
-        target = API.RequestTarget(timeout=TARGET_TIMEOUT)
-
-        if not target:
-            API.SysMsg("Command cancelled (no target)", HUE_ERROR)
+            # Use the thorns item (automatically brings up target cursor)
+            API.UseObject(API.Found, False)
+            API.SysMsg("Target the ground for magical thorns!", 68)
+            update_status("Target ground...", HUE_EXECUTING)
+            # Target cursor is active - user targets manually
+            API.Pause(0.5)
             update_status("Ready", 68)
         else:
-            API.SysMsg(cmd["label"] + " command sent", 68)
-            update_status("Ready", 68)
+            # Normal command - say phrase and request target
+            API.Msg(cmd["phrase"])
+
+            # Request target
+            update_status("Target item...", HUE_EXECUTING)
+            target = API.RequestTarget(timeout=TARGET_TIMEOUT)
+
+            if not target:
+                API.SysMsg("Command cancelled (no target)", HUE_ERROR)
+                update_status("Ready", 68)
+            else:
+                API.SysMsg(cmd["label"] + " command sent", 68)
+                update_status("Ready", 68)
 
     except Exception as e:
         API.SysMsg("Error: " + str(e), HUE_ERROR)
@@ -260,6 +288,14 @@ def start_capture_release():
     releaseHkBtn.SetText("[Listening...]")
     API.SysMsg("Press any key to bind to Release...", HUE_LISTENING)
 
+def start_capture_thorns():
+    """Start listening for thorns hotkey"""
+    global listening_for_cmd
+    listening_for_cmd = "thorns"
+    thornsHkBtn.SetBackgroundHue(HUE_LISTENING)
+    thornsHkBtn.SetText("[Listening...]")
+    API.SysMsg("Press any key to bind to Thorns...", HUE_LISTENING)
+
 # ============ GUI CALLBACKS ============
 def toggle_config():
     """Toggle config panel visibility"""
@@ -281,6 +317,8 @@ def show_config_panel():
     lockdownHkBtn.IsVisible = True
     releaseHkLabel.IsVisible = True
     releaseHkBtn.IsVisible = True
+    thornsHkLabel.IsVisible = True
+    thornsHkBtn.IsVisible = True
     configDoneBtn.IsVisible = True
     configHelpLabel.IsVisible = True
 
@@ -314,6 +352,8 @@ def hide_config_panel():
     lockdownHkBtn.IsVisible = False
     releaseHkLabel.IsVisible = False
     releaseHkBtn.IsVisible = False
+    thornsHkLabel.IsVisible = False
+    thornsHkBtn.IsVisible = False
     configDoneBtn.IsVisible = False
     configHelpLabel.IsVisible = False
 
@@ -434,6 +474,15 @@ def update_config_buttons():
             hotkey = hotkey_bindings.get("release", "---")
             releaseHkBtn.SetText("[" + format_hotkey_display(hotkey) + "]")
             releaseHkBtn.SetBackgroundHue(68 if hotkey != "---" else 90)
+
+        # Thorns
+        if listening_for_cmd == "thorns":
+            thornsHkBtn.SetText("[Listening...]")
+            thornsHkBtn.SetBackgroundHue(HUE_LISTENING)
+        else:
+            hotkey = hotkey_bindings.get("thorns", "---")
+            thornsHkBtn.SetText("[" + format_hotkey_display(hotkey) + "]")
+            thornsHkBtn.SetBackgroundHue(68 if hotkey != "---" else 90)
     except Exception as e:
         API.SysMsg("Error updating config buttons: " + str(e), 32)
 
@@ -482,6 +531,8 @@ def save_hotkey_binding(cmd_key, hotkey):
         API.SavePersistentVar(LOCKDOWN_HOTKEY_KEY, hotkey, API.PersistentVar.Char)
     elif cmd_key == "release":
         API.SavePersistentVar(RELEASE_HOTKEY_KEY, hotkey, API.PersistentVar.Char)
+    elif cmd_key == "thorns":
+        API.SavePersistentVar(THORNS_HOTKEY_KEY, hotkey, API.PersistentVar.Char)
 
 def load_hotkey_bindings():
     """Load all hotkey bindings from persistence"""
@@ -489,6 +540,7 @@ def load_hotkey_bindings():
     hotkey_bindings["secure"] = API.GetPersistentVar(SECURE_HOTKEY_KEY, "CTRL+1", API.PersistentVar.Char)
     hotkey_bindings["lockdown"] = API.GetPersistentVar(LOCKDOWN_HOTKEY_KEY, "CTRL+2", API.PersistentVar.Char)
     hotkey_bindings["release"] = API.GetPersistentVar(RELEASE_HOTKEY_KEY, "CTRL+3", API.PersistentVar.Char)
+    hotkey_bindings["thorns"] = API.GetPersistentVar(THORNS_HOTKEY_KEY, "", API.PersistentVar.Char)
 
 # ============ CLEANUP ============
 def cleanup():
@@ -550,7 +602,7 @@ gump.Add(expandBtn)
 # Command buttons
 y_pos = 26
 
-for cmd_key in ["secure", "lockdown", "release"]:
+for cmd_key in ["secure", "lockdown", "release", "thorns"]:
     cmd = COMMANDS[cmd_key]
     hotkey = hotkey_bindings.get(cmd_key, "---")
     hotkey_display = format_hotkey_display(hotkey)
@@ -631,6 +683,21 @@ releaseHkBtn.SetBackgroundHue(68)
 releaseHkBtn.IsVisible = False
 API.Gumps.AddControlOnClick(releaseHkBtn, start_capture_release)
 gump.Add(releaseHkBtn)
+
+config_y += 24
+
+# Thorns hotkey row
+thornsHkLabel = API.Gumps.CreateGumpTTFLabel("Thorns:", 11, "#aaaaaa")
+thornsHkLabel.SetPos(5, config_y + 3)
+thornsHkLabel.IsVisible = False
+gump.Add(thornsHkLabel)
+
+thornsHkBtn = API.Gumps.CreateSimpleButton("[---]", CONFIG_BTN_WIDTH, 20)
+thornsHkBtn.SetPos(55, config_y)
+thornsHkBtn.SetBackgroundHue(90)
+thornsHkBtn.IsVisible = False
+API.Gumps.AddControlOnClick(thornsHkBtn, start_capture_thorns)
+gump.Add(thornsHkBtn)
 
 config_y += 28
 
