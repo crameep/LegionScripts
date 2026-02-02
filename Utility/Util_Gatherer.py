@@ -139,7 +139,7 @@ KEY_CURRENT_SPOT = KEY_PREFIX + "CurrentSpotIndex"
 # ============ RUNTIME STATE ============
 
 # Pause control
-PAUSED = False
+PAUSED = True  # Start paused
 
 # Gather tracking
 gather_count = 0  # How many times we've gathered since last move
@@ -769,7 +769,7 @@ def on_set_fire_beetle():
         API.SysMsg("Fire beetle setup error: " + str(e), HUE_RED)
 
 def on_detect_storage_gump():
-    """Detect storage gump ID when opened"""
+    """Detect storage gump ID when opened - auto-detect like TomeDumper"""
     global detecting_gump, captured_gump_id
 
     if detecting_gump:
@@ -777,21 +777,54 @@ def on_detect_storage_gump():
         return
 
     detecting_gump = True
-    API.SysMsg("=== DETECTING STORAGE GUMP ===", HUE_ORANGE)
-    API.SysMsg("Open your storage container NOW...", HUE_YELLOW)
+    API.SysMsg("╔════════════════════════════════════╗", HUE_ORANGE)
+    API.SysMsg("║   GUMP DETECTION MODE              ║", HUE_ORANGE)
+    API.SysMsg("╚════════════════════════════════════╝", HUE_ORANGE)
+    API.SysMsg("Double-click your storage container...", HUE_YELLOW)
 
     try:
-        # Wait for gump to open (using GumpInspector's approach)
-        # This is a simplified version - in practice we'd track open gumps
-        API.WaitForGump(delay=15.0)
+        # Wait for container gump to open (15 second timeout)
+        start_time = time.time()
+        detected = False
 
-        # Get currently open gumps using HasGump
-        # Try common gump IDs or ask user to use GumpInspector
-        API.SysMsg("Gump detected! Use GumpInspector to see ID,", HUE_YELLOW)
-        API.SysMsg("then enter it in the button tester.", HUE_YELLOW)
+        while time.time() - start_time < 15.0 and not detected:
+            API.ProcessCallbacks()
 
-        # For now, we'll have user manually enter it or we can try to detect
-        # by testing if gumps are open with common IDs
+            # Try to get container gump ID using GetContainerGump
+            try:
+                # This attempts to get the most recently opened container gump
+                container_gump_id = API.GetContainerGump()
+
+                if container_gump_id and container_gump_id > 0:
+                    # Found a gump!
+                    captured_gump_id = container_gump_id
+
+                    # Save to correct key based on resource type
+                    if resource_type == "mining":
+                        save_int(KEY_STORAGE_GUMP_MINING, captured_gump_id)
+                        storage.gump_id = captured_gump_id
+                    else:
+                        save_int(KEY_STORAGE_GUMP_LUMBERJACKING, captured_gump_id)
+                        storage.gump_id = captured_gump_id
+
+                    API.SysMsg("╔════════════════════════════════════╗", HUE_GREEN)
+                    API.SysMsg("║   GUMP DETECTED!                   ║", HUE_GREEN)
+                    API.SysMsg("║   ID: " + str(captured_gump_id).ljust(27) + "║", HUE_GREEN)
+                    API.SysMsg("╚════════════════════════════════════╝", HUE_GREEN)
+                    API.SysMsg("Now use [BTN] to test button IDs", HUE_YELLOW)
+
+                    detected = True
+                    update_display()
+                    break
+            except:
+                pass
+
+            API.Pause(0.5)
+
+        if not detected:
+            API.SysMsg("Timeout - no gump detected!", HUE_RED)
+            API.SysMsg("Try again or use GumpInspector", HUE_YELLOW)
+
         detecting_gump = False
 
     except Exception as e:
@@ -1093,51 +1126,31 @@ def test_convert_logs():
         API.SysMsg("Conversion failed!", HUE_RED)
 
 def toggle_pause():
-    """Toggle pause state"""
+    """Toggle pause/resume"""
     global PAUSED
-
-    PAUSED = not PAUSED
-
-    # Cancel any active pathfinding when pausing
-    if PAUSED and API.Pathfinding():
-        API.CancelPathfinding()
 
     if PAUSED:
-        API.SysMsg("PAUSED", HUE_YELLOW)
-    else:
-        # Resuming - if at home, warn them
-        if travel.at_home:
-            API.SysMsg("WARNING: Still at home! Recall to gathering spot first!", HUE_RED)
-            PAUSED = True  # Keep paused
+        # Resume - recall to next gathering spot
+        next_spot = travel.current_spot + 1
+        next_slot = 2 + travel.current_spot
+
+        API.SysMsg("Attempting to recall to gathering spot " + str(next_spot) + "...", HUE_YELLOW)
+
+        # Recall to next gathering spot
+        if travel.rotate_to_next_spot():
+            # Successfully recalled - unpause and continue
+            PAUSED = False
+            travel.at_home = False  # Mark as not at home
+            API.SysMsg("RESUMED - Now at spot " + str(next_spot) + "/" + str(num_gathering_spots) + " (slot " + str(next_slot) + ")", HUE_GREEN)
         else:
-            API.SysMsg("RESUMED - Gathering", HUE_GREEN)
+            # Recall failed - stay paused
+            API.SysMsg("Failed to recall! Make sure you're at home with runebook.", HUE_RED)
+    else:
+        # Pause
+        PAUSED = True
+        API.SysMsg("PAUSED", HUE_YELLOW)
 
     update_display()
-
-def resume_gathering():
-    """Resume gathering - automatically recalls to next gathering spot"""
-    global PAUSED
-
-    if not PAUSED:
-        API.SysMsg("Already running!", HUE_YELLOW)
-        return
-
-    # Show which spot we're going to
-    next_spot = travel.current_spot + 1
-    next_slot = 2 + travel.current_spot
-
-    API.SysMsg("Attempting to recall to gathering spot " + str(next_spot) + "...", HUE_YELLOW)
-
-    # Recall to next gathering spot
-    if travel.rotate_to_next_spot():
-        # Successfully recalled - unpause and continue
-        PAUSED = False
-        travel.at_home = False  # Mark as not at home
-        API.SysMsg("RESUMED - Now at spot " + str(next_spot) + "/" + str(num_gathering_spots) + " (slot " + str(next_slot) + ")", HUE_GREEN)
-        update_display()
-    else:
-        # Recall failed - stay paused
-        API.SysMsg("Failed to recall! Make sure you're at home with runebook.", HUE_RED)
 
 # ============ DISPLAY UPDATES ============
 
@@ -1245,14 +1258,14 @@ def update_display():
             else:
                 controls["status_label"].SetText("[PAUSED]" if PAUSED else "[ACTIVE]")
 
-        # Resume button (highlight when needed, gray out when not)
+        # Pause/Resume button (dynamically update text and color)
         if "resume_btn" in controls:
-            if PAUSED and travel.at_home:
+            if PAUSED:
                 controls["resume_btn"].SetBackgroundHue(HUE_GREEN)
                 controls["resume_btn"].SetText("RESUME")
             else:
-                controls["resume_btn"].SetBackgroundHue(HUE_GRAY)
-                controls["resume_btn"].SetText("---")
+                controls["resume_btn"].SetBackgroundHue(HUE_YELLOW)
+                controls["resume_btn"].SetText("PAUSE")
 
     except Exception as e:
         pass
@@ -1323,12 +1336,31 @@ def initialize_framework():
 
 def cleanup():
     """Cleanup on script stop"""
+    global gump, controls, tester_gump, tester_controls
+
+    # Save window position
     if pos_tracker:
         pos_tracker.save()
 
+    # Dispose tester gump if open
+    if tester_gump:
+        try:
+            tester_gump.Dispose()
+        except:
+            pass
+        tester_gump = None
+        tester_controls = {}
+
+    # Clear control references
+    controls = {}
+    gump = None
+
 def on_gump_closed():
-    """Handle gump close"""
+    """Handle main gump close"""
+    global PAUSED
+    PAUSED = True  # Pause when gump closes
     cleanup()
+    API.SysMsg("Gatherer gump closed - script paused", HUE_YELLOW)
 
 # ============ BUILD GUI ============
 
@@ -1364,11 +1396,11 @@ def build_gump():
 
     y_offset += 22  # Move to next row
 
-    # Resume button (shows after dump)
+    # Pause/Resume toggle button
     controls["resume_btn"] = API.Gumps.CreateSimpleButton("RESUME", 100, 22)
     controls["resume_btn"].SetPos(120, y_offset)
     gump.Add(controls["resume_btn"])
-    API.Gumps.AddControlOnClick(controls["resume_btn"], resume_gathering)
+    API.Gumps.AddControlOnClick(controls["resume_btn"], toggle_pause)
 
     y_offset += 28  # Extra space for resume button + gap
 
@@ -1449,9 +1481,18 @@ def build_gump():
 
     # Test pathfind button
     test_pathfind_btn = API.Gumps.CreateSimpleButton("TST", 40, 20)
-    test_pathfind_btn.SetPos(265, y_offset - 2)
+    test_pathfind_btn.SetPos(270, y_offset - 2)
     gump.Add(test_pathfind_btn)
     API.Gumps.AddControlOnClick(test_pathfind_btn, test_pathfind_to_storage)
+
+    y_offset += 22
+
+    # Auto-detect gump ID button (second row under storage)
+    detect_gump_btn = API.Gumps.CreateSimpleButton("DETECT GUMP ID", 120, 20)
+    detect_gump_btn.SetPos(10, y_offset - 2)
+    detect_gump_btn.SetBackgroundHue(HUE_PURPLE)
+    gump.Add(detect_gump_btn)
+    API.Gumps.AddControlOnClick(detect_gump_btn, on_detect_storage_gump)
 
     y_offset += 22
 
