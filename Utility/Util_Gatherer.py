@@ -757,7 +757,7 @@ def on_set_fire_beetle():
         target = API.RequestTarget(timeout=15)
 
         if target:
-            mob = API.Mobiles.FindMobile(target)
+            mob = API.FindMobile(target)
             if mob:
                 fire_beetle_serial = target
                 save_int(KEY_FIRE_BEETLE, fire_beetle_serial)
