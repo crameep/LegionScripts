@@ -297,6 +297,7 @@ def handle_captcha(captcha_type):
 
     PAUSED = True
     state.set_state("idle")
+    update_display()  # Update button to show RESUME
 
 def check_resource_depletion():
     """Check journal for resource depletion messages"""
