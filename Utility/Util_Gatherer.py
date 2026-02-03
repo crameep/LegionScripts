@@ -2103,6 +2103,9 @@ API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergenc
 
 try:
     while not API.StopRequested:
+        global PAUSED, tool_missing_recalled, current_enemy, session_ore, session_logs, session_dumps
+        global gather_count, failed_gather_count, last_display_update
+
         API.ProcessCallbacks()  # CRITICAL: First for responsive hotkeys
 
         # Check for captcha (highest priority - pauses script)
@@ -2191,7 +2194,6 @@ try:
                     PAUSED = True
             # Otherwise, gather
             elif tool_graphic > 0:
-                global tool_missing_recalled
                 tool = get_tool()
                 if tool:
                     perform_gather()
