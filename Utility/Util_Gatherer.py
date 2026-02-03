@@ -2013,11 +2013,12 @@ try:
     while not API.StopRequested:
         API.ProcessCallbacks()  # CRITICAL: First for responsive hotkeys
 
-        # Check for captcha (highest priority - stops script immediately)
+        # Check for captcha (highest priority - pauses script)
         captcha = check_for_captcha()
         if captcha:
             handle_captcha(captcha)
-            break  # Exit main loop after captcha handling
+            # Don't break - just pause (handle_captcha sets PAUSED = True)
+            continue
 
         if PAUSED:
             API.Pause(0.1)
