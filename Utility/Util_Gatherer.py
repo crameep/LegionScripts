@@ -262,13 +262,13 @@ def check_for_captcha():
         return None
 
 def handle_captcha(captcha_type):
-    """Handle captcha detection - recall home and stop script"""
+    """Handle captcha detection - recall home and PAUSE (not stop)"""
     global PAUSED
 
     API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
     API.SysMsg("║   CAPTCHA DETECTED!                ║", HUE_RED)
     API.SysMsg("║   Type: " + captcha_type.upper().ljust(27) + "║", HUE_RED)
-    API.SysMsg("║   Recalling home and stopping...   ║", HUE_RED)
+    API.SysMsg("║   Recalling home and pausing...    ║", HUE_RED)
     API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
 
     # Cancel any active pathfinding
@@ -280,18 +280,18 @@ def handle_captcha(captcha_type):
         API.SysMsg("Attempting recall home...", HUE_YELLOW)
         if travel.recall_home():
             API.SysMsg("Recalled home successfully", HUE_GREEN)
+            travel.at_home = True
         else:
-            API.SysMsg("Recall failed - stopping anyway", HUE_RED)
+            API.SysMsg("Recall failed - pausing anyway", HUE_RED)
 
-    # Stop the script
+    # Pause the script (don't stop - user can resume after solving captcha)
     API.SysMsg("╔════════════════════════════════════╗", HUE_YELLOW)
-    API.SysMsg("║   SCRIPT STOPPING - SOLVE CAPTCHA! ║", HUE_YELLOW)
-    API.SysMsg("║   Restart script when ready        ║", HUE_YELLOW)
+    API.SysMsg("║   SCRIPT PAUSED - SOLVE CAPTCHA!   ║", HUE_YELLOW)
+    API.SysMsg("║   Click RESUME when ready          ║", HUE_YELLOW)
     API.SysMsg("╚════════════════════════════════════╝", HUE_YELLOW)
 
     PAUSED = True
     state.set_state("idle")
-    API.Stop()
 
 def check_resource_depletion():
     """Check journal for resource depletion messages"""
