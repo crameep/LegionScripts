@@ -1764,7 +1764,7 @@ def build_gump():
 
     # Add background
     bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-    bg.SetRect(0, 0, 340, 472)
+    bg.SetRect(0, 0, 340, 620)
     gump.Add(bg)
 
     y_offset = 10
