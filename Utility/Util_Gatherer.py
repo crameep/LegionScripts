@@ -519,13 +519,18 @@ def perform_gather():
             # Check if we failed because we're mounted
             journal = API.InGameJournal.GetText().lower()
             mount_messages = ["can't dig", "while riding", "while flying", "must dismount", "can't mine"]
-            if any(msg in journal for msg in mount_messages):
-                API.SysMsg("Mounted - dismounting...", HUE_YELLOW)
-                if dismount_beetle(force=True):  # Force dismount regardless of flag
-                    API.Pause(0.5)
-                    # Retry gather after dismounting
-                    state.set_state("idle")
-                    return
+
+            # Debug: Show what we found in journal
+            for msg in mount_messages:
+                if msg in journal:
+                    API.SysMsg("Detected mount message: '" + msg + "' in journal", HUE_ORANGE)
+                    API.SysMsg("Mounted - dismounting...", HUE_YELLOW)
+                    if dismount_beetle(force=True):  # Force dismount regardless of flag
+                        API.Pause(0.5)
+                        # Retry gather after dismounting
+                        state.set_state("idle")
+                        return
+                    break
 
             API.SysMsg("Gather failed!", HUE_RED)
             state.set_state("idle")
@@ -1770,7 +1775,7 @@ def build_gump():
     y_offset = 10
 
     # Title bar
-    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.2", 15, "#ffaa00")
+    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.3", 15, "#ffaa00")
     titleLabel.SetPos(10, y_offset)
     gump.Add(titleLabel)
 
@@ -2103,7 +2108,7 @@ for key in all_keys:
     except:
         pass
 
-API.SysMsg("Gatherer v2.2 started! (Framework-based)", HUE_GREEN)
+API.SysMsg("Gatherer v2.3 started! (Framework-based)", HUE_GREEN)
 API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergency recall", HUE_YELLOW)
 
 # ============ MAIN LOOP ============
