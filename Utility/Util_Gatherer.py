@@ -122,7 +122,7 @@ CAPTCHA_PICTA_GUMP = 0xd0c93672
 
 # ============ PERSISTENCE KEYS ============
 KEY_PREFIX = "Gatherer_"
-KEY_TOOL = KEY_PREFIX + "ToolSerial"
+KEY_TOOL_GRAPHIC = KEY_PREFIX + "ToolGraphic"
 KEY_RUNEBOOK = KEY_PREFIX + "HomeRunebook"
 KEY_RUNEBOOK_SLOT = KEY_PREFIX + "HomeSlot"
 KEY_STORAGE_MINING = KEY_PREFIX + "StorageMining"
@@ -179,7 +179,8 @@ spiral_steps_taken = 0  # Steps taken in current direction
 spiral_turns = 0  # Turns completed
 
 # Tool/Setup
-tool_serial = 0
+tool_graphic = 0  # Graphic ID of tool type (persisted)
+tool_serial = 0  # Cached serial of current tool (refreshed when tool breaks)
 fire_beetle_serial = 0  # Fire beetle for smelting ore
 weapon_serial = 0  # Weapon for combat
 shield_serial = 0  # Shield for combat (optional)
@@ -221,8 +222,29 @@ captured_gump_id = 0
 # ============ UTILITY FUNCTIONS ============
 
 def get_tool():
-    """Get the configured harvesting tool"""
-    return get_item_safe(tool_serial)
+    """Get the configured harvesting tool - finds by graphic, caches serial"""
+    global tool_serial
+
+    # If no graphic configured, can't find tool
+    if tool_graphic == 0:
+        return None
+
+    # Try cached serial first (fast path)
+    if tool_serial != 0:
+        tool = get_item_safe(tool_serial)
+        if tool and tool.Graphic == tool_graphic:
+            return tool
+        # Cached tool is gone or wrong type, clear cache
+        tool_serial = 0
+
+    # Find new tool by graphic (slow path)
+    tool = API.FindType(tool_graphic)
+    if tool:
+        tool_serial = tool.Serial  # Cache for next time
+        return tool
+
+    # No tool found
+    return None
 
 def get_tool_name(tool):
     """Get friendly name for tool"""
@@ -479,6 +501,9 @@ def perform_gather():
         return
 
     try:
+        # Update harvester with current tool serial (in case we switched tools)
+        harvester.tool_serial = tool.Serial
+
         # CRITICAL: Clear journal BEFORE gathering so we only see NEW messages
         API.ClearJournal()
 
@@ -931,7 +956,7 @@ def move_spiral():
 
 def on_set_tool():
     """Prompt user to target harvesting tool"""
-    global tool_serial
+    global tool_graphic, tool_serial
     API.SysMsg("Target your harvesting tool (pickaxe/hatchet/shovel)...", HUE_YELLOW)
 
     try:
@@ -941,14 +966,17 @@ def on_set_tool():
         if target:
             item = API.FindItem(target)
             if item and item.Graphic in TOOL_GRAPHICS:
+                # Store graphic (persisted) and cache serial
+                tool_graphic = item.Graphic
                 tool_serial = target
-                save_int(KEY_TOOL, tool_serial)
+                save_int(KEY_TOOL_GRAPHIC, tool_graphic)
 
                 # Re-initialize framework (resource type may have changed)
                 initialize_framework()
 
                 API.SysMsg("Tool set! " + get_tool_name(item), HUE_GREEN)
                 API.SysMsg("Resource type: " + resource_type.upper(), HUE_YELLOW)
+                API.SysMsg("Will auto-switch to next tool when current breaks", HUE_YELLOW)
                 update_display()
             else:
                 API.SysMsg("That's not a valid harvesting tool!", HUE_RED)
@@ -1612,10 +1640,10 @@ def update_display():
 
 def load_settings():
     """Load all settings from persistence"""
-    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, shield_serial, combat_mode, GATHER_DELAY
+    global tool_graphic, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, shield_serial, combat_mode, GATHER_DELAY
 
     try:
-        tool_serial = load_int(KEY_TOOL, 0)
+        tool_graphic = load_int(KEY_TOOL_GRAPHIC, 0)
         weapon_serial = load_int(KEY_WEAPON, 0)
         shield_serial = load_int(KEY_SHIELD, 0)
         movement_mode = API.GetPersistentVar(KEY_MOVEMENT_MODE, "random", API.PersistentVar.Char)
@@ -2162,7 +2190,7 @@ try:
                     API.SysMsg("Cannot recall home! Pausing - restock reagents or check runebook.", HUE_RED)
                     PAUSED = True
             # Otherwise, gather
-            elif tool_serial > 0:
+            elif tool_graphic > 0:
                 tool = get_tool()
                 if tool:
                     perform_gather()
@@ -2172,9 +2200,10 @@ try:
                 else:
                     # Tool missing - recall home once and pause
                     if not tool_missing_recalled:
+                        tool_name = "Tool" if tool_graphic == 0 else ("Graphic 0x" + hex(tool_graphic)[2:].upper())
                         API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
-                        API.SysMsg("║   TOOL NOT FOUND!                  ║", HUE_RED)
-                        API.SysMsg("║   Serial: 0x" + hex(tool_serial)[2:].upper().ljust(25) + "║", HUE_RED)
+                        API.SysMsg("║   NO TOOLS FOUND!                  ║", HUE_RED)
+                        API.SysMsg("║   Type: " + tool_name.ljust(28) + "║", HUE_RED)
                         API.SysMsg("║   Recalling home...                ║", HUE_RED)
                         API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
 
