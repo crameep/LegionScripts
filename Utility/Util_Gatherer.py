@@ -1517,6 +1517,8 @@ def toggle_pause():
 
 def update_display():
     """Update UI labels"""
+    global PAUSED, GATHER_DELAY
+
     if not gump or not controls:
         return
 
