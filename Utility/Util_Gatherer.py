@@ -75,8 +75,9 @@ CONVERT_DELAY = 1.5  # Time to wait for log conversion
 FLEE_HP_THRESHOLD = 50  # Recall home if HP drops below this %
 COMBAT_DISTANCE = 10  # Detect enemies within this range
 COMBAT_MODE = "fight"  # "flee" or "fight" - fight back or just flee
-HEAL_HP_THRESHOLD = 70  # Use bandage when HP drops below this %
+HEAL_HP_THRESHOLD = 85  # Use bandage when HP drops below this % (PRIORITY #1)
 BANDAGE_GRAPHIC = 0x0E21  # Bandage graphic
+BANDAGE_DELAY = 10  # Bandage cooldown in seconds
 
 # Weight settings
 DEFAULT_WEIGHT_THRESHOLD = 80  # Return home at 80% capacity
@@ -139,6 +140,7 @@ KEY_WINDOW_POS = KEY_PREFIX + "WindowXY"
 KEY_NUM_SPOTS = KEY_PREFIX + "NumGatheringSpots"
 KEY_CURRENT_SPOT = KEY_PREFIX + "CurrentSpotIndex"
 KEY_WEAPON = KEY_PREFIX + "WeaponSerial"
+KEY_SHIELD = KEY_PREFIX + "ShieldSerial"
 KEY_COMBAT_MODE = KEY_PREFIX + "CombatMode"
 
 # ============ RUNTIME STATE ============
@@ -174,6 +176,7 @@ spiral_turns = 0  # Turns completed
 tool_serial = 0
 fire_beetle_serial = 0  # Fire beetle for smelting ore
 weapon_serial = 0  # Weapon for combat
+shield_serial = 0  # Shield for combat (optional)
 num_gathering_spots = 1  # How many gathering spots in runebook (slots 2, 3, 4, etc.)
 resource_type = "mining"  # "mining" or "lumberjacking" (auto-detected from tool)
 combat_mode = "fight"  # "flee" or "fight"
@@ -542,21 +545,32 @@ def find_closest_mobile():
         return None
 
 def equip_weapon():
-    """Equip weapon for combat"""
-    if weapon_serial == 0:
-        return False
+    """Equip weapon and shield for combat"""
+    equipped = False
 
-    weapon = get_item_safe(weapon_serial)
-    if not weapon:
-        return False
+    # Equip weapon
+    if weapon_serial > 0:
+        weapon = get_item_safe(weapon_serial)
+        if weapon:
+            try:
+                API.UseObject(weapon.Serial, False)
+                API.Pause(0.3)
+                equipped = True
+            except:
+                pass
 
-    try:
-        # Equip the weapon
-        API.UseObject(weapon.Serial, False)
-        API.Pause(0.5)
-        return True
-    except:
-        return False
+    # Equip shield (optional)
+    if shield_serial > 0:
+        shield = get_item_safe(shield_serial)
+        if shield:
+            try:
+                API.UseObject(shield.Serial, False)
+                API.Pause(0.3)
+                equipped = True
+            except:
+                pass
+
+    return equipped
 
 def attack_enemy(enemy):
     """Attack an enemy"""
@@ -570,16 +584,17 @@ def attack_enemy(enemy):
         return False
 
 def use_bandage():
-    """Use bandage to heal"""
+    """Use bandage to heal - PRIORITY #1 in combat"""
     global last_bandage_time
 
-    # Check cooldown (bandages have ~10s cooldown typically)
-    if time.time() - last_bandage_time < 10:
+    # Check cooldown
+    if time.time() - last_bandage_time < BANDAGE_DELAY:
         return False
 
     # Find bandages
     API.FindType(BANDAGE_GRAPHIC)
     if not API.Found:
+        API.SysMsg("OUT OF BANDAGES!", HUE_RED)
         return False
 
     try:
@@ -596,8 +611,10 @@ def use_bandage():
         API.CancelPreTarget()
 
         last_bandage_time = time.time()
+        API.SysMsg("Applying bandage...", HUE_GREEN)
         return True
-    except:
+    except Exception as e:
+        API.SysMsg("Bandage error: " + str(e), HUE_RED)
         return False
 
 def handle_combat(enemy):
@@ -636,17 +653,18 @@ def handle_combat(enemy):
         if combat_mode == "fight":
             API.SysMsg("COMBAT: " + str(int(player_hp_pct)) + "% HP", HUE_YELLOW)
 
-            # Equip weapon
-            if weapon_serial > 0:
+            # PRIORITY #1: HEAL if needed (before attacking!)
+            if player_hp_pct < HEAL_HP_THRESHOLD:
+                if use_bandage():
+                    # Bandage applied, wait a moment before attacking
+                    API.Pause(0.5)
+
+            # Equip weapon and shield
+            if weapon_serial > 0 or shield_serial > 0:
                 equip_weapon()
 
             # Attack enemy
             attack_enemy(enemy)
-
-            # Heal if needed
-            if player_hp_pct < HEAL_HP_THRESHOLD:
-                if use_bandage():
-                    API.SysMsg("Using bandage (" + str(int(player_hp_pct)) + "% HP)", HUE_YELLOW)
 
             state.set_state("combat")
         else:
@@ -951,6 +969,28 @@ def on_set_weapon():
                 API.SysMsg("Item not found!", HUE_RED)
     except Exception as e:
         API.SysMsg("Weapon setup error: " + str(e), HUE_RED)
+
+def on_set_shield():
+    """Prompt user to target shield for combat (optional)"""
+    global shield_serial
+
+    API.SysMsg("Target your shield (optional)...", HUE_YELLOW)
+
+    try:
+        cancel_all_targets()
+        target = API.RequestTarget(timeout=15)
+
+        if target:
+            item = API.FindItem(target)
+            if item:
+                shield_serial = target
+                save_int(KEY_SHIELD, shield_serial)
+                API.SysMsg("Shield set!", HUE_GREEN)
+                update_display()
+            else:
+                API.SysMsg("Item not found!", HUE_RED)
+    except Exception as e:
+        API.SysMsg("Shield setup error: " + str(e), HUE_RED)
 
 def toggle_combat_mode():
     """Toggle between fight and flee combat modes"""
@@ -1472,11 +1512,12 @@ def update_display():
 
 def load_settings():
     """Load all settings from persistence"""
-    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, combat_mode
+    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, shield_serial, combat_mode
 
     try:
         tool_serial = load_int(KEY_TOOL, 0)
         weapon_serial = load_int(KEY_WEAPON, 0)
+        shield_serial = load_int(KEY_SHIELD, 0)
         movement_mode = API.GetPersistentVar(KEY_MOVEMENT_MODE, "random", API.PersistentVar.Char)
         combat_mode = API.GetPersistentVar(KEY_COMBAT_MODE, "fight", API.PersistentVar.Char)
         hotkey_pause = API.GetPersistentVar(KEY_HOTKEY_PAUSE, "F1", API.PersistentVar.Char)
@@ -1722,17 +1763,23 @@ def build_gump():
     gump.Add(combat_label)
 
     # Combat mode toggle
-    combat_mode_btn = API.Gumps.CreateSimpleButton("FIGHT" if combat_mode == "fight" else "FLEE", 70, 20)
+    combat_mode_btn = API.Gumps.CreateSimpleButton("FIGHT" if combat_mode == "fight" else "FLEE", 60, 20)
     combat_mode_btn.SetPos(70, y_offset - 2)
     combat_mode_btn.SetBackgroundHue(HUE_RED if combat_mode == "fight" else HUE_YELLOW)
     gump.Add(combat_mode_btn)
     API.Gumps.AddControlOnClick(combat_mode_btn, toggle_combat_mode)
 
     # Weapon set button
-    weapon_btn = API.Gumps.CreateSimpleButton("SET WPN", 60, 20)
-    weapon_btn.SetPos(145, y_offset - 2)
+    weapon_btn = API.Gumps.CreateSimpleButton("WPN", 45, 20)
+    weapon_btn.SetPos(135, y_offset - 2)
     gump.Add(weapon_btn)
     API.Gumps.AddControlOnClick(weapon_btn, on_set_weapon)
+
+    # Shield set button (optional)
+    shield_btn = API.Gumps.CreateSimpleButton("SHLD", 45, 20)
+    shield_btn.SetPos(185, y_offset - 2)
+    gump.Add(shield_btn)
+    API.Gumps.AddControlOnClick(shield_btn, on_set_shield)
 
     y_offset += 30
 
