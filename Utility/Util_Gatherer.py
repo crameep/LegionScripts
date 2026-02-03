@@ -489,7 +489,13 @@ def check_for_hostiles():
         return None
 
     last_combat_check = now
-    return combat.find_closest_hostile(COMBAT_DISTANCE)
+
+    # Debug: Check if combat system is finding enemies
+    enemy = combat.find_closest_hostile(COMBAT_DISTANCE)
+    if enemy:
+        API.SysMsg("ENEMY DETECTED! Distance: " + str(enemy.Distance), HUE_RED)
+
+    return enemy
 
 def equip_weapon():
     """Equip weapon for combat"""
@@ -1472,8 +1478,8 @@ def initialize_framework():
     # State machine
     state = StateMachine()
 
-    # Combat system
-    combat = CombatSystem(mode="flee", flee_hp_threshold=FLEE_HP_THRESHOLD)
+    # Combat system - use the configured combat_mode
+    combat = CombatSystem(mode=combat_mode, flee_hp_threshold=FLEE_HP_THRESHOLD)
 
     # Harvester
     harvester = Harvester(tool_serial, GATHER_DELAY)
@@ -1855,8 +1861,9 @@ try:
         if current_state not in ["fleeing", "dumping", "pathfinding"]:
             enemy = check_for_hostiles()
             if enemy:
+                API.SysMsg("Handling combat encounter...", HUE_ORANGE)
                 handle_combat(enemy)
-                API.Pause(0.1)
+                API.Pause(0.5)  # Give combat actions time to process
                 continue
 
         # State machine
