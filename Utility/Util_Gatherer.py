@@ -478,6 +478,17 @@ def perform_gather():
             # Mark that we're at gathering spot, not home
             travel.at_home = False
         else:
+            # Check if we failed because we're mounted
+            journal = API.InGameJournal.GetText().lower()
+            mount_messages = ["can't dig", "while riding", "while flying", "must dismount", "can't mine"]
+            if any(msg in journal for msg in mount_messages):
+                API.SysMsg("Mounted - dismounting...", HUE_YELLOW)
+                if dismount_beetle():
+                    API.Pause(0.5)
+                    # Retry gather after dismounting
+                    state.set_state("idle")
+                    return
+
             API.SysMsg("Gather failed!", HUE_RED)
             state.set_state("idle")
 
@@ -593,13 +604,14 @@ def dismount_beetle():
         return True
 
     try:
-        # Use dismount macro or command
-        # For now, just mark as dismounted and let user handle it
-        # (API might have a dismount command but not documented)
+        # Double-click self to dismount (UseObject on player serial)
+        API.UseObject(API.Player.Serial, False)
+        API.Pause(0.5)
         beetle_mounted = False
-        API.SysMsg("Dismount to continue mining", HUE_YELLOW)
+        API.SysMsg("Dismounted beetle", HUE_GREEN)
         return True
-    except:
+    except Exception as e:
+        API.SysMsg("Dismount failed: " + str(e), HUE_RED)
         return False
 
 def equip_weapon():
