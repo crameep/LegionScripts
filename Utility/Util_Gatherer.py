@@ -2191,11 +2191,11 @@ try:
                     PAUSED = True
             # Otherwise, gather
             elif tool_graphic > 0:
+                global tool_missing_recalled
                 tool = get_tool()
                 if tool:
                     perform_gather()
                     # Reset flag when tool is found
-                    global tool_missing_recalled
                     tool_missing_recalled = False
                 else:
                     # Tool missing - recall home once and pause
