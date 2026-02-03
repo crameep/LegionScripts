@@ -161,6 +161,7 @@ session_dumps = 0
 # Combat tracking
 current_enemy = None
 last_combat_check = 0
+last_hp = 0  # Track HP for combat detection
 
 # Movement
 movement_mode = "random"  # Modes: random, spiral, stationary
@@ -481,8 +482,8 @@ def perform_gather():
         state.set_state("idle")
 
 def check_for_hostiles():
-    """Check for nearby hostile mobiles - uses CombatSystem"""
-    global last_combat_check
+    """Check for nearby hostile mobiles - custom detection"""
+    global last_combat_check, last_hp
 
     now = time.time()
     if now - last_combat_check < COMBAT_CHECK_INTERVAL:
@@ -490,12 +491,55 @@ def check_for_hostiles():
 
     last_combat_check = now
 
-    # Debug: Check if combat system is finding enemies
-    enemy = combat.find_closest_hostile(COMBAT_DISTANCE)
-    if enemy:
-        API.SysMsg("ENEMY DETECTED! Distance: " + str(enemy.Distance), HUE_RED)
+    # Method 1: Check if we're taking damage
+    current_hp = API.Player.Hits
+    if last_hp > 0 and current_hp < last_hp:
+        API.SysMsg("TAKING DAMAGE! HP: " + str(current_hp) + "/" + str(API.Player.HitsMax), HUE_RED)
+        # We're being attacked - find closest mobile
+        enemy = find_closest_mobile()
+        if enemy:
+            API.SysMsg("ENEMY DETECTED! Distance: " + str(enemy.Distance), HUE_RED)
+            last_hp = current_hp
+            return enemy
 
-    return enemy
+    last_hp = current_hp
+
+    # Method 2: Scan for nearby mobiles (non-friendly)
+    enemy = find_closest_mobile()
+    if enemy:
+        # Check if close enough to be threatening
+        if enemy.Distance <= 5:  # Only alert if very close
+            API.SysMsg("ENEMY NEARBY! Distance: " + str(enemy.Distance), HUE_YELLOW)
+            return enemy
+
+    return None
+
+def find_closest_mobile():
+    """Find closest non-friendly mobile"""
+    try:
+        # Get all mobiles in journal range (this is a hack but works)
+        # We'll scan for mobiles by trying different serials
+        closest_mobile = None
+        closest_distance = 999
+
+        # Alternative: Use API to get mobiles if available
+        # For now, check if there's a LastTarget we can use
+        try:
+            last_target_serial = API.GetLastTarget()
+            if last_target_serial:
+                mob = API.FindMobile(last_target_serial)
+                if mob and not mob.IsDead:
+                    if mob.Distance <= COMBAT_DISTANCE:
+                        return mob
+        except:
+            pass
+
+        # If no better method, return None
+        # (The framework's find_closest_hostile might work but we'll try HP detection first)
+        return combat.find_closest_hostile(COMBAT_DISTANCE)
+
+    except Exception as e:
+        return None
 
 def equip_weapon():
     """Equip weapon for combat"""
