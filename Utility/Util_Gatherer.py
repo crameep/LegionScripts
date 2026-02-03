@@ -1757,20 +1757,20 @@ def build_gump():
 
     # Create gump
     gump = API.Gumps.CreateGump()
-    gump.SetRect(x, y, 340, 620)
+    gump.SetRect(x, y, 340, 700)
 
     # Create position tracker
     pos_tracker = WindowPositionTracker(gump, KEY_WINDOW_POS, x, y)
 
     # Add background
     bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-    bg.SetRect(0, 0, 340, 620)
+    bg.SetRect(0, 0, 340, 700)
     gump.Add(bg)
 
     y_offset = 10
 
     # Title bar
-    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.1", 15, "#ffaa00")
+    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.2", 15, "#ffaa00")
     titleLabel.SetPos(10, y_offset)
     gump.Add(titleLabel)
 
@@ -2103,7 +2103,7 @@ for key in all_keys:
     except:
         pass
 
-API.SysMsg("Gatherer v2.1 started! (Framework-based)", HUE_GREEN)
+API.SysMsg("Gatherer v2.2 started! (Framework-based)", HUE_GREEN)
 API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergency recall", HUE_YELLOW)
 
 # ============ MAIN LOOP ============
