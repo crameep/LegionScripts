@@ -1707,7 +1707,7 @@ def build_gump():
 
     # Create gump
     gump = API.Gumps.CreateGump()
-    gump.SetRect(x, y, 340, 472)
+    gump.SetRect(x, y, 340, 510)
 
     # Create position tracker
     pos_tracker = WindowPositionTracker(gump, KEY_WINDOW_POS, x, y)
