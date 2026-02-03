@@ -74,9 +74,10 @@ MAX_FOLLOW_RANGE = 15
 SELF_HEAL_THRESHOLD = 15      # Heal self when missing this many HP
 TANK_HP_PERCENT = 50          # Priority heal tank below this %
 PET_HP_PERCENT = 90           # Heal pets below this %
-VET_KIT_HP_PERCENT = 70       # Vet kit threshold
-VET_KIT_THRESHOLD = 2         # Use vet kit when this many pets hurt
-VET_KIT_COOLDOWN = 10.0       # Min seconds between vet kit uses
+VET_KIT_HP_PERCENT = 85       # Vet kit threshold (more aggressive)
+VET_KIT_THRESHOLD = 2         # Use vet kit when this many pets hurt (AOE heal)
+VET_KIT_COOLDOWN = 6.0        # Min seconds between vet kit uses (was 10.0)
+VET_KIT_CRITICAL_HP = 40      # Use vet kit immediately if multiple pets critical
 
 # === COMMANDS ===
 MAX_DISTANCE = 10             # Max hostile search range
@@ -653,10 +654,13 @@ def get_next_heal_action():
         if use_trapped_pouch():
             return None
 
+    # Determine effective heal range based on magery or bandages
+    heal_range = SPELL_RANGE if USE_MAGERY else BANDAGE_RANGE
+
     # Priority heal pet (NEW in v2.2)
     if priority_heal_pet != 0:
         mob = API.FindMobile(priority_heal_pet)
-        if mob and not mob.IsDead and get_distance(mob) <= SPELL_RANGE:
+        if mob and not mob.IsDead and get_distance(mob) <= heal_range:
             if is_poisoned(mob):
                 return (priority_heal_pet, "cure", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
             hp_pct = get_hp_percent(mob)
@@ -665,7 +669,7 @@ def get_next_heal_action():
 
     if TANK_PET != 0:
         mob = API.FindMobile(TANK_PET)
-        if mob and not mob.IsDead and get_distance(mob) <= SPELL_RANGE:
+        if mob and not mob.IsDead and get_distance(mob) <= heal_range:
             if is_poisoned(mob):
                 return (TANK_PET, "cure", CAST_DELAY if USE_MAGERY else VET_DELAY, False)
             hp_pct = get_hp_percent(mob)
@@ -678,7 +682,7 @@ def get_next_heal_action():
         if not mob or mob.IsDead:
             continue
         dist = get_distance(mob)
-        if SKIP_OUT_OF_RANGE and dist > SPELL_RANGE:
+        if SKIP_OUT_OF_RANGE and dist > heal_range:
             continue
 
         if is_poisoned(mob):
@@ -698,6 +702,7 @@ def get_next_heal_action():
         # Only try if vet kit actually exists in inventory
         if API.FindType(VET_KIT_GRAPHIC):
             hurt_count = 0
+            critical_count = 0
             for pet in PETS:
                 mob = API.FindMobile(pet)
                 if not mob or mob.IsDead:
@@ -709,10 +714,18 @@ def get_next_heal_action():
                 hp_pct = get_hp_percent(mob)
                 if hp_pct < VET_KIT_HP_PERCENT:
                     hurt_count += 1
+                # Count critical HP pets (for emergency bypass)
+                if hp_pct < VET_KIT_CRITICAL_HP:
+                    critical_count += 1
 
-            if hurt_count >= VET_KIT_THRESHOLD:
-                if time.time() - last_vetkit_use > VET_KIT_COOLDOWN:
-                    return (0, "vetkit", VET_KIT_DELAY, False)
+            # Use vet kit if threshold met (2+ pets hurt)
+            should_use = hurt_count >= VET_KIT_THRESHOLD
+            cooldown_ok = time.time() - last_vetkit_use > VET_KIT_COOLDOWN
+            # Emergency: 2+ pets critical, bypass cooldown
+            emergency = critical_count >= 2
+
+            if should_use and (cooldown_ok or emergency):
+                return (0, "vetkit", VET_KIT_DELAY, False)
         else:
             # Vet kit not found - warn once and fall through to bandaging
             global out_of_vetkit_warned
@@ -728,7 +741,7 @@ def get_next_heal_action():
         if not mob or mob.IsDead:
             continue
         dist = get_distance(mob)
-        if SKIP_OUT_OF_RANGE and dist > SPELL_RANGE:
+        if SKIP_OUT_OF_RANGE and dist > heal_range:
             continue
 
         hp_pct = get_hp_percent(mob)
@@ -3176,8 +3189,8 @@ while not API.StopRequested:
         if not PAUSED and auto_target:
             handle_auto_target()
 
-        # Short pause - loop runs ~10x/second
-        API.Pause(0.1)
+        # Short pause - loop runs ~20x/second (was 0.1s)
+        API.Pause(0.05)
 
     except Exception as e:
         if "operation canceled" not in str(e).lower() and not API.StopRequested:

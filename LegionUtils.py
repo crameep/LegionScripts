@@ -2041,3 +2041,115 @@ def hue_for_value(value, low, high):
         return 43  # Yellow
     else:
         return 32  # Red
+
+# ============ GUMP UTILITIES ============
+class GumpCapture:
+    """Utility for detecting and testing gump IDs and buttons
+
+    Used by tome dumpers and other scripts that need to identify
+    gump IDs and button IDs for automation.
+
+    Example:
+        gump_capture = GumpCapture()
+
+        # Detect gump ID
+        gump_id = gump_capture.detect_new_gump(None, timeout=10)
+
+        # Test if button 5 closes the gump
+        if gump_capture.test_button(gump_id, 5):
+            API.SysMsg("Button 5 is the close button", 68)
+    """
+
+    def __init__(self):
+        """Initialize gump capture utility"""
+        pass
+
+    def detect_new_gump(self, tome_serial, timeout=10):
+        """Detect a new gump that appears
+
+        Scans for gumps before and after opening an item to identify
+        which gump ID appeared. Tests common gump ID ranges.
+
+        Args:
+            tome_serial: Serial of item to open (or None to scan current gumps)
+            timeout: Max time to wait for gump (seconds)
+
+        Returns:
+            int: Gump ID if detected, 0 if timeout
+        """
+        # Scan for gumps that are currently open (before opening tome)
+        before_gumps = set()
+        for test_id in range(1, 200):
+            if API.HasGump(test_id):
+                before_gumps.add(test_id)
+
+        API.SysMsg("Found " + str(len(before_gumps)) + " gumps open before", 88)
+
+        # Open tome if provided
+        if tome_serial:
+            tome = API.FindItem(tome_serial)
+            if tome:
+                API.UseObject(tome_serial, False)
+                API.Pause(0.8)
+            else:
+                API.SysMsg("Tome not found", 32)
+                return 0
+
+        # Wait a bit for gump to appear
+        API.Pause(1.5)
+
+        # Scan for new gumps
+        after_gumps = set()
+        for test_id in range(1, 200):
+            if API.HasGump(test_id):
+                after_gumps.add(test_id)
+
+        # Find the new gump(s)
+        new_gumps = after_gumps - before_gumps
+
+        if len(new_gumps) == 0:
+            API.SysMsg("No new gump detected - try again", 32)
+            return 0
+        elif len(new_gumps) == 1:
+            detected_id = list(new_gumps)[0]
+            API.SysMsg("Detected gump ID: " + str(detected_id), 68)
+            return detected_id
+        else:
+            # Multiple new gumps - return the first one
+            detected_id = sorted(list(new_gumps))[0]
+            API.SysMsg("Multiple gumps detected, using: " + str(detected_id), 43)
+            return detected_id
+
+    def test_button(self, gump_id, button_id):
+        """Test if a button closes a gump
+
+        Opens the gump, clicks the button, and checks if gump closed.
+
+        Args:
+            gump_id: The gump ID to test
+            button_id: The button ID to test
+
+        Returns:
+            bool: True if button closed the gump, False otherwise
+        """
+        if gump_id == 0:
+            return False
+
+        # Check if gump is currently open
+        if not API.HasGump(gump_id):
+            API.SysMsg("Gump not open - open tome first", 43)
+            return False
+
+        # Click the button
+        try:
+            API.ReplyGump(button_id, gump_id)
+            API.Pause(0.5)
+
+            # Check if gump closed
+            if not API.HasGump(gump_id):
+                return True  # Button closed the gump
+            else:
+                return False  # Gump still open
+        except Exception as e:
+            API.SysMsg("Error testing button: " + str(e), 32)
+            return False

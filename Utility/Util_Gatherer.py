@@ -67,7 +67,7 @@ AUTO_CONVERT_LOGS = True  # Automatically convert logs to boards after gathering
 # Timings
 GATHER_DELAY = 2.5  # Seconds to complete gather action
 MOVE_DELAY = 1.0  # Seconds to complete movement
-COMBAT_CHECK_INTERVAL = 1.0  # Check for hostiles every second
+COMBAT_CHECK_INTERVAL = 0.3  # Check for hostiles frequently (every 0.3s)
 DISPLAY_UPDATE_INTERVAL = 0.5  # Update UI twice per second
 CONVERT_DELAY = 1.5  # Time to wait for log conversion
 
@@ -164,6 +164,7 @@ session_dumps = 0
 current_enemy = None
 last_combat_check = 0
 last_hp = 0  # Track HP for combat detection
+last_beetle_hp = 0  # Track beetle HP for damage detection
 
 # Movement
 movement_mode = "random"  # Modes: random, spiral, stationary
@@ -486,7 +487,7 @@ def perform_gather():
 
 def check_for_hostiles():
     """Check for nearby hostile mobiles - custom detection"""
-    global last_combat_check, last_hp
+    global last_combat_check, last_hp, last_beetle_hp
 
     now = time.time()
     if now - last_combat_check < COMBAT_CHECK_INTERVAL:
@@ -494,7 +495,7 @@ def check_for_hostiles():
 
     last_combat_check = now
 
-    # Method 1: Check if we're taking damage
+    # Method 1: Check if WE'RE taking damage
     current_hp = API.Player.Hits
     if last_hp > 0 and current_hp < last_hp:
         API.SysMsg("TAKING DAMAGE! HP: " + str(current_hp) + "/" + str(API.Player.HitsMax), HUE_RED)
@@ -507,7 +508,22 @@ def check_for_hostiles():
 
     last_hp = current_hp
 
-    # Method 2: Scan for nearby mobiles (non-friendly)
+    # Method 2: Check if BEETLE is taking damage (mining only)
+    if resource_type == "mining" and fire_beetle_serial > 0:
+        beetle = API.FindMobile(fire_beetle_serial)
+        if beetle and not beetle.IsDead:
+            current_beetle_hp = beetle.Hits
+            if last_beetle_hp > 0 and current_beetle_hp < last_beetle_hp:
+                API.SysMsg("BEETLE TAKING DAMAGE! HP: " + str(current_beetle_hp) + "/" + str(beetle.HitsMax), HUE_RED)
+                # Beetle is being attacked - find enemy
+                enemy = find_closest_mobile()
+                if enemy:
+                    API.SysMsg("ENEMY ATTACKING BEETLE! Distance: " + str(enemy.Distance), HUE_RED)
+                    last_beetle_hp = current_beetle_hp
+                    return enemy
+            last_beetle_hp = current_beetle_hp
+
+    # Method 3: Scan for nearby mobiles (non-friendly)
     enemy = find_closest_mobile()
     if enemy:
         # Check if close enough to be threatening
@@ -543,6 +559,48 @@ def find_closest_mobile():
 
     except Exception as e:
         return None
+
+def mount_beetle():
+    """Mount fire beetle for combat"""
+    global beetle_mounted
+
+    if fire_beetle_serial == 0:
+        return False
+
+    beetle = API.FindMobile(fire_beetle_serial)
+    if not beetle or beetle.IsDead:
+        return False
+
+    # Check if already mounted
+    if beetle_mounted:
+        return True
+
+    try:
+        # Double-click beetle to mount
+        API.UseObject(beetle.Serial, False)
+        API.Pause(0.8)
+        beetle_mounted = True
+        API.SysMsg("Mounted beetle for combat!", HUE_GREEN)
+        return True
+    except:
+        return False
+
+def dismount_beetle():
+    """Dismount beetle after combat"""
+    global beetle_mounted
+
+    if not beetle_mounted:
+        return True
+
+    try:
+        # Use dismount macro or command
+        # For now, just mark as dismounted and let user handle it
+        # (API might have a dismount command but not documented)
+        beetle_mounted = False
+        API.SysMsg("Dismount to continue mining", HUE_YELLOW)
+        return True
+    except:
+        return False
 
 def equip_weapon():
     """Equip weapon and shield for combat"""
@@ -652,6 +710,10 @@ def handle_combat(enemy):
         # Fight mode - engage enemy
         if combat_mode == "fight":
             API.SysMsg("COMBAT: " + str(int(player_hp_pct)) + "% HP", HUE_YELLOW)
+
+            # Mount beetle for combat (provides protection + damage)
+            if resource_type == "mining" and fire_beetle_serial > 0:
+                mount_beetle()
 
             # PRIORITY #1: HEAL if needed (before attacking!)
             if player_hp_pct < HEAL_HP_THRESHOLD:
@@ -1003,6 +1065,15 @@ def toggle_combat_mode():
 
     API.SavePersistentVar(KEY_COMBAT_MODE, combat_mode, API.PersistentVar.Char)
     API.SysMsg("Combat mode: " + combat_mode.upper(), HUE_YELLOW)
+
+    # Update button directly
+    if "combat_mode_btn" in controls:
+        controls["combat_mode_btn"].SetText("FIGHT" if combat_mode == "fight" else "FLEE")
+        controls["combat_mode_btn"].SetBackgroundHue(HUE_RED if combat_mode == "fight" else HUE_YELLOW)
+
+    # Re-initialize combat system with new mode
+    initialize_framework()
+
     update_display()
 
 def on_detect_storage_gump():
@@ -1762,12 +1833,12 @@ def build_gump():
     combat_label.SetPos(10, y_offset)
     gump.Add(combat_label)
 
-    # Combat mode toggle
-    combat_mode_btn = API.Gumps.CreateSimpleButton("FIGHT" if combat_mode == "fight" else "FLEE", 60, 20)
-    combat_mode_btn.SetPos(70, y_offset - 2)
-    combat_mode_btn.SetBackgroundHue(HUE_RED if combat_mode == "fight" else HUE_YELLOW)
-    gump.Add(combat_mode_btn)
-    API.Gumps.AddControlOnClick(combat_mode_btn, toggle_combat_mode)
+    # Combat mode toggle (store in controls for updates)
+    controls["combat_mode_btn"] = API.Gumps.CreateSimpleButton("FIGHT" if combat_mode == "fight" else "FLEE", 60, 20)
+    controls["combat_mode_btn"].SetPos(70, y_offset - 2)
+    controls["combat_mode_btn"].SetBackgroundHue(HUE_RED if combat_mode == "fight" else HUE_YELLOW)
+    gump.Add(controls["combat_mode_btn"])
+    API.Gumps.AddControlOnClick(controls["combat_mode_btn"], toggle_combat_mode)
 
     # Weapon set button
     weapon_btn = API.Gumps.CreateSimpleButton("WPN", 45, 20)
@@ -1947,12 +2018,12 @@ try:
         if pos_tracker:
             pos_tracker.update()
 
-        # Combat check (highest priority) - but not while already fleeing or at home
+        # Combat check (highest priority) - but not while already in combat or at home
         current_state = state.get_state()
-        if current_state not in ["fleeing", "dumping", "pathfinding"]:
+        if current_state not in ["fleeing", "dumping", "pathfinding", "combat", "waiting_to_recall"]:
             enemy = check_for_hostiles()
             if enemy:
-                API.SysMsg("Handling combat encounter...", HUE_ORANGE)
+                API.SysMsg("ENEMY DETECTED! Stopping to fight...", HUE_RED)
                 handle_combat(enemy)
                 API.Pause(0.5)  # Give combat actions time to process
                 continue
@@ -2089,14 +2160,65 @@ try:
                 state.set_state("idle")
 
         elif current_state == "combat":
-            # Re-check enemy
+            # Active combat - continue fighting
             if current_enemy:
                 enemy_serial = getattr(current_enemy, 'Serial', None)
                 if enemy_serial:
                     mob = API.FindMobile(enemy_serial)
                     if not mob or mob.IsDead or mob.Distance > COMBAT_DISTANCE:
+                        # Combat ended - dismount to continue mining
+                        if beetle_mounted:
+                            API.SysMsg("Combat ended - dismount to mine", HUE_GREEN)
+                            dismount_beetle()
                         current_enemy = None
                         state.set_state("idle")
+                    else:
+                        # Enemy still alive and nearby - continue fighting!
+                        player_hp_pct = (API.Player.Hits / API.Player.HitsMax * 100) if API.Player.HitsMax > 0 else 100
+
+                        # Check if we should flee
+                        if player_hp_pct < FLEE_HP_THRESHOLD:
+                            API.SysMsg("HP LOW (" + str(int(player_hp_pct)) + "%) - FLEEING!", HUE_RED)
+                            current_enemy = None
+                            state.set_state("idle")
+                            # Don't pause - let normal flow handle it
+                        else:
+                            # Continue fighting
+                            # PRIORITY #1: Heal if needed
+                            if player_hp_pct < HEAL_HP_THRESHOLD:
+                                use_bandage()
+
+                            # Tactical kiting: If HP is low (60-70%) and bandage is on cooldown, create distance
+                            now = time.time()
+                            bandage_on_cooldown = (now - last_bandage_time) < BANDAGE_DELAY
+                            should_kite = player_hp_pct < 70 and bandage_on_cooldown
+
+                            if should_kite:
+                                # Create distance - move away from enemy
+                                enemy_distance = mob.Distance
+                                if enemy_distance < 5:  # Only kite if enemy is close
+                                    # Calculate position away from enemy
+                                    player_x = getattr(API.Player, 'X', 0)
+                                    player_y = getattr(API.Player, 'Y', 0)
+                                    enemy_x = getattr(mob, 'X', player_x)
+                                    enemy_y = getattr(mob, 'Y', player_y)
+
+                                    # Move in opposite direction (4 tiles away)
+                                    flee_x = player_x + (player_x - enemy_x) * 2
+                                    flee_y = player_y + (player_y - enemy_y) * 2
+
+                                    if not API.Pathfinding():
+                                        API.Pathfind(flee_x, flee_y)
+                                        API.SysMsg("Kiting while bandage heals... (" + str(int(player_hp_pct)) + "% HP)", HUE_YELLOW)
+                                    # Don't attack while kiting - just create distance
+                                else:
+                                    # Enemy far enough, keep attacking
+                                    attack_enemy(mob)
+                            else:
+                                # Normal combat - keep attacking
+                                attack_enemy(mob)
+
+                            API.Pause(0.3)  # Brief pause between combat actions
                 else:
                     current_enemy = None
                     state.set_state("idle")
