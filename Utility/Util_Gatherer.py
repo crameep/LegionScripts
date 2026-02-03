@@ -276,6 +276,10 @@ def handle_captcha(captcha_type):
     if API.Pathfinding():
         API.CancelPathfinding()
 
+    # Call pets to follow before recalling
+    API.Msg("all follow me")
+    API.Pause(0.5)
+
     # Try to recall home
     if not travel.at_home:
         API.SysMsg("Attempting recall home...", HUE_YELLOW)
