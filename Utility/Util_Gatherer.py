@@ -1,6 +1,6 @@
 # Util_Gatherer.py - REFACTORED
 # Mining/Lumberjacking gatherer with AOE harvesting, auto-dump, and combat handling
-# Version 2.0 - Uses GatherFramework and LegionUtils
+# Version 2.1 - Tool graphic system, speed controls, captcha tracking
 #
 # SETUP:
 # 1. Set your harvesting tool (pickaxe/hatchet/shovel)
@@ -1770,7 +1770,7 @@ def build_gump():
     y_offset = 10
 
     # Title bar
-    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.0", 15, "#ffaa00")
+    titleLabel = API.Gumps.CreateGumpTTFLabel("GATHERER v2.1", 15, "#ffaa00")
     titleLabel.SetPos(10, y_offset)
     gump.Add(titleLabel)
 
@@ -2103,7 +2103,7 @@ for key in all_keys:
     except:
         pass
 
-API.SysMsg("Gatherer v2.0 started! (Framework-based)", HUE_GREEN)
+API.SysMsg("Gatherer v2.1 started! (Framework-based)", HUE_GREEN)
 API.SysMsg("Press " + hotkey_pause + " to pause, " + hotkey_esc + " for emergency recall", HUE_YELLOW)
 
 # ============ MAIN LOOP ============
