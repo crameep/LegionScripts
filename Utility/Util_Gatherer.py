@@ -159,6 +159,7 @@ log_count = 0
 session_ore = 0
 session_logs = 0
 session_dumps = 0
+session_captchas = 0
 
 # Combat tracking
 current_enemy = None
@@ -264,10 +265,13 @@ def check_for_captcha():
 
 def handle_captcha(captcha_type):
     """Handle captcha detection - recall home and PAUSE (not stop)"""
-    global PAUSED
+    global PAUSED, session_captchas
+
+    # Increment captcha counter
+    session_captchas += 1
 
     API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
-    API.SysMsg("║   CAPTCHA DETECTED!                ║", HUE_RED)
+    API.SysMsg("║   CAPTCHA DETECTED! (#" + str(session_captchas) + ")".ljust(36) + "║", HUE_RED)
     API.SysMsg("║   Type: " + captcha_type.upper().ljust(27) + "║", HUE_RED)
     API.SysMsg("║   Recalling home and pausing...    ║", HUE_RED)
     API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
@@ -1937,6 +1941,12 @@ def build_gump():
 
     y_offset += 16
 
+    controls["session_captchas_label"] = API.Gumps.CreateGumpTTFLabel("Captchas: 0", 15, "#ff6666")
+    controls["session_captchas_label"].SetPos(15, y_offset)
+    gump.Add(controls["session_captchas_label"])
+
+    y_offset += 16
+
     controls["session_runtime_label"] = API.Gumps.CreateGumpTTFLabel("Runtime: 0m", 15, "#aaaaaa")
     controls["session_runtime_label"].SetPos(15, y_offset)
     gump.Add(controls["session_runtime_label"])
@@ -2353,6 +2363,8 @@ try:
                 controls["session_logs_label"].SetText("Total Logs: " + str(session_logs + log_count))
             if "session_dumps_label" in controls:
                 controls["session_dumps_label"].SetText("Dumps: " + str(session_dumps))
+            if "session_captchas_label" in controls:
+                controls["session_captchas_label"].SetText("Captchas: " + str(session_captchas))
 
         API.Pause(0.1)  # Short pause only
 
