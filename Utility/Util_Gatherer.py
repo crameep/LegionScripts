@@ -142,6 +142,7 @@ KEY_CURRENT_SPOT = KEY_PREFIX + "CurrentSpotIndex"
 KEY_WEAPON = KEY_PREFIX + "WeaponSerial"
 KEY_SHIELD = KEY_PREFIX + "ShieldSerial"
 KEY_COMBAT_MODE = KEY_PREFIX + "CombatMode"
+KEY_GATHER_DELAY = KEY_PREFIX + "GatherDelay"
 
 # ============ RUNTIME STATE ============
 
@@ -160,6 +161,9 @@ session_ore = 0
 session_logs = 0
 session_dumps = 0
 session_captchas = 0
+
+# Tool tracking
+tool_missing_recalled = False  # Track if we've recalled home due to missing tool
 
 # Combat tracking
 current_enemy = None
@@ -1597,6 +1601,10 @@ def update_display():
                 controls["resume_btn"].SetBackgroundHue(HUE_YELLOW)
                 controls["resume_btn"].SetText("PAUSE")
 
+        # Speed label
+        if "speed_label" in controls:
+            controls["speed_label"].SetText("Speed: " + str(round(GATHER_DELAY, 1)) + "s")
+
     except Exception as e:
         pass
 
@@ -1604,7 +1612,7 @@ def update_display():
 
 def load_settings():
     """Load all settings from persistence"""
-    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, shield_serial, combat_mode
+    global tool_serial, movement_mode, hotkey_pause, hotkey_esc, num_gathering_spots, weapon_serial, shield_serial, combat_mode, GATHER_DELAY
 
     try:
         tool_serial = load_int(KEY_TOOL, 0)
@@ -1615,6 +1623,13 @@ def load_settings():
         hotkey_pause = API.GetPersistentVar(KEY_HOTKEY_PAUSE, "F1", API.PersistentVar.Char)
         hotkey_esc = API.GetPersistentVar(KEY_HOTKEY_ESC, "F2", API.PersistentVar.Char)
         num_gathering_spots = load_int(KEY_NUM_SPOTS, 1)
+
+        # Load gather delay (default 2.5)
+        delay_str = API.GetPersistentVar(KEY_GATHER_DELAY, "2.5", API.PersistentVar.Char)
+        try:
+            GATHER_DELAY = float(delay_str)
+        except:
+            GATHER_DELAY = 2.5
     except Exception as e:
         API.SysMsg("Error loading settings: " + str(e), HUE_RED)
 
@@ -1707,7 +1722,7 @@ def build_gump():
 
     # Create gump
     gump = API.Gumps.CreateGump()
-    gump.SetRect(x, y, 340, 510)
+    gump.SetRect(x, y, 340, 540)
 
     # Create position tracker
     pos_tracker = WindowPositionTracker(gump, KEY_WINDOW_POS, x, y)
@@ -1895,7 +1910,25 @@ def build_gump():
     gump.Add(controls["move_stay_btn"])
     API.Gumps.AddControlOnClick(controls["move_stay_btn"], lambda: set_movement("stationary"))
 
-    y_offset += 30
+    y_offset += 28
+
+    # Gather speed controls
+    speed_label = API.Gumps.CreateGumpTTFLabel("Speed: " + str(GATHER_DELAY) + "s", 15, "#ffffff")
+    speed_label.SetPos(10, y_offset)
+    gump.Add(speed_label)
+    controls["speed_label"] = speed_label
+
+    speed_minus_btn = API.Gumps.CreateSimpleButton("[-]", 35, 20)
+    speed_minus_btn.SetPos(90, y_offset - 2)
+    gump.Add(speed_minus_btn)
+    API.Gumps.AddControlOnClick(speed_minus_btn, lambda: adjust_gather_speed(-0.1))
+
+    speed_plus_btn = API.Gumps.CreateSimpleButton("[+]", 35, 20)
+    speed_plus_btn.SetPos(130, y_offset - 2)
+    gump.Add(speed_plus_btn)
+    API.Gumps.AddControlOnClick(speed_plus_btn, lambda: adjust_gather_speed(0.1))
+
+    y_offset += 28
 
     # Status section
     controls["resources_label"] = API.Gumps.CreateGumpTTFLabel("Ore: 0 | Logs: 0", 15, "#ffffff")
@@ -1988,6 +2021,22 @@ def set_movement(mode):
     global movement_mode
     movement_mode = mode
     API.SavePersistentVar(KEY_MOVEMENT_MODE, movement_mode, API.PersistentVar.Char)
+    update_display()
+
+def adjust_gather_speed(delta):
+    """Adjust gather delay speed"""
+    global GATHER_DELAY, harvester
+
+    GATHER_DELAY = max(1.0, min(5.0, GATHER_DELAY + delta))  # Clamp between 1.0 and 5.0
+
+    # Save setting
+    API.SavePersistentVar(KEY_GATHER_DELAY, str(GATHER_DELAY), API.PersistentVar.Char)
+
+    # Update harvester
+    if harvester:
+        harvester.action_delay = GATHER_DELAY
+
+    API.SysMsg("Gather speed: " + str(GATHER_DELAY) + "s", HUE_YELLOW)
     update_display()
 
 # ============ HOTKEY HANDLERS ============
@@ -2117,9 +2166,32 @@ try:
                 tool = get_tool()
                 if tool:
                     perform_gather()
+                    # Reset flag when tool is found
+                    global tool_missing_recalled
+                    tool_missing_recalled = False
                 else:
-                    if time.time() % 5 < 0.1:  # Message every 5 seconds
-                        API.SysMsg("IDLE - Tool not found (serial: 0x" + hex(tool_serial)[2:].upper() + ")", HUE_RED)
+                    # Tool missing - recall home once and pause
+                    if not tool_missing_recalled:
+                        API.SysMsg("╔════════════════════════════════════╗", HUE_RED)
+                        API.SysMsg("║   TOOL NOT FOUND!                  ║", HUE_RED)
+                        API.SysMsg("║   Serial: 0x" + hex(tool_serial)[2:].upper().ljust(25) + "║", HUE_RED)
+                        API.SysMsg("║   Recalling home...                ║", HUE_RED)
+                        API.SysMsg("╚════════════════════════════════════╝", HUE_RED)
+
+                        tool_missing_recalled = True
+
+                        # Recall home if not already there
+                        if not travel.at_home:
+                            API.Msg("all follow me")
+                            API.Pause(0.5)
+                            if travel.recall_home():
+                                API.SysMsg("Recalled home - get new tool!", HUE_YELLOW)
+                                travel.at_home = True
+
+                        # Pause script
+                        API.SysMsg("PAUSED - Equip new tool and RESUME", HUE_YELLOW)
+                        PAUSED = True
+                        update_display()
             else:
                 # No tool configured
                 if time.time() % 5 < 0.1:  # Message every 5 seconds
