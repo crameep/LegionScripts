@@ -521,7 +521,7 @@ def perform_gather():
             mount_messages = ["can't dig", "while riding", "while flying", "must dismount", "can't mine"]
             if any(msg in journal for msg in mount_messages):
                 API.SysMsg("Mounted - dismounting...", HUE_YELLOW)
-                if dismount_beetle():
+                if dismount_beetle(force=True):  # Force dismount regardless of flag
                     API.Pause(0.5)
                     # Retry gather after dismounting
                     state.set_state("idle")
@@ -634,11 +634,16 @@ def mount_beetle():
     except:
         return False
 
-def dismount_beetle():
-    """Dismount beetle after combat"""
+def dismount_beetle(force=False):
+    """Dismount beetle after combat
+
+    Args:
+        force: If True, always attempt dismount regardless of beetle_mounted flag
+    """
     global beetle_mounted
 
-    if not beetle_mounted:
+    # Skip dismount if not mounted (unless forced)
+    if not force and not beetle_mounted:
         return True
 
     try:
@@ -646,7 +651,7 @@ def dismount_beetle():
         API.UseObject(API.Player.Serial, False)
         API.Pause(0.5)
         beetle_mounted = False
-        API.SysMsg("Dismounted beetle", HUE_GREEN)
+        API.SysMsg("Dismounted", HUE_GREEN)
         return True
     except Exception as e:
         API.SysMsg("Dismount failed: " + str(e), HUE_RED)
