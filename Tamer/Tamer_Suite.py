@@ -74,10 +74,10 @@ MAX_FOLLOW_RANGE = 15
 SELF_HEAL_THRESHOLD = 15      # Heal self when missing this many HP
 TANK_HP_PERCENT = 50          # Priority heal tank below this %
 PET_HP_PERCENT = 90           # Heal pets below this %
-VET_KIT_HP_PERCENT = 85       # Vet kit threshold (more aggressive)
+VET_KIT_HP_PERCENT = 90       # Vet kit threshold (very aggressive)
 VET_KIT_THRESHOLD = 2         # Use vet kit when this many pets hurt (AOE heal)
-VET_KIT_COOLDOWN = 6.0        # Min seconds between vet kit uses (was 10.0)
-VET_KIT_CRITICAL_HP = 40      # Use vet kit immediately if multiple pets critical
+VET_KIT_COOLDOWN = 5.0        # Min seconds between vet kit uses (was 6.0)
+VET_KIT_CRITICAL_HP = 50      # Use vet kit immediately if multiple pets critical
 
 # === COMMANDS ===
 MAX_DISTANCE = 10             # Max hostile search range
@@ -3189,8 +3189,8 @@ while not API.StopRequested:
         if not PAUSED and auto_target:
             handle_auto_target()
 
-        # Short pause - loop runs ~20x/second (was 0.1s)
-        API.Pause(0.05)
+        # Short pause - loop runs ~10x/second (balance of responsiveness vs CPU)
+        API.Pause(0.1)
 
     except Exception as e:
         if "operation canceled" not in str(e).lower() and not API.StopRequested:
