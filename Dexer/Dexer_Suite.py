@@ -41,7 +41,7 @@ MAX_DISTANCE = 12             # Max distance for target search
 
 # === GUI DIMENSIONS ===
 COLLAPSED_HEIGHT = 24
-EXPANDED_HEIGHT = 610
+EXPANDED_HEIGHT = 590
 WINDOW_WIDTH = 280
 
 AUTO_TARGET_RANGE = 3         # Range for auto-targeting next enemy when current dies
@@ -743,8 +743,12 @@ def toggle_auto_heal():
     global auto_heal
     auto_heal = not auto_heal
     API.SavePersistentVar(AUTO_HEAL_KEY, str(auto_heal), API.PersistentVar.Char)
-    autoHealBtn.SetText("[AUTO-BAND:" + ("ON" if auto_heal else "OFF") + "]")
-    autoHealBtn.SetBackgroundHue(68 if auto_heal else 90)
+
+    # Update config window button if open
+    if "auto_heal_btn" in config_controls:
+        config_controls["auto_heal_btn"].SetText("[AUTO-BAND:" + ("ON" if auto_heal else "OFF") + "]")
+        config_controls["auto_heal_btn"].SetBackgroundHue(68 if auto_heal else 90)
+
     API.SysMsg("Auto-Bandage: " + ("ON" if auto_heal else "OFF"), 68)
 
 def toggle_auto_buff():
@@ -1504,6 +1508,23 @@ def build_config_gump():
     delay_help.SetPos(left_x + 215, y + 3)
     config_gump.Add(delay_help)
 
+    y += 30
+
+    # Auto-Bandage Toggle
+    auto_heal_lbl = API.Gumps.CreateGumpTTFLabel("Auto-Bandage:", 15, "#dddddd")
+    auto_heal_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(auto_heal_lbl)
+
+    config_controls["auto_heal_btn"] = API.Gumps.CreateSimpleButton("[AUTO-BAND:" + ("ON" if auto_heal else "OFF") + "]", 110, 18)
+    config_controls["auto_heal_btn"].SetPos(left_x + 100, y)
+    config_controls["auto_heal_btn"].SetBackgroundHue(68 if auto_heal else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_heal_btn"], toggle_auto_heal)
+    config_gump.Add(config_controls["auto_heal_btn"])
+
+    auto_heal_help = API.Gumps.CreateGumpTTFLabel("Auto-heal with bandages", 15, "#888888")
+    auto_heal_help.SetPos(left_x + 215, y + 3)
+    config_gump.Add(auto_heal_help)
+
     y += 40
 
     # === THROWABLES SECTION ===
@@ -2118,13 +2139,6 @@ bandageBtn.SetBackgroundHue(68)
 API.Gumps.AddControlOnClick(bandageBtn, on_bandage_button)
 gump.Add(bandageBtn)
 expander.add_control(bandageBtn)
-
-autoHealBtn = API.Gumps.CreateSimpleButton("[AUTO-BAND:" + ("ON" if auto_heal else "OFF") + "]", 110, 18)
-autoHealBtn.SetPos(leftX + 155, y - 2)
-autoHealBtn.SetBackgroundHue(68 if auto_heal else 90)
-API.Gumps.AddControlOnClick(autoHealBtn, toggle_auto_heal)
-gump.Add(autoHealBtn)
-expander.add_control(autoHealBtn)
 
 y += 20
 
