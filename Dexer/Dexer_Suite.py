@@ -1954,7 +1954,8 @@ expander = ExpandableWindow(
     gump, expandBtn, EXPANDED_KEY,
     width=WINDOW_WIDTH,
     expanded_height=EXPANDED_HEIGHT,
-    collapsed_height=COLLAPSED_HEIGHT
+    collapsed_height=COLLAPSED_HEIGHT,
+    background=bg
 )
 
 # Wire button to expander

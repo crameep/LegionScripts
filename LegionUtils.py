@@ -919,7 +919,7 @@ class ExpandableWindow:
     """
 
     def __init__(self, gump, expand_btn, persist_key,
-                 width=280, expanded_height=600, collapsed_height=24):
+                 width=280, expanded_height=600, collapsed_height=24, background=None):
         """Initialize expandable window
 
         Args:
@@ -929,6 +929,7 @@ class ExpandableWindow:
             width: Window width
             expanded_height: Height when expanded
             collapsed_height: Height when collapsed
+            background: Optional background ColorBox to resize with window
         """
         self.gump = gump
         self.expand_btn = expand_btn
@@ -936,6 +937,7 @@ class ExpandableWindow:
         self.width = width
         self.expanded_height = expanded_height
         self.collapsed_height = collapsed_height
+        self.background = background
 
         self.controls_to_toggle = []
         self.is_expanded = load_bool(persist_key, True)
@@ -980,12 +982,16 @@ class ExpandableWindow:
         for ctrl in self.controls_to_toggle:
             ctrl.IsVisible = self.is_expanded
 
-        # Resize window
+        # Resize window and background
         try:
             x = self.gump.GetX()
             y = self.gump.GetY()
             height = self.expanded_height if self.is_expanded else self.collapsed_height
             self.gump.SetRect(x, y, self.width, height)
+
+            # Resize background if provided
+            if self.background:
+                self.background.SetRect(0, 0, self.width, height)
         except:
             pass
 
