@@ -98,6 +98,9 @@ THROWABLES_KEY = "DexerSuite_Throwables"
 THROWABLE_PRIORITY_KEY = "DexerSuite_ThrowablePriority"
 CONFIG_XY_KEY = "DexerSuite_ConfigXY"
 
+# Schema versioning for throwables persistence
+THROWABLES_SCHEMA_VERSION = 1
+
 # Hotkey keys
 HOTKEY_HEAL_POTION_KEY = "DexerSuite_HK_HealPotion"
 HOTKEY_CURE_POTION_KEY = "DexerSuite_HK_CurePotion"
@@ -149,9 +152,7 @@ EXPLO_RETRY_DELAY = 1.0       # Seconds to wait before retrying failed throw
 # Config window tracking
 config_gump = None
 config_controls = {}
-config_last_known_x = 150
-config_last_known_y = 150
-last_position_check = 0
+config_pos_tracker = None
 
 # Throwables system (user-configurable graphic IDs and priority)
 throwables = {
@@ -996,33 +997,68 @@ def load_settings():
     HOTKEY_PAUSE = API.GetPersistentVar(HOTKEY_PAUSE_KEY, "PAUSE", API.PersistentVar.Char)
     HOTKEY_ATTACK = API.GetPersistentVar(HOTKEY_ATTACK_KEY, "TAB", API.PersistentVar.Char)
 
-    # Load throwables with validation
+    # Load throwables with validation and schema versioning
     throwables_str = API.GetPersistentVar(THROWABLES_KEY, "", API.PersistentVar.Char)
     if throwables_str:
         try:
-            # Format: "key:graphic:label|key:graphic:label|..."
-            for entry in throwables_str.split("|"):
-                if not entry:
-                    continue
-                parts = entry.split(":")
-                if len(parts) == 3:
-                    key, graphic_hex, label = parts
-                    if key not in throwables:
+            parts = throwables_str.split("|")
+            schema_ver = 0  # Default to v0 (no version) for backward compatibility
+            start_idx = 0
+
+            # Check if first part is a version identifier
+            if parts and parts[0].startswith("v"):
+                try:
+                    schema_ver = int(parts[0][1:])
+                    start_idx = 1  # Skip version entry
+                except (ValueError, IndexError):
+                    pass
+
+            # Parse based on schema version
+            if schema_ver == 1:
+                # Format: "v1|key:graphic:label|key:graphic:label|..."
+                for entry in parts[start_idx:]:
+                    if not entry:
                         continue
+                    entry_parts = entry.split(":")
+                    if len(entry_parts) == 3:
+                        key, graphic_hex, label = entry_parts
+                        if key not in throwables:
+                            continue
 
-                    # Validate graphic ID
-                    try:
-                        graphic = int(graphic_hex, 16)
-                        if graphic < 0 or graphic > 0xFFFF:
-                            continue  # Invalid range
-                    except (ValueError, TypeError):
+                        # Validate graphic ID
+                        try:
+                            graphic = int(graphic_hex, 16)
+                            if graphic < 0 or graphic > 0xFFFF:
+                                continue  # Invalid range
+                        except (ValueError, TypeError):
+                            continue
+
+                        # Sanitize label (remove delimiters, limit length)
+                        label = str(label).replace("|", "").replace(":", "")[:50]
+
+                        throwables[key]["graphic"] = graphic
+                        throwables[key]["label"] = label
+            else:
+                # Legacy format (v0): "key:graphic:label|key:graphic:label|..."
+                for entry in parts:
+                    if not entry:
                         continue
+                    entry_parts = entry.split(":")
+                    if len(entry_parts) == 3:
+                        key, graphic_hex, label = entry_parts
+                        if key not in throwables:
+                            continue
 
-                    # Sanitize label (remove delimiters, limit length)
-                    label = str(label).replace("|", "").replace(":", "")[:50]
+                        try:
+                            graphic = int(graphic_hex, 16)
+                            if graphic < 0 or graphic > 0xFFFF:
+                                continue
+                        except (ValueError, TypeError):
+                            continue
 
-                    throwables[key]["graphic"] = graphic
-                    throwables[key]["label"] = label
+                        label = str(label).replace("|", "").replace(":", "")[:50]
+                        throwables[key]["graphic"] = graphic
+                        throwables[key]["label"] = label
         except Exception as e:
             API.SysMsg("Error loading throwables (using defaults): " + str(e), 32)
 
@@ -1042,11 +1078,11 @@ def load_settings():
     stamina_threshold = max(10, min(80, stamina_threshold))
 
 def save_throwables():
-    """Save throwables configuration"""
+    """Save throwables configuration with schema version"""
     global throwables, throwable_priority
 
-    # Save throwables: "key:graphic:label|key:graphic:label|..."
-    entries = []
+    # Save throwables: "v1|key:graphic:label|key:graphic:label|..."
+    entries = ["v{}".format(THROWABLES_SCHEMA_VERSION)]  # Add version prefix
     for key, data in throwables.items():
         entries.append("{}:0x{:04X}:{}".format(key, data["graphic"], data["label"]))
     throwables_str = "|".join(entries)
@@ -1152,7 +1188,7 @@ def clear_throwable_graphic(throwable_key):
 
 def build_config_gump():
     """Create and display the separate config window"""
-    global config_gump, config_controls, config_last_known_x, config_last_known_y
+    global config_gump, config_controls, config_pos_tracker
 
     # Don't create if already open
     if config_gump is not None:
@@ -1161,17 +1197,12 @@ def build_config_gump():
     # Clear button references
     config_controls = {}
 
-    # Load saved position
-    saved_pos = API.GetPersistentVar(CONFIG_XY_KEY, "150,150", API.PersistentVar.Char)
-    pos_parts = saved_pos.split(',')
-    cfg_x, cfg_y = int(pos_parts[0]), int(pos_parts[1])
-
-    config_last_known_x = cfg_x
-    config_last_known_y = cfg_y
-
     # Create config gump (500x580px - larger for throwables section)
     config_gump = API.Gumps.CreateGump()
-    config_gump.SetRect(cfg_x, cfg_y, 500, 580)
+
+    # Setup window position tracker (using LegionUtils)
+    config_pos_tracker = WindowPositionTracker(config_gump, CONFIG_XY_KEY, default_x=150, default_y=150)
+    config_gump.SetRect(config_pos_tracker.last_x, config_pos_tracker.last_y, 500, 580)
 
     # Main background
     cfg_bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e")
@@ -1372,20 +1403,21 @@ def build_config_gump():
 
 def close_config_gump():
     """Close the config window and save position"""
-    global config_gump
+    global config_gump, config_pos_tracker
     if config_gump is not None:
-        # Save position using tracked coordinates
-        if config_last_known_x >= 0 and config_last_known_y >= 0:
-            API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+        # Save position using WindowPositionTracker
+        if config_pos_tracker:
+            config_pos_tracker.save()
         config_gump.Dispose()
         config_gump = None
         API.SysMsg("Configuration saved", 68)
 
 def on_config_closed():
     """Callback when config window is closed (via [X] or manual close)"""
-    global config_gump
-    if config_last_known_x >= 0 and config_last_known_y >= 0:
-        API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+    global config_gump, config_pos_tracker
+    # Save position using WindowPositionTracker
+    if config_pos_tracker:
+        config_pos_tracker.save()
     config_gump = None
 
 # ============ DISPLAY UPDATES ============
@@ -2015,13 +2047,8 @@ while not API.StopRequested:
         pos_tracker.update()
 
         # Track config window position if open
-        if config_gump is not None and time.time() - last_position_check > 2.0:
-            last_position_check = time.time()
-            try:
-                config_last_known_x = config_gump.GetX()
-                config_last_known_y = config_gump.GetY()
-            except (AttributeError, Exception):
-                pass
+        if config_gump is not None and config_pos_tracker:
+            config_pos_tracker.update()
 
         # Update display periodically
         if time.time() > next_display_update:
