@@ -1201,7 +1201,17 @@ def save_throwables():
     # Save throwables: "v1|key:graphic:label|key:graphic:label|..."
     entries = ["v{}".format(THROWABLES_SCHEMA_VERSION)]  # Add version prefix
     for key, data in throwables.items():
-        entries.append("{}:0x{:04X}:{}".format(key, data["graphic"], data["label"]))
+        # Validate graphic is an integer
+        try:
+            graphic = int(data.get("graphic", 0))
+            # Clamp to valid UO graphic range
+            graphic = max(0, min(0xFFFF, graphic))
+        except (ValueError, TypeError):
+            graphic = 0
+
+        label = str(data.get("label", "Unknown"))
+        entries.append("{}:0x{:04X}:{}".format(key, graphic, label))
+
     throwables_str = "|".join(entries)
     API.SavePersistentVar(THROWABLES_KEY, throwables_str, API.PersistentVar.Char)
 
@@ -1209,8 +1219,8 @@ def save_throwables():
     priority_str = ",".join(throwable_priority)
     API.SavePersistentVar(THROWABLE_PRIORITY_KEY, priority_str, API.PersistentVar.Char)
 
-    # Debug output
-    API.SysMsg("Saved: " + throwables_str[:100] + "...", 68)
+    # Debug output (show full string to help diagnose issues)
+    API.SysMsg("Saved throwables OK", 68)
 
 def adjust_heal_threshold(increment):
     """Adjust heal threshold by 5% (range: 20-90%)"""
@@ -1287,8 +1297,18 @@ def capture_throwable_graphic(throwable_key):
         if target:
             item = API.FindItem(target)
             if item:
-                graphic = getattr(item, 'Graphic', 0)
-                if graphic > 0:
+                # Get graphic and ensure it's a valid integer
+                graphic_raw = getattr(item, 'Graphic', 0)
+
+                # Convert to int if it's a string or other type
+                try:
+                    graphic = int(graphic_raw)
+                except (ValueError, TypeError):
+                    API.SysMsg("Invalid graphic type: " + str(type(graphic_raw)), 32)
+                    return
+
+                # Validate range (UO graphics are 0x0000 to 0xFFFF)
+                if graphic > 0 and graphic <= 0xFFFF:
                     throwables[throwable_key]["graphic"] = graphic
                     save_throwables()
 
@@ -1296,9 +1316,11 @@ def capture_throwable_graphic(throwable_key):
                     if throwable_key + "_graphic" in config_controls:
                         config_controls[throwable_key + "_graphic"].SetText("0x{:04X}".format(graphic))
 
-                    API.SysMsg("Captured: 0x{:04X}".format(graphic), 68)
+                    API.SysMsg("Captured: 0x{:04X} (dec: {})".format(graphic, graphic), 68)
+                elif graphic > 0xFFFF:
+                    API.SysMsg("Graphic ID too large: 0x{:X} (max: 0xFFFF)".format(graphic), 32)
                 else:
-                    API.SysMsg("Invalid item graphic", 32)
+                    API.SysMsg("Invalid item graphic: " + str(graphic), 32)
             else:
                 API.SysMsg("Item not found", 32)
         else:
