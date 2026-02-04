@@ -97,6 +97,7 @@ EXPANDED_KEY = "DexerSuite_Expanded"
 THROWABLES_KEY = "DexerSuite_Throwables"
 THROWABLE_PRIORITY_KEY = "DexerSuite_ThrowablePriority"
 CONFIG_XY_KEY = "DexerSuite_ConfigXY"
+EXPLO_THROW_DELAY_KEY = "DexerSuite_ExploThrowDelay"
 
 # Schema versioning for throwables persistence
 THROWABLES_SCHEMA_VERSION = 1
@@ -147,7 +148,7 @@ use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
 # Combat tracking
 current_attack_target = 0     # Serial of current attack target
 last_explo_attempt = 0        # Timestamp of last explosion attempt
-EXPLO_RETRY_DELAY = 1.0       # Seconds to wait before retrying failed throw
+explo_throw_delay = 1.0       # Seconds to wait between throws (configurable 0.5-5.0s)
 
 # Config window tracking
 config_gump = None
@@ -926,6 +927,7 @@ def load_settings():
     global base_str, base_dex
     global trapped_pouch_serial, use_trapped_pouch
     global throwables, throwable_priority
+    global explo_throw_delay
 
     # Thresholds
     try:
@@ -1071,6 +1073,13 @@ def load_settings():
     critical_threshold = max(10, min(50, critical_threshold))
     stamina_threshold = max(10, min(80, stamina_threshold))
 
+    # Load explosion throw delay
+    try:
+        explo_throw_delay = float(API.GetPersistentVar(EXPLO_THROW_DELAY_KEY, "1.0", API.PersistentVar.Char))
+        explo_throw_delay = max(0.5, min(5.0, explo_throw_delay))  # Clamp to 0.5-5.0s
+    except (ValueError, TypeError):
+        explo_throw_delay = 1.0
+
 def save_throwables():
     """Save throwables configuration with schema version"""
     global throwables, throwable_priority
@@ -1086,7 +1095,8 @@ def save_throwables():
     priority_str = ",".join(throwable_priority)
     API.SavePersistentVar(THROWABLE_PRIORITY_KEY, priority_str, API.PersistentVar.Char)
 
-    API.SysMsg("Throwables saved", 68)
+    # Debug output
+    API.SysMsg("Saved: " + throwables_str[:100] + "...", 68)
 
 def adjust_heal_threshold(increment):
     """Adjust heal threshold by 5% (range: 20-90%)"""
@@ -1134,6 +1144,21 @@ def adjust_stamina_threshold(increment):
         config_controls["stam_val"].SetText(str(stamina_threshold) + "%")
 
     stamThresholdLabel.SetText("Stam: " + str(stamina_threshold) + "%")
+
+def adjust_explo_throw_delay(increment):
+    """Adjust explosion throw delay by 0.5s (range: 0.5-5.0s)"""
+    global explo_throw_delay
+    if increment:
+        explo_throw_delay = min(5.0, explo_throw_delay + 0.5)
+    else:
+        explo_throw_delay = max(0.5, explo_throw_delay - 0.5)
+
+    API.SavePersistentVar(EXPLO_THROW_DELAY_KEY, str(explo_throw_delay), API.PersistentVar.Char)
+
+    if "explo_delay_val" in config_controls:
+        config_controls["explo_delay_val"].SetText(str(explo_throw_delay) + "s")
+
+    API.SysMsg("Explo delay: " + str(explo_throw_delay) + "s", 68)
 
 def capture_throwable_graphic(throwable_key):
     """Capture a throwable item's graphic ID via targeting"""
@@ -1304,6 +1329,33 @@ def build_config_gump():
     stam_help = API.Gumps.CreateGumpTTFLabel("(10-80%) Drink refresh", 15, "#888888")
     stam_help.SetPos(left_x + 215, y + 3)
     config_gump.Add(stam_help)
+
+    y += 30
+
+    # Explosion Throw Delay
+    delay_lbl = API.Gumps.CreateGumpTTFLabel("Throw Delay:", 15, "#dddddd")
+    delay_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(delay_lbl)
+
+    delay_dec = API.Gumps.CreateSimpleButton("[-]", 30, 18)
+    delay_dec.SetPos(left_x + 100, y)
+    delay_dec.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(delay_dec, lambda: adjust_explo_throw_delay(False))
+    config_gump.Add(delay_dec)
+
+    config_controls["explo_delay_val"] = API.Gumps.CreateGumpTTFLabel(str(explo_throw_delay) + "s", 15, "#ff00ff")
+    config_controls["explo_delay_val"].SetPos(left_x + 135, y + 3)
+    config_gump.Add(config_controls["explo_delay_val"])
+
+    delay_inc = API.Gumps.CreateSimpleButton("[+]", 30, 18)
+    delay_inc.SetPos(left_x + 175, y)
+    delay_inc.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(delay_inc, lambda: adjust_explo_throw_delay(True))
+    config_gump.Add(delay_inc)
+
+    delay_help = API.Gumps.CreateGumpTTFLabel("(0.5-5.0s) Time between throws", 15, "#888888")
+    delay_help.SetPos(left_x + 215, y + 3)
+    config_gump.Add(delay_help)
 
     y += 40
 
@@ -2061,7 +2113,7 @@ while not API.StopRequested:
 
         # AUTO-EXPLO LOGIC (throw explosion potions at target with retry backoff)
         if not PAUSED and auto_explo and potion_ready():
-            if time.time() - last_explo_attempt > EXPLO_RETRY_DELAY:
+            if time.time() - last_explo_attempt > explo_throw_delay:
                 if current_attack_target != 0:
                     target = API.FindMobile(current_attack_target)
                     if target and not target.IsDead and getattr(target, 'Distance', 999) <= 12:
