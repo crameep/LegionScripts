@@ -1221,11 +1221,11 @@ def build_config_gump():
 
     # Setup window position tracker (using LegionUtils)
     config_pos_tracker = WindowPositionTracker(config_gump, CONFIG_XY_KEY, default_x=150, default_y=150)
-    config_gump.SetRect(config_pos_tracker.last_x, config_pos_tracker.last_y, 500, 580)
+    config_gump.SetRect(config_pos_tracker.last_x, config_pos_tracker.last_y, 500, 750)
 
     # Main background
     cfg_bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e")
-    cfg_bg.SetRect(0, 0, 500, 580)
+    cfg_bg.SetRect(0, 0, 500, 750)
     config_gump.Add(cfg_bg)
 
     # Title
@@ -1428,6 +1428,68 @@ def build_config_gump():
 
     y += 15
 
+    # === TARGETING SECTION ===
+    section_title3 = API.Gumps.CreateGumpTTFLabel("=== Targeting ===", 15, "#ff6666")
+    section_title3.SetPos(200, y)
+    config_gump.Add(section_title3)
+
+    y += 25
+
+    # REDS and GRAYS buttons
+    reds_btn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if target_reds else "OFF") + "]", 80, 18)
+    reds_btn.SetPos(left_x, y)
+    reds_btn.SetBackgroundHue(68 if target_reds else 90)
+    API.Gumps.AddControlOnClick(reds_btn, toggle_target_reds)
+    config_gump.Add(reds_btn)
+
+    grays_btn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if target_grays else "OFF") + "]", 80, 18)
+    grays_btn.SetPos(left_x + 90, y)
+    grays_btn.SetBackgroundHue(68 if target_grays else 90)
+    API.Gumps.AddControlOnClick(grays_btn, toggle_target_grays)
+    config_gump.Add(grays_btn)
+
+    y += 22
+
+    # AUTO-TARGET button
+    auto_target_btn = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", 180, 18)
+    auto_target_btn.SetPos(left_x, y)
+    auto_target_btn.SetBackgroundHue(68 if auto_target else 90)
+    API.Gumps.AddControlOnClick(auto_target_btn, toggle_auto_target)
+    config_gump.Add(auto_target_btn)
+
+    y += 22
+
+    # AUTO-EXPLO button
+    auto_explo_btn = API.Gumps.CreateSimpleButton("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]", 180, 18)
+    auto_explo_btn.SetPos(left_x, y)
+    auto_explo_btn.SetBackgroundHue(68 if auto_explo else 90)
+    API.Gumps.AddControlOnClick(auto_explo_btn, toggle_auto_explo)
+    config_gump.Add(auto_explo_btn)
+
+    y += 30
+
+    # === TRAPPED POUCH SECTION ===
+    section_title4 = API.Gumps.CreateGumpTTFLabel("=== Trapped Pouch ===", 15, "#00aaff")
+    section_title4.SetPos(185, y)
+    config_gump.Add(section_title4)
+
+    y += 25
+
+    # SET POUCH and USE POUCH buttons
+    set_pouch_btn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, 18)
+    set_pouch_btn.SetPos(left_x, y)
+    set_pouch_btn.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(set_pouch_btn, on_set_trapped_pouch)
+    config_gump.Add(set_pouch_btn)
+
+    use_pouch_btn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 130, 18)
+    use_pouch_btn.SetPos(left_x + 95, y)
+    use_pouch_btn.SetBackgroundHue(68 if use_trapped_pouch else 90)
+    API.Gumps.AddControlOnClick(use_pouch_btn, toggle_use_trapped_pouch)
+    config_gump.Add(use_pouch_btn)
+
+    y += 30
+
     # === INFO SECTION ===
     info_title = API.Gumps.CreateGumpTTFLabel("Changes save automatically", 15, "#00ff00")
     info_title.SetPos(165, y)
@@ -1570,18 +1632,6 @@ def update_display():
         healThresholdLabel.SetText("Heal: " + str(heal_threshold) + "%")
         criticalThresholdLabel.SetText("Critical: " + str(critical_threshold) + "%")
         stamThresholdLabel.SetText("Stam: " + str(stamina_threshold) + "%")
-
-        # Targeting buttons
-        redsBtn.SetText("[REDS:" + ("ON" if target_reds else "OFF") + "]")
-        redsBtn.SetBackgroundHue(68 if target_reds else 90)
-        graysBtn.SetText("[GRAYS:" + ("ON" if target_grays else "OFF") + "]")
-        graysBtn.SetBackgroundHue(68 if target_grays else 90)
-
-        # Trapped pouch button - change background hue if configured
-        if trapped_pouch_serial > 0:
-            setPouchBtn.SetBackgroundHue(68)  # Green if configured
-        else:
-            setPouchBtn.SetBackgroundHue(43)  # Yellow if not configured
 
     except Exception as e:
         debug_msg("Display update error: " + str(e))
@@ -1907,50 +1957,6 @@ expander.add_control(stamThresholdLabel)
 
 y += 20
 
-# ========== TARGETING SECTION ==========
-targetingTitle = API.Gumps.CreateGumpTTFLabel("=== TARGETING ===", 15, "#ff6666", aligned="center", maxWidth=280)
-targetingTitle.SetPos(0, y)
-gump.Add(targetingTitle)
-expander.add_control(targetingTitle)
-
-y += 16
-
-redsBtn = API.Gumps.CreateSimpleButton("[REDS:" + ("ON" if target_reds else "OFF") + "]", 80, 18)
-redsBtn.SetPos(leftX, y)
-redsBtn.SetBackgroundHue(68 if target_reds else 90)
-API.Gumps.AddControlOnClick(redsBtn, toggle_target_reds)
-gump.Add(redsBtn)
-expander.add_control(redsBtn)
-
-graysBtn = API.Gumps.CreateSimpleButton("[GRAYS:" + ("ON" if target_grays else "OFF") + "]", 80, 18)
-graysBtn.SetPos(leftX + 90, y)
-graysBtn.SetBackgroundHue(68 if target_grays else 90)
-API.Gumps.AddControlOnClick(graysBtn, toggle_target_grays)
-gump.Add(graysBtn)
-expander.add_control(graysBtn)
-
-y += 22
-
-# Auto-Target Toggle
-autoTargetBtn = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", 180, 18)
-autoTargetBtn.SetPos(leftX, y)
-autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
-API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
-gump.Add(autoTargetBtn)
-expander.add_control(autoTargetBtn)
-
-y += 22
-
-# Auto-Explo Toggle
-autoExploBtn = API.Gumps.CreateSimpleButton("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]", 180, 18)
-autoExploBtn.SetPos(leftX, y)
-autoExploBtn.SetBackgroundHue(68 if auto_explo else 90)
-API.Gumps.AddControlOnClick(autoExploBtn, toggle_auto_explo)
-gump.Add(autoExploBtn)
-expander.add_control(autoExploBtn)
-
-y += 24
-
 # ========== UTILITIES SECTION ==========
 utilTitle = API.Gumps.CreateGumpTTFLabel("=== UTILITIES ===", 15, "#00aaff", aligned="center", maxWidth=280)
 utilTitle.SetPos(0, y)
@@ -1966,23 +1972,6 @@ autoBuffBtn.SetBackgroundHue(68 if auto_buff else 90)
 API.Gumps.AddControlOnClick(autoBuffBtn, toggle_auto_buff)
 gump.Add(autoBuffBtn)
 expander.add_control(autoBuffBtn)
-
-y += 22
-
-# Trapped Pouch Controls
-setPouchBtn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, 18)
-setPouchBtn.SetPos(leftX, y)
-setPouchBtn.SetBackgroundHue(43)
-API.Gumps.AddControlOnClick(setPouchBtn, on_set_trapped_pouch)
-gump.Add(setPouchBtn)
-expander.add_control(setPouchBtn)
-
-usePouchBtn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 130, 18)
-usePouchBtn.SetPos(leftX + 95, y)
-usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
-API.Gumps.AddControlOnClick(usePouchBtn, toggle_use_trapped_pouch)
-gump.Add(usePouchBtn)
-expander.add_control(usePouchBtn)
 
 y += 24
 
