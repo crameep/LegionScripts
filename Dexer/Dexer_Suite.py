@@ -789,13 +789,13 @@ def throw_explosion_potion(target_serial=None):
         # PreTarget sets up the target, UseObject triggers with that target
         cancel_all_targets()
 
-        # Step 1: Set the target FIRST
+        # Step 1: Set the target FIRST (longer pause for server response)
         API.PreTarget(target_serial, "harmful")
-        API.Pause(0.2)
+        API.Pause(0.4)  # Increased to allow PreTarget to register
 
         # Step 2: Use the potion (will use the pre-targeted enemy)
         API.UseObject(potion, False)
-        API.Pause(0.2)
+        API.Pause(0.3)  # Wait for action to complete
 
         # Clean up
         API.CancelPreTarget()
