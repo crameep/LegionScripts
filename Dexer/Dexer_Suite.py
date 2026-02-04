@@ -792,31 +792,9 @@ def throw_explosion_potion(target_serial=None):
         API.UseObject(potion, False)
         API.Pause(0.3)  # Wait for cursor to appear
 
-        # Now we need to "click" on the target with the active cursor
-        # Try different possible targeting methods
-        if API.HasTarget():
-            # Try documented/undocumented targeting methods
-            try:
-                # Try API.Target() - may exist but undocumented
-                if hasattr(API, 'Target'):
-                    API.Target(target_serial)
-                # Try API.TargetMobile()
-                elif hasattr(API, 'TargetMobile'):
-                    API.TargetMobile(target_serial)
-                # Try API.TargetObject()
-                elif hasattr(API, 'TargetObject'):
-                    API.TargetObject(target_serial)
-                else:
-                    # Fallback: cancel and warn
-                    API.CancelTarget()
-                    API.SysMsg("No targeting method found - cursor left active", 43)
-                    return False
-            except Exception as target_err:
-                API.SysMsg("Targeting error: " + str(target_err), 32)
-                API.CancelTarget()
-                return False
-
-        API.Pause(0.3)  # Wait for targeting to complete
+        # Click on the target with the active cursor using API.Target()
+        API.Target(target_serial)
+        API.Pause(0.2)  # Wait for targeting to complete
 
         potion_cooldown_end = time.time() + POTION_COOLDOWN
         statusLabel.SetText(potion_label + "!")
