@@ -785,21 +785,19 @@ def throw_explosion_potion(target_serial=None):
         return False
 
     try:
-        # CRITICAL FIX: Use potion FIRST, then target
-        # This brings up the target cursor, then we select the enemy
+        # Standard targeting pattern: PreTarget BEFORE UseObject
+        # PreTarget sets up the target, UseObject triggers with that target
         cancel_all_targets()
 
-        # Step 1: Use the potion (brings up target cursor)
-        API.UseObject(potion, False)
-        API.Pause(0.4)  # Wait for cursor to appear (increased for reliability)
-
-        # Step 2: Target the enemy with the active cursor
+        # Step 1: Set the target FIRST
         API.PreTarget(target_serial, "harmful")
-        API.Pause(0.3)  # Wait for targeting to complete
+        API.Pause(0.2)
 
-        # Only cancel if target cursor still active
-        if API.HasTarget():
-            API.CancelTarget()
+        # Step 2: Use the potion (will use the pre-targeted enemy)
+        API.UseObject(potion, False)
+        API.Pause(0.2)
+
+        # Clean up
         API.CancelPreTarget()
 
         potion_cooldown_end = time.time() + POTION_COOLDOWN
