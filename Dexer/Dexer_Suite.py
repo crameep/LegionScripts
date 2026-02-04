@@ -41,7 +41,7 @@ MAX_DISTANCE = 12             # Max distance for target search
 
 # === GUI DIMENSIONS ===
 COLLAPSED_HEIGHT = 24
-EXPANDED_HEIGHT = 590
+EXPANDED_HEIGHT = 390
 WINDOW_WIDTH = 280
 
 AUTO_TARGET_RANGE = 3         # Range for auto-targeting next enemy when current dies
@@ -2037,44 +2037,19 @@ healPotionLabel.SetPos(leftX, y)
 gump.Add(healPotionLabel)
 expander.add_control(healPotionLabel)
 
-drinkHealBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
-drinkHealBtn.SetPos(leftX + 90, y - 2)
-drinkHealBtn.SetBackgroundHue(68)
-API.Gumps.AddControlOnClick(drinkHealBtn, on_drink_heal)
-gump.Add(drinkHealBtn)
-expander.add_control(drinkHealBtn)
-
-y += 20
-
 # Cure Potion
 curePotionLabel = API.Gumps.CreateGumpTTFLabel("Cure: 0", 15, "#ffff00")
-curePotionLabel.SetPos(leftX, y)
+curePotionLabel.SetPos(leftX + 70, y)
 gump.Add(curePotionLabel)
 expander.add_control(curePotionLabel)
 
-drinkCureBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
-drinkCureBtn.SetPos(leftX + 90, y - 2)
-drinkCureBtn.SetBackgroundHue(68)
-API.Gumps.AddControlOnClick(drinkCureBtn, on_drink_cure)
-gump.Add(drinkCureBtn)
-expander.add_control(drinkCureBtn)
-
-y += 20
-
 # Refresh Potion
 refreshPotionLabel = API.Gumps.CreateGumpTTFLabel("Refresh: 0", 15, "#ff0000")
-refreshPotionLabel.SetPos(leftX, y)
+refreshPotionLabel.SetPos(leftX + 140, y)
 gump.Add(refreshPotionLabel)
 expander.add_control(refreshPotionLabel)
 
-drinkRefreshBtn = API.Gumps.CreateSimpleButton("[DRINK]", 60, 18)
-drinkRefreshBtn.SetPos(leftX + 90, y - 2)
-drinkRefreshBtn.SetBackgroundHue(68)
-API.Gumps.AddControlOnClick(drinkRefreshBtn, on_drink_refresh)
-gump.Add(drinkRefreshBtn)
-expander.add_control(drinkRefreshBtn)
-
-y += 20
+y += 16
 
 # Explosion Potion
 exploPotionLabel = API.Gumps.CreateGumpTTFLabel("Explo: L0/N0/G0", 15, "#ff00ff")
@@ -2082,14 +2057,7 @@ exploPotionLabel.SetPos(leftX, y)
 gump.Add(exploPotionLabel)
 expander.add_control(exploPotionLabel)
 
-throwExploBtn = API.Gumps.CreateSimpleButton("[THROW]", 60, 18)
-throwExploBtn.SetPos(leftX + 120, y - 2)
-throwExploBtn.SetBackgroundHue(32)
-API.Gumps.AddControlOnClick(throwExploBtn, on_throw_explo)
-gump.Add(throwExploBtn)
-expander.add_control(throwExploBtn)
-
-y += 20
+y += 16
 
 # Strength potion with buff bar
 strPotionLabel = API.Gumps.CreateGumpTTFLabel("Str: 0", 15, "#aaaaaa")
@@ -2212,30 +2180,6 @@ cooldownLabel = API.Gumps.CreateGumpTTFLabel("Ready", 15, "#00ff00")
 cooldownLabel.SetPos(250, y + 4)
 gump.Add(cooldownLabel)
 expander.add_control(cooldownLabel)
-
-y += 28
-
-# ========== HOTKEYS DISPLAY ==========
-hotkeyTitle = API.Gumps.CreateGumpTTFLabel("=== HOTKEYS ===", 15, "#ffff00", aligned="center", maxWidth=280)
-hotkeyTitle.SetPos(0, y)
-gump.Add(hotkeyTitle)
-expander.add_control(hotkeyTitle)
-
-y += 16
-
-# Row 1 - Potions & Attack
-hotkeyRow1 = API.Gumps.CreateGumpTTFLabel("Heal:" + HOTKEY_HEAL_POTION + " | Cure:" + HOTKEY_CURE_POTION + " | Refresh:" + HOTKEY_REFRESH_POTION, 15, "#aaaaaa")
-hotkeyRow1.SetPos(leftX, y)
-gump.Add(hotkeyRow1)
-expander.add_control(hotkeyRow1)
-
-y += 14
-
-# Row 2 - Bandage, Pause, Attack
-hotkeyRow2 = API.Gumps.CreateGumpTTFLabel("Bandage:" + HOTKEY_BANDAGE + " | Attack:" + HOTKEY_ATTACK + " | Pause:" + HOTKEY_PAUSE, 15, "#aaaaaa")
-hotkeyRow2.SetPos(leftX, y)
-gump.Add(hotkeyRow2)
-expander.add_control(hotkeyRow2)
 
 API.Gumps.AddGump(gump)
 
