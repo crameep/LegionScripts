@@ -1666,6 +1666,13 @@ title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.6", 16, "#ff8800", aligned=
 title.SetPos(0, 5)
 gump.Add(title)
 
+# Config button (next to expand button, like Tamer Suite)
+configBtn = API.Gumps.CreateSimpleButton("[C]", 20, 18)
+configBtn.SetPos(230, 3)
+configBtn.SetBackgroundHue(43)
+API.Gumps.AddControlOnClick(configBtn, build_config_gump)
+gump.Add(configBtn)
+
 # Create expand/collapse button FIRST
 expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
 expandBtn.SetPos(255, 3)
@@ -1959,16 +1966,6 @@ autoBuffBtn.SetBackgroundHue(68 if auto_buff else 90)
 API.Gumps.AddControlOnClick(autoBuffBtn, toggle_auto_buff)
 gump.Add(autoBuffBtn)
 expander.add_control(autoBuffBtn)
-
-y += 22
-
-# Config Button
-configBtn = API.Gumps.CreateSimpleButton("[CONFIG]", 90, 18)
-configBtn.SetPos(leftX, y)
-configBtn.SetBackgroundHue(43)
-API.Gumps.AddControlOnClick(configBtn, build_config_gump)
-gump.Add(configBtn)
-expander.add_control(configBtn)
 
 y += 22
 
