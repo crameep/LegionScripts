@@ -134,7 +134,19 @@ def get_all_skills():
             API.SysMsg("No Skills API found!", HUE_RED)
             # List what IS available on API
             api_attrs = [attr for attr in dir(API) if not attr.startswith('_')]
-            API.SysMsg("Available API methods: " + ", ".join(api_attrs[:10]), HUE_YELLOW)
+
+            # Show API methods in chunks
+            for i in range(0, min(len(api_attrs), 60), 15):
+                chunk = api_attrs[i:i+15]
+                API.SysMsg(f"API[{i}]: " + ", ".join(chunk), HUE_YELLOW)
+
+            # Check Player attributes too
+            if hasattr(API, 'Player'):
+                player_attrs = [attr for attr in dir(API.Player) if not attr.startswith('_')]
+                for i in range(0, min(len(player_attrs), 60), 15):
+                    chunk = player_attrs[i:i+15]
+                    API.SysMsg(f"Player[{i}]: " + ", ".join(chunk), HUE_YELLOW)
+
             return []
 
     except Exception as e:
