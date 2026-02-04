@@ -1,5 +1,5 @@
 # ============================================================
-# Dexer Suite v1.5
+# Dexer Suite v1.6
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -25,7 +25,7 @@ import API
 import time
 from LegionUtils import *
 
-__version__ = "1.5"
+__version__ = "1.6"
 
 # ============ USER SETTINGS ============
 DEBUG = False
@@ -58,6 +58,16 @@ POTION_EXPLOSION = 0x0F0D           # Explosion (10-20 damage)
 POTION_EXPLOSION_GREATER = 0x0F0E   # Greater Explosion (15-30 damage)
 BANDAGE = 0x0E21              # Bandages
 
+# Throwable defaults (can be overridden in config)
+DEFAULT_THROWABLES = {
+    "lesser_explosion": {"graphic": 0x0F0A, "label": "Lesser Explosion"},
+    "explosion": {"graphic": 0x0F0D, "label": "Explosion"},
+    "greater_explosion": {"graphic": 0x0F0E, "label": "Greater Explosion"},
+    "confusion_blast": {"graphic": 0x0000, "label": "Confusion Blast"},
+    "custom1": {"graphic": 0x0000, "label": "Custom 1"},
+    "custom2": {"graphic": 0x0000, "label": "Custom 2"}
+}
+
 # === TRAPPED POUCH ===
 TRAPPED_POUCH_MIN_HP = 30     # Minimum HP to safely use trapped pouch (10-20 damage)
 
@@ -84,6 +94,9 @@ BASE_DEX_KEY = "DexerSuite_BaseDex"
 TRAPPED_POUCH_SERIAL_KEY = "DexerSuite_TrappedPouch"
 USE_TRAPPED_POUCH_KEY = "DexerSuite_UseTrappedPouch"
 EXPANDED_KEY = "DexerSuite_Expanded"
+THROWABLES_KEY = "DexerSuite_Throwables"
+THROWABLE_PRIORITY_KEY = "DexerSuite_ThrowablePriority"
+CONFIG_XY_KEY = "DexerSuite_ConfigXY"
 
 # Hotkey keys
 HOTKEY_HEAL_POTION_KEY = "DexerSuite_HK_HealPotion"
@@ -130,6 +143,35 @@ use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
 
 # Combat tracking
 current_attack_target = 0     # Serial of current attack target
+last_explo_attempt = 0        # Timestamp of last explosion attempt
+EXPLO_RETRY_DELAY = 1.0       # Seconds to wait before retrying failed throw
+
+# Config window tracking
+config_gump = None
+config_controls = {}
+config_last_known_x = 150
+config_last_known_y = 150
+last_position_check = 0
+
+# Throwables system (user-configurable graphic IDs and priority)
+throwables = {
+    "lesser_explosion": {"graphic": 0x0F0A, "label": "Lesser Explosion"},
+    "explosion": {"graphic": 0x0F0D, "label": "Explosion"},
+    "greater_explosion": {"graphic": 0x0F0E, "label": "Greater Explosion"},
+    "confusion_blast": {"graphic": 0x0000, "label": "Confusion Blast"},
+    "custom1": {"graphic": 0x0000, "label": "Custom 1"},
+    "custom2": {"graphic": 0x0000, "label": "Custom 2"}
+}
+
+# Throwable priority (list of keys from throwables dict, in preference order)
+throwable_priority = [
+    "confusion_blast",
+    "greater_explosion",
+    "explosion",
+    "lesser_explosion",
+    "custom1",
+    "custom2"
+]
 
 # Hotkeys
 HOTKEY_HEAL_POTION = "F1"
@@ -666,18 +708,34 @@ def on_bandage_button():
 
 # ============ EXPLOSION POTIONS ============
 def get_best_explosion_potion():
-    """Get best available explosion potion (Greater > Normal > Lesser)"""
-    if get_item_count(POTION_EXPLOSION_GREATER) > 0:
-        return (POTION_EXPLOSION_GREATER, "Greater Explosion")
-    elif get_item_count(POTION_EXPLOSION) > 0:
-        return (POTION_EXPLOSION, "Explosion")
-    elif get_item_count(POTION_EXPLOSION_LESSER) > 0:
-        return (POTION_EXPLOSION_LESSER, "Lesser Explosion")
+    """Get best available throwable based on priority order"""
+    global throwables, throwable_priority
+
+    # Check each throwable in priority order
+    for key in throwable_priority:
+        if key not in throwables:
+            continue
+
+        data = throwables.get(key, {})
+        if not isinstance(data, dict):
+            continue
+
+        # Use .get() with defaults for safety
+        graphic = data.get("graphic", 0)
+
+        # Skip if not configured (0x0000)
+        if graphic == 0x0000:
+            continue
+
+        # Check if we have this throwable
+        if get_item_count(graphic) > 0:
+            return (graphic, data.get("label", "Unknown"))
+
     return (None, None)
 
 def throw_explosion_potion(target_serial=None):
-    """Throw explosion potion at target"""
-    global potion_cooldown_end
+    """Throw explosion potion at target (USE POTION FIRST, then target)"""
+    global potion_cooldown_end, last_explo_attempt
 
     if not potion_ready():
         remaining = int(potion_cooldown_end - time.time())
@@ -686,7 +744,6 @@ def throw_explosion_potion(target_serial=None):
 
     # Get target
     if target_serial is None:
-        # Use current attack target or find nearest
         if current_attack_target != 0:
             target = API.FindMobile(current_attack_target)
             if target and not target.IsDead:
@@ -727,13 +784,22 @@ def throw_explosion_potion(target_serial=None):
         return False
 
     try:
-        # Target and throw
+        # CRITICAL FIX: Use potion FIRST, then target
+        # This brings up the target cursor, then we select the enemy
         cancel_all_targets()
-        API.PreTarget(target_serial, "harmful")
-        API.Pause(0.1)
+
+        # Step 1: Use the potion (brings up target cursor)
         API.UseObject(potion, False)
-        API.Pause(0.1)
-        cancel_all_targets()
+        API.Pause(0.4)  # Wait for cursor to appear (increased for reliability)
+
+        # Step 2: Target the enemy with the active cursor
+        API.PreTarget(target_serial, "harmful")
+        API.Pause(0.3)  # Wait for targeting to complete
+
+        # Only cancel if target cursor still active
+        if API.HasTarget():
+            API.CancelTarget()
+        API.CancelPreTarget()
 
         potion_cooldown_end = time.time() + POTION_COOLDOWN
         statusLabel.SetText(potion_label + "!")
@@ -747,7 +813,8 @@ def throw_explosion_potion(target_serial=None):
 
         return True
     except Exception as e:
-        API.SysMsg("Explosion potion error: " + str(e), 32)
+        API.SysMsg("Explosion error: " + str(e), 32)
+        cancel_all_targets()
         return False
 
 def on_throw_explo():
@@ -863,6 +930,7 @@ def load_settings():
     global HOTKEY_BANDAGE, HOTKEY_EXPLO_POTION, HOTKEY_PAUSE, HOTKEY_ATTACK
     global base_str, base_dex
     global trapped_pouch_serial, use_trapped_pouch
+    global throwables, throwable_priority
 
     # Thresholds
     try:
@@ -927,6 +995,398 @@ def load_settings():
     HOTKEY_EXPLO_POTION = API.GetPersistentVar(HOTKEY_EXPLO_POTION_KEY, "F7", API.PersistentVar.Char)
     HOTKEY_PAUSE = API.GetPersistentVar(HOTKEY_PAUSE_KEY, "PAUSE", API.PersistentVar.Char)
     HOTKEY_ATTACK = API.GetPersistentVar(HOTKEY_ATTACK_KEY, "TAB", API.PersistentVar.Char)
+
+    # Load throwables with validation
+    throwables_str = API.GetPersistentVar(THROWABLES_KEY, "", API.PersistentVar.Char)
+    if throwables_str:
+        try:
+            # Format: "key:graphic:label|key:graphic:label|..."
+            for entry in throwables_str.split("|"):
+                if not entry:
+                    continue
+                parts = entry.split(":")
+                if len(parts) == 3:
+                    key, graphic_hex, label = parts
+                    if key not in throwables:
+                        continue
+
+                    # Validate graphic ID
+                    try:
+                        graphic = int(graphic_hex, 16)
+                        if graphic < 0 or graphic > 0xFFFF:
+                            continue  # Invalid range
+                    except (ValueError, TypeError):
+                        continue
+
+                    # Sanitize label (remove delimiters, limit length)
+                    label = str(label).replace("|", "").replace(":", "")[:50]
+
+                    throwables[key]["graphic"] = graphic
+                    throwables[key]["label"] = label
+        except Exception as e:
+            API.SysMsg("Error loading throwables (using defaults): " + str(e), 32)
+
+    # Load throwable priority with validation
+    priority_str = API.GetPersistentVar(THROWABLE_PRIORITY_KEY, "", API.PersistentVar.Char)
+    if priority_str:
+        try:
+            loaded_priority = [x for x in priority_str.split(",") if x and x in throwables]
+            if loaded_priority:
+                throwable_priority = loaded_priority
+        except Exception:
+            pass  # Use default if corrupted
+
+    # Validate loaded thresholds are in bounds
+    heal_threshold = max(20, min(90, heal_threshold))
+    critical_threshold = max(10, min(50, critical_threshold))
+    stamina_threshold = max(10, min(80, stamina_threshold))
+
+def save_throwables():
+    """Save throwables configuration"""
+    global throwables, throwable_priority
+
+    # Save throwables: "key:graphic:label|key:graphic:label|..."
+    entries = []
+    for key, data in throwables.items():
+        entries.append("{}:0x{:04X}:{}".format(key, data["graphic"], data["label"]))
+    throwables_str = "|".join(entries)
+    API.SavePersistentVar(THROWABLES_KEY, throwables_str, API.PersistentVar.Char)
+
+    # Save priority order
+    priority_str = ",".join(throwable_priority)
+    API.SavePersistentVar(THROWABLE_PRIORITY_KEY, priority_str, API.PersistentVar.Char)
+
+    API.SysMsg("Throwables saved", 68)
+
+def adjust_heal_threshold(increment):
+    """Adjust heal threshold by 5% (range: 20-90%)"""
+    global heal_threshold
+    if increment:
+        heal_threshold = min(90, heal_threshold + 5)
+    else:
+        heal_threshold = max(20, heal_threshold - 5)
+
+    API.SavePersistentVar(HEAL_THRESHOLD_KEY, str(heal_threshold), API.PersistentVar.Char)
+
+    # Update config window display
+    if "heal_val" in config_controls:
+        config_controls["heal_val"].SetText(str(heal_threshold) + "%")
+
+    # Update main window display
+    healThresholdLabel.SetText("Heal: " + str(heal_threshold) + "%")
+
+def adjust_critical_threshold(increment):
+    """Adjust critical threshold by 5% (range: 10-50%)"""
+    global critical_threshold
+    if increment:
+        critical_threshold = min(50, critical_threshold + 5)
+    else:
+        critical_threshold = max(10, critical_threshold - 5)
+
+    API.SavePersistentVar(CRITICAL_THRESHOLD_KEY, str(critical_threshold), API.PersistentVar.Char)
+
+    if "critical_val" in config_controls:
+        config_controls["critical_val"].SetText(str(critical_threshold) + "%")
+
+    criticalThresholdLabel.SetText("Critical: " + str(critical_threshold) + "%")
+
+def adjust_stamina_threshold(increment):
+    """Adjust stamina threshold by 5% (range: 10-80%)"""
+    global stamina_threshold
+    if increment:
+        stamina_threshold = min(80, stamina_threshold + 5)
+    else:
+        stamina_threshold = max(10, stamina_threshold - 5)
+
+    API.SavePersistentVar(STAMINA_THRESHOLD_KEY, str(stamina_threshold), API.PersistentVar.Char)
+
+    if "stam_val" in config_controls:
+        config_controls["stam_val"].SetText(str(stamina_threshold) + "%")
+
+    stamThresholdLabel.SetText("Stam: " + str(stamina_threshold) + "%")
+
+def capture_throwable_graphic(throwable_key):
+    """Capture a throwable item's graphic ID via targeting"""
+    global throwables, config_controls
+
+    # Call blocking API directly - this is safe in button callback context
+    API.SysMsg("Target the " + throwables[throwable_key]["label"] + "...", 68)
+
+    try:
+        # RequestTarget is safe to call from GUI callbacks (blocking is OK here)
+        target = API.RequestTarget(timeout=15)
+        if target:
+            item = API.FindItem(target)
+            if item:
+                graphic = getattr(item, 'Graphic', 0)
+                if graphic > 0:
+                    throwables[throwable_key]["graphic"] = graphic
+                    save_throwables()
+
+                    # Update config window display
+                    if throwable_key + "_graphic" in config_controls:
+                        config_controls[throwable_key + "_graphic"].SetText("0x{:04X}".format(graphic))
+
+                    API.SysMsg("Captured: 0x{:04X}".format(graphic), 68)
+                else:
+                    API.SysMsg("Invalid item graphic", 32)
+            else:
+                API.SysMsg("Item not found", 32)
+        else:
+            API.SysMsg("Target cancelled", 32)
+    except Exception as e:
+        API.SysMsg("Capture error: " + str(e), 32)
+
+def clear_throwable_graphic(throwable_key):
+    """Clear a throwable item's graphic ID (set to 0x0000)"""
+    global throwables, config_controls
+
+    throwables[throwable_key]["graphic"] = 0x0000
+    save_throwables()
+
+    # Update config window display
+    if throwable_key + "_graphic" in config_controls:
+        config_controls[throwable_key + "_graphic"].SetText("Not Set")
+
+    API.SysMsg("Cleared " + throwables[throwable_key]["label"], 68)
+
+def build_config_gump():
+    """Create and display the separate config window"""
+    global config_gump, config_controls, config_last_known_x, config_last_known_y
+
+    # Don't create if already open
+    if config_gump is not None:
+        return
+
+    # Clear button references
+    config_controls = {}
+
+    # Load saved position
+    saved_pos = API.GetPersistentVar(CONFIG_XY_KEY, "150,150", API.PersistentVar.Char)
+    pos_parts = saved_pos.split(',')
+    cfg_x, cfg_y = int(pos_parts[0]), int(pos_parts[1])
+
+    config_last_known_x = cfg_x
+    config_last_known_y = cfg_y
+
+    # Create config gump (500x580px - larger for throwables section)
+    config_gump = API.Gumps.CreateGump()
+    config_gump.SetRect(cfg_x, cfg_y, 500, 580)
+
+    # Main background
+    cfg_bg = API.Gumps.CreateGumpColorBox(0.9, "#1a1a2e")
+    cfg_bg.SetRect(0, 0, 500, 580)
+    config_gump.Add(cfg_bg)
+
+    # Title
+    title = API.Gumps.CreateGumpTTFLabel("Dexer Suite Configuration", 16, "#ffaa00")
+    title.SetPos(130, 8)
+    config_gump.Add(title)
+
+    # Close button
+    close_btn = API.Gumps.CreateSimpleButton("[X]", 30, 22)
+    close_btn.SetPos(460, 5)
+    close_btn.SetBackgroundHue(32)
+    API.Gumps.AddControlOnClick(close_btn, close_config_gump)
+    config_gump.Add(close_btn)
+
+    y = 50
+    left_x = 20
+
+    # === HEALING THRESHOLDS SECTION ===
+    section_title = API.Gumps.CreateGumpTTFLabel("=== Healing Thresholds ===", 15, "#00ffaa")
+    section_title.SetPos(150, y)
+    config_gump.Add(section_title)
+
+    y += 25
+
+    # Heal Threshold (Potion)
+    heal_lbl = API.Gumps.CreateGumpTTFLabel("Heal Potion:", 15, "#dddddd")
+    heal_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(heal_lbl)
+
+    heal_dec = API.Gumps.CreateSimpleButton("[-]", 30, 18)
+    heal_dec.SetPos(left_x + 100, y)
+    heal_dec.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(heal_dec, lambda: adjust_heal_threshold(False))
+    config_gump.Add(heal_dec)
+
+    config_controls["heal_val"] = API.Gumps.CreateGumpTTFLabel(str(heal_threshold) + "%", 15, "#ffaa00")
+    config_controls["heal_val"].SetPos(left_x + 135, y + 3)
+    config_gump.Add(config_controls["heal_val"])
+
+    heal_inc = API.Gumps.CreateSimpleButton("[+]", 30, 18)
+    heal_inc.SetPos(left_x + 175, y)
+    heal_inc.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(heal_inc, lambda: adjust_heal_threshold(True))
+    config_gump.Add(heal_inc)
+
+    # Help text
+    heal_help = API.Gumps.CreateGumpTTFLabel("(20-90%) Drink heal potion", 15, "#888888")
+    heal_help.SetPos(left_x + 215, y + 3)
+    config_gump.Add(heal_help)
+
+    y += 30
+
+    # Critical Threshold
+    crit_lbl = API.Gumps.CreateGumpTTFLabel("Critical:", 15, "#dddddd")
+    crit_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(crit_lbl)
+
+    crit_dec = API.Gumps.CreateSimpleButton("[-]", 30, 18)
+    crit_dec.SetPos(left_x + 100, y)
+    crit_dec.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(crit_dec, lambda: adjust_critical_threshold(False))
+    config_gump.Add(crit_dec)
+
+    config_controls["critical_val"] = API.Gumps.CreateGumpTTFLabel(str(critical_threshold) + "%", 15, "#ff0000")
+    config_controls["critical_val"].SetPos(left_x + 135, y + 3)
+    config_gump.Add(config_controls["critical_val"])
+
+    crit_inc = API.Gumps.CreateSimpleButton("[+]", 30, 18)
+    crit_inc.SetPos(left_x + 175, y)
+    crit_inc.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(crit_inc, lambda: adjust_critical_threshold(True))
+    config_gump.Add(crit_inc)
+
+    crit_help = API.Gumps.CreateGumpTTFLabel("(10-50%) Emergency HP", 15, "#888888")
+    crit_help.SetPos(left_x + 215, y + 3)
+    config_gump.Add(crit_help)
+
+    y += 30
+
+    # Stamina Threshold
+    stam_lbl = API.Gumps.CreateGumpTTFLabel("Stamina:", 15, "#dddddd")
+    stam_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(stam_lbl)
+
+    stam_dec = API.Gumps.CreateSimpleButton("[-]", 30, 18)
+    stam_dec.SetPos(left_x + 100, y)
+    stam_dec.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(stam_dec, lambda: adjust_stamina_threshold(False))
+    config_gump.Add(stam_dec)
+
+    config_controls["stam_val"] = API.Gumps.CreateGumpTTFLabel(str(stamina_threshold) + "%", 15, "#00ffff")
+    config_controls["stam_val"].SetPos(left_x + 135, y + 3)
+    config_gump.Add(config_controls["stam_val"])
+
+    stam_inc = API.Gumps.CreateSimpleButton("[+]", 30, 18)
+    stam_inc.SetPos(left_x + 175, y)
+    stam_inc.SetBackgroundHue(90)
+    API.Gumps.AddControlOnClick(stam_inc, lambda: adjust_stamina_threshold(True))
+    config_gump.Add(stam_inc)
+
+    stam_help = API.Gumps.CreateGumpTTFLabel("(10-80%) Drink refresh", 15, "#888888")
+    stam_help.SetPos(left_x + 215, y + 3)
+    config_gump.Add(stam_help)
+
+    y += 40
+
+    # === THROWABLES SECTION ===
+    section_title2 = API.Gumps.CreateGumpTTFLabel("=== Throwable Items ===", 15, "#ffaa00")
+    section_title2.SetPos(180, y)
+    config_gump.Add(section_title2)
+
+    y += 25
+
+    # Header labels
+    header1 = API.Gumps.CreateGumpTTFLabel("Item", 15, "#888888")
+    header1.SetPos(left_x, y)
+    config_gump.Add(header1)
+
+    header2 = API.Gumps.CreateGumpTTFLabel("Graphic ID", 15, "#888888")
+    header2.SetPos(left_x + 180, y)
+    config_gump.Add(header2)
+
+    header3 = API.Gumps.CreateGumpTTFLabel("Action", 15, "#888888")
+    header3.SetPos(left_x + 280, y)
+    config_gump.Add(header3)
+
+    y += 22
+
+    # Display each throwable with [Set] button and priority indicators
+    throwable_keys = ["confusion_blast", "greater_explosion", "explosion",
+                      "lesser_explosion", "custom1", "custom2"]
+
+    for idx, key in enumerate(throwable_keys):
+        data = throwables[key]
+
+        # Priority number (1-6)
+        try:
+            priority_num = throwable_priority.index(key) + 1
+        except ValueError:
+            priority_num = 99
+
+        priority_lbl = API.Gumps.CreateGumpTTFLabel(str(priority_num) + ".", 15, "#00ffff")
+        priority_lbl.SetPos(left_x, y + 3)
+        config_gump.Add(priority_lbl)
+
+        # Item label
+        item_lbl = API.Gumps.CreateGumpTTFLabel(data["label"], 15, "#dddddd")
+        item_lbl.SetPos(left_x + 25, y + 3)
+        config_gump.Add(item_lbl)
+
+        # Graphic ID display
+        graphic_text = "0x{:04X}".format(data["graphic"]) if data["graphic"] > 0 else "Not Set"
+        graphic_color = "#00ff00" if data["graphic"] > 0 else "#888888"
+        config_controls[key + "_graphic"] = API.Gumps.CreateGumpTTFLabel(graphic_text, 15, graphic_color)
+        config_controls[key + "_graphic"].SetPos(left_x + 180, y + 3)
+        config_gump.Add(config_controls[key + "_graphic"])
+
+        # [Set] button
+        set_btn = API.Gumps.CreateSimpleButton("[Set]", 50, 18)
+        set_btn.SetPos(left_x + 280, y)
+        set_btn.SetBackgroundHue(68)
+        API.Gumps.AddControlOnClick(set_btn, lambda k=key: capture_throwable_graphic(k))
+        config_gump.Add(set_btn)
+
+        # [Clear] button (to reset to 0x0000)
+        clear_btn = API.Gumps.CreateSimpleButton("[X]", 30, 18)
+        clear_btn.SetPos(left_x + 340, y)
+        clear_btn.SetBackgroundHue(32)
+        API.Gumps.AddControlOnClick(clear_btn, lambda k=key: clear_throwable_graphic(k))
+        config_gump.Add(clear_btn)
+
+        y += 25
+
+    y += 15
+
+    # === INFO SECTION ===
+    info_title = API.Gumps.CreateGumpTTFLabel("Changes save automatically", 15, "#00ff00")
+    info_title.SetPos(165, y)
+    config_gump.Add(info_title)
+
+    y += 20
+
+    help_text = API.Gumps.CreateGumpTTFLabel("Click [Set] and target item in backpack", 15, "#888888")
+    help_text.SetPos(115, y)
+    config_gump.Add(help_text)
+
+    # Position tracking callback
+    API.Gumps.AddControlOnDisposed(config_gump, on_config_closed)
+
+    # Add gump to screen
+    API.Gumps.AddGump(config_gump)
+
+    API.SysMsg("Configuration window opened", 68)
+
+def close_config_gump():
+    """Close the config window and save position"""
+    global config_gump
+    if config_gump is not None:
+        # Save position using tracked coordinates
+        if config_last_known_x >= 0 and config_last_known_y >= 0:
+            API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+        config_gump.Dispose()
+        config_gump = None
+        API.SysMsg("Configuration saved", 68)
+
+def on_config_closed():
+    """Callback when config window is closed (via [X] or manual close)"""
+    global config_gump
+    if config_last_known_x >= 0 and config_last_known_y >= 0:
+        API.SavePersistentVar(CONFIG_XY_KEY, str(config_last_known_x) + "," + str(config_last_known_y), API.PersistentVar.Char)
+    config_gump = None
 
 # ============ DISPLAY UPDATES ============
 def create_resource_bar(current, max_val, width=10):
@@ -1051,6 +1511,10 @@ def update_display():
 # ============ CLEANUP ============
 def cleanup():
     """Cleanup on exit"""
+    # Close config window if open
+    if config_gump is not None:
+        close_config_gump()
+
     # Unregister hotkeys using API.UnregisterHotkey (FIXED)
     try:
         if HOTKEY_HEAL_POTION:
@@ -1120,7 +1584,7 @@ bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.5", 16, "#ff8800", aligned="center", maxWidth=280)
+title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.6", 16, "#ff8800", aligned="center", maxWidth=280)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -1420,6 +1884,16 @@ expander.add_control(autoBuffBtn)
 
 y += 22
 
+# Config Button
+configBtn = API.Gumps.CreateSimpleButton("[CONFIG]", 90, 18)
+configBtn.SetPos(leftX, y)
+configBtn.SetBackgroundHue(43)
+API.Gumps.AddControlOnClick(configBtn, build_config_gump)
+gump.Add(configBtn)
+expander.add_control(configBtn)
+
+y += 22
+
 # Trapped Pouch Controls
 setPouchBtn = API.Gumps.CreateSimpleButton("[SET POUCH]", 90, 18)
 setPouchBtn.SetPos(leftX, y)
@@ -1510,7 +1984,7 @@ if HOTKEY_ATTACK:
 # Initial display update
 update_display()
 
-API.SysMsg("Dexer Suite v1.3 loaded!", 68)
+API.SysMsg("Dexer Suite v1.6 loaded!", 68)
 API.SysMsg("Base Stats: STR=" + str(base_str) + " DEX=" + str(base_dex), 53)
 
 # Show current stats for comparison
@@ -1540,6 +2014,15 @@ while not API.StopRequested:
         # Update window position tracker
         pos_tracker.update()
 
+        # Track config window position if open
+        if config_gump is not None and time.time() - last_position_check > 2.0:
+            last_position_check = time.time()
+            try:
+                config_last_known_x = config_gump.GetX()
+                config_last_known_y = config_gump.GetY()
+            except (AttributeError, Exception):
+                pass
+
         # Update display periodically
         if time.time() > next_display_update:
             update_display()
@@ -1555,12 +2038,14 @@ while not API.StopRequested:
         if not PAUSED:
             handle_auto_target()
 
-        # AUTO-EXPLO LOGIC (throw explosion potions at target)
+        # AUTO-EXPLO LOGIC (throw explosion potions at target with retry backoff)
         if not PAUSED and auto_explo and potion_ready():
-            if current_attack_target != 0:
-                target = API.FindMobile(current_attack_target)
-                if target and not target.IsDead and getattr(target, 'Distance', 999) <= 12:
-                    throw_explosion_potion(current_attack_target)
+            if time.time() - last_explo_attempt > EXPLO_RETRY_DELAY:
+                if current_attack_target != 0:
+                    target = API.FindMobile(current_attack_target)
+                    if target and not target.IsDead and getattr(target, 'Distance', 999) <= 12:
+                        if throw_explosion_potion(current_attack_target):
+                            last_explo_attempt = time.time()
 
         # Short pause - loop runs ~10x/second
         API.Pause(0.1)
