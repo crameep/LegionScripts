@@ -698,9 +698,21 @@ def get_next_heal_action():
                     return (pet, "rez", REZ_DELAY, False)
 
     # Check if vet kit should be used (BEFORE individual healing)
+    # BUT skip if there are dead pets that need rezzing first
     if VET_KIT_GRAPHIC != 0:
-        # Only try if vet kit actually exists in inventory
-        if API.FindType(VET_KIT_GRAPHIC):
+        # Check for dead pets first - don't waste vet kit if pets need rezzing
+        has_dead_pets = False
+        if USE_REZ:
+            for pet in PETS:
+                mob = API.FindMobile(pet)
+                if mob and mob.IsDead:
+                    dist = get_distance(mob)
+                    if dist <= SPELL_RANGE:
+                        has_dead_pets = True
+                        break
+
+        # Only try vet kit if no dead pets and vet kit exists in inventory
+        if not has_dead_pets and API.FindType(VET_KIT_GRAPHIC):
             hurt_count = 0
             critical_count = 0
             for pet in PETS:
