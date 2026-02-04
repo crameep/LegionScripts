@@ -785,20 +785,17 @@ def throw_explosion_potion(target_serial=None):
         return False
 
     try:
-        # Standard targeting pattern: PreTarget BEFORE UseObject
-        # PreTarget sets up the target, UseObject triggers with that target
+        # Explosion potions: Set as attack target, then use potion
+        # The game will auto-target the current attack target
         cancel_all_targets()
 
-        # Step 1: Set the target FIRST (longer pause for server response)
-        API.PreTarget(target_serial, "harmful")
-        API.Pause(0.4)  # Increased to allow PreTarget to register
+        # Make sure enemy is the current attack target
+        API.Attack(target)
+        API.Pause(0.3)
 
-        # Step 2: Use the potion (will use the pre-targeted enemy)
+        # Use the potion - should auto-target the attack target
         API.UseObject(potion, False)
-        API.Pause(0.3)  # Wait for action to complete
-
-        # Clean up
-        API.CancelPreTarget()
+        API.Pause(0.5)
 
         potion_cooldown_end = time.time() + POTION_COOLDOWN
         statusLabel.SetText(potion_label + "!")
