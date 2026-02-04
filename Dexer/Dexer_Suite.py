@@ -98,6 +98,8 @@ THROWABLES_KEY = "DexerSuite_Throwables"
 THROWABLE_PRIORITY_KEY = "DexerSuite_ThrowablePriority"
 CONFIG_XY_KEY = "DexerSuite_ConfigXY"
 EXPLO_THROW_DELAY_KEY = "DexerSuite_ExploThrowDelay"
+WEAPON_SERIAL_KEY = "DexerSuite_WeaponSerial"
+SHIELD_SERIAL_KEY = "DexerSuite_ShieldSerial"
 
 # Schema versioning for throwables persistence
 THROWABLES_SCHEMA_VERSION = 1
@@ -144,6 +146,10 @@ base_dex = 100  # Will be loaded from persistent storage
 # Trapped pouch
 trapped_pouch_serial = 0      # Serial of the trapped pouch to use
 use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
+
+# Equipment
+weapon_serial = 0             # Serial of weapon to auto-equip
+shield_serial = 0             # Serial of shield to auto-equip (optional)
 
 # Combat tracking
 current_attack_target = 0     # Serial of current attack target
@@ -312,6 +318,90 @@ def target_trapped_pouch():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
         cancel_all_targets()
+
+def target_weapon():
+    """Allow user to target which weapon to auto-equip"""
+    global weapon_serial
+
+    API.SysMsg("Target your primary weapon...", 68)
+
+    # Cancel any existing targets
+    cancel_all_targets()
+
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            item = API.FindItem(target)
+            if item:
+                weapon_serial = target
+                API.SavePersistentVar(WEAPON_SERIAL_KEY, str(weapon_serial), API.PersistentVar.Char)
+                API.SysMsg("Weapon set! Serial: " + hex(weapon_serial), 68)
+            else:
+                API.SysMsg("Item not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+
+        cancel_all_targets()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        cancel_all_targets()
+
+def target_shield():
+    """Allow user to target which shield to auto-equip"""
+    global shield_serial
+
+    API.SysMsg("Target your shield (optional)...", 68)
+
+    # Cancel any existing targets
+    cancel_all_targets()
+
+    try:
+        target = API.RequestTarget(timeout=10)
+        if target:
+            item = API.FindItem(target)
+            if item:
+                shield_serial = target
+                API.SavePersistentVar(SHIELD_SERIAL_KEY, str(shield_serial), API.PersistentVar.Char)
+                API.SysMsg("Shield set! Serial: " + hex(shield_serial), 68)
+            else:
+                API.SysMsg("Item not found!", 32)
+        else:
+            API.SysMsg("Target cancelled", 43)
+
+        cancel_all_targets()
+    except Exception as e:
+        API.SysMsg("Target error: " + str(e), 32)
+        cancel_all_targets()
+
+def ensure_equipment_equipped():
+    """Ensure weapon and shield are equipped before combat"""
+    global weapon_serial, shield_serial
+
+    # Check weapon
+    if weapon_serial > 0:
+        weapon_item = API.FindItem(weapon_serial)
+        if weapon_item:
+            # Check if equipped (Layer 1 = one-handed weapon, Layer 2 = two-handed weapon)
+            layer = getattr(weapon_item, 'Layer', 0)
+            if layer not in [1, 2]:  # Not equipped
+                try:
+                    API.UseObject(weapon_serial, False)
+                    API.Pause(0.3)  # Give time for equip
+                except Exception as e:
+                    API.SysMsg("Failed to equip weapon: " + str(e), 32)
+
+    # Check shield
+    if shield_serial > 0:
+        shield_item = API.FindItem(shield_serial)
+        if shield_item:
+            # Check if equipped (Layer 2 = shield slot)
+            layer = getattr(shield_item, 'Layer', 0)
+            if layer != 2:  # Not equipped
+                try:
+                    API.UseObject(shield_serial, False)
+                    API.Pause(0.3)  # Give time for equip
+                except Exception as e:
+                    API.SysMsg("Failed to equip shield: " + str(e), 32)
 
 # ============ STATE MANAGEMENT ============
 def check_heal_complete():
@@ -771,6 +861,15 @@ def throw_explosion_potion(target_serial=None):
         API.SysMsg("Target out of range!", 32)
         return False
 
+    # Check line of sight
+    try:
+        if not API.InLOS(target_serial):
+            API.SysMsg("Target not in line of sight!", 32)
+            return False
+    except (AttributeError, Exception):
+        # InLOS not available, skip check
+        pass
+
     # Get best potion
     potion_graphic, potion_label = get_best_explosion_potion()
     if potion_graphic is None:
@@ -836,6 +935,9 @@ def attack_nearest():
     global current_attack_target
     enemy = find_attack_target()
     if enemy:
+        # Ensure weapon/shield equipped before combat
+        ensure_equipment_equipped()
+
         API.Attack(enemy)
         current_attack_target = enemy.Serial  # Track this target
         API.HeadMsg("ATTACK!", enemy.Serial, 32)
@@ -928,6 +1030,7 @@ def load_settings():
     global trapped_pouch_serial, use_trapped_pouch
     global throwables, throwable_priority
     global explo_throw_delay
+    global weapon_serial, shield_serial
 
     # Thresholds
     try:
@@ -1079,6 +1182,17 @@ def load_settings():
         explo_throw_delay = max(0.5, min(5.0, explo_throw_delay))  # Clamp to 0.5-5.0s
     except (ValueError, TypeError):
         explo_throw_delay = 1.0
+
+    # Load weapon and shield serials
+    try:
+        weapon_serial = int(API.GetPersistentVar(WEAPON_SERIAL_KEY, "0", API.PersistentVar.Char))
+    except (ValueError, TypeError):
+        weapon_serial = 0
+
+    try:
+        shield_serial = int(API.GetPersistentVar(SHIELD_SERIAL_KEY, "0", API.PersistentVar.Char))
+    except (ValueError, TypeError):
+        shield_serial = 0
 
 def save_throwables():
     """Save throwables configuration with schema version"""
@@ -1487,6 +1601,58 @@ def build_config_gump():
     use_pouch_btn.SetBackgroundHue(68 if use_trapped_pouch else 90)
     API.Gumps.AddControlOnClick(use_pouch_btn, toggle_use_trapped_pouch)
     config_gump.Add(use_pouch_btn)
+
+    y += 30
+
+    # === EQUIPMENT SECTION ===
+    section_title5 = API.Gumps.CreateGumpTTFLabel("=== Equipment ===", 15, "#ffcc00")
+    section_title5.SetPos(195, y)
+    config_gump.Add(section_title5)
+
+    y += 25
+
+    # Weapon button
+    weapon_lbl = API.Gumps.CreateGumpTTFLabel("Weapon:", 15, "#dddddd")
+    weapon_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(weapon_lbl)
+
+    set_weapon_btn = API.Gumps.CreateSimpleButton("[Set Weapon]", 90, 18)
+    set_weapon_btn.SetPos(left_x + 75, y)
+    set_weapon_btn.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(set_weapon_btn, target_weapon)
+    config_gump.Add(set_weapon_btn)
+
+    # Weapon status
+    weapon_status = "Set" if weapon_serial > 0 else "Not Set"
+    weapon_status_color = "#00ff00" if weapon_serial > 0 else "#888888"
+    weapon_status_lbl = API.Gumps.CreateGumpTTFLabel(weapon_status, 15, weapon_status_color)
+    weapon_status_lbl.SetPos(left_x + 175, y + 3)
+    config_gump.Add(weapon_status_lbl)
+
+    y += 25
+
+    # Shield button
+    shield_lbl = API.Gumps.CreateGumpTTFLabel("Shield:", 15, "#dddddd")
+    shield_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(shield_lbl)
+
+    set_shield_btn = API.Gumps.CreateSimpleButton("[Set Shield]", 90, 18)
+    set_shield_btn.SetPos(left_x + 75, y)
+    set_shield_btn.SetBackgroundHue(43)
+    API.Gumps.AddControlOnClick(set_shield_btn, target_shield)
+    config_gump.Add(set_shield_btn)
+
+    # Shield status
+    shield_status = "Set" if shield_serial > 0 else "Not Set"
+    shield_status_color = "#00ff00" if shield_serial > 0 else "#888888"
+    shield_status_lbl = API.Gumps.CreateGumpTTFLabel(shield_status, 15, shield_status_color)
+    shield_status_lbl.SetPos(left_x + 175, y + 3)
+    config_gump.Add(shield_status_lbl)
+
+    # Help text
+    equip_help = API.Gumps.CreateGumpTTFLabel("(Auto-equip before combat)", 15, "#888888")
+    equip_help.SetPos(left_x + 240, y + 3)
+    config_gump.Add(equip_help)
 
     y += 30
 
