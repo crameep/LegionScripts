@@ -715,6 +715,26 @@ def dump_all_tomes():
     update_main_display()
 
 # ============ PERSISTENCE ============
+def save_tome_list(tome_list, key):
+    """Save list of tomes to persistence"""
+    import json
+    try:
+        tome_data = json.dumps(tome_list)
+        API.SavePersistentVar(key, tome_data, API.PersistentVar.Char)
+    except Exception as e:
+        API.SysMsg("Error saving tomes: " + str(e), HUE_RED)
+
+def load_tome_list(key):
+    """Load list of tomes from persistence"""
+    import json
+    try:
+        tome_data = API.GetPersistentVar(key, "[]", API.PersistentVar.Char)
+        if tome_data:
+            return json.loads(tome_data)
+    except Exception as e:
+        API.SysMsg("Error loading tomes: " + str(e), HUE_RED)
+    return []
+
 def save_tomes():
     """Save tome configurations"""
     save_tome_list(tomes, TOMES_KEY)
