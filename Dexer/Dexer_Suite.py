@@ -988,32 +988,37 @@ API.Gumps.AddControlOnDisposed(gump, onClosed)
 # Setup window position tracker (using LegionUtils)
 pos_tracker = WindowPositionTracker(gump, SETTINGS_KEY, 100, 100)
 
-# Setup expandable window (using LegionUtils)
+# Load expanded state
+is_expanded = load_bool(EXPANDED_KEY, True)
+
+# Set initial position and height
+initial_height = EXPANDED_HEIGHT if is_expanded else COLLAPSED_HEIGHT
+gump.SetRect(pos_tracker.last_x, pos_tracker.last_y, WINDOW_WIDTH, initial_height)
+
+bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
+gump.Add(bg)
+
+title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.4", 16, "#ff8800", aligned="center", maxWidth=280)
+title.SetPos(0, 5)
+gump.Add(title)
+
+# Create expand/collapse button FIRST
+expandBtn = API.Gumps.CreateSimpleButton("[-]" if is_expanded else "[+]", 20, 18)
+expandBtn.SetPos(255, 3)
+expandBtn.SetBackgroundHue(90)
+gump.Add(expandBtn)
+
+# NOW setup expandable window with the button (using LegionUtils)
 expander = ExpandableWindow(
-    gump, None, EXPANDED_KEY,
+    gump, expandBtn, EXPANDED_KEY,
     width=WINDOW_WIDTH,
     expanded_height=EXPANDED_HEIGHT,
     collapsed_height=COLLAPSED_HEIGHT
 )
 
-# Set initial position
-gump.SetRect(pos_tracker.last_x, pos_tracker.last_y, WINDOW_WIDTH, expander.expanded_height if expander.is_expanded else expander.collapsed_height)
-
-bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-bg.SetRect(0, 0, WINDOW_WIDTH, expander.expanded_height if expander.is_expanded else expander.collapsed_height)
-gump.Add(bg)
-
-title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.3", 16, "#ff8800", aligned="center", maxWidth=280)
-title.SetPos(0, 5)
-gump.Add(title)
-
-# Expand/collapse button
-expandBtn = API.Gumps.CreateSimpleButton("[-]" if expander.is_expanded else "[+]", 20, 18)
-expandBtn.SetPos(255, 3)
-expandBtn.SetBackgroundHue(90)
-expander.expand_btn = expandBtn
+# Wire button to expander
 API.Gumps.AddControlOnClick(expandBtn, expander.toggle)
-gump.Add(expandBtn)
 
 y = 30
 
