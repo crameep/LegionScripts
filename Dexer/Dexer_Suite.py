@@ -1,5 +1,5 @@
 # ============================================================
-# Dexer Suite v1.4
+# Dexer Suite v1.5
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -25,7 +25,7 @@ import API
 import time
 from LegionUtils import *
 
-__version__ = "1.4"
+__version__ = "1.5"
 
 # ============ USER SETTINGS ============
 DEBUG = False
@@ -53,7 +53,9 @@ POTION_CURE = 0x0F07          # Greater Cure (yellow)
 POTION_REFRESH = 0x0F0B       # Greater Refresh (red)
 POTION_STRENGTH = 0x0F09      # Greater Strength (white)
 POTION_AGILITY = 0x0F08       # Greater Agility (blue)
-POTION_EXPLOSION = 0x0F0D     # Explosion (purple)
+POTION_EXPLOSION_LESSER = 0x0F0A    # Lesser Explosion (5-10 damage)
+POTION_EXPLOSION = 0x0F0D           # Explosion (10-20 damage)
+POTION_EXPLOSION_GREATER = 0x0F0E   # Greater Explosion (15-30 damage)
 BANDAGE = 0x0E21              # Bandages
 
 # === TRAPPED POUCH ===
@@ -74,6 +76,7 @@ BANDAGE_DIFF_KEY = "DexerSuite_BandageDiff"
 AUTO_HEAL_KEY = "DexerSuite_AutoHeal"
 AUTO_BUFF_KEY = "DexerSuite_AutoBuff"
 AUTO_TARGET_KEY = "DexerSuite_AutoTarget"
+AUTO_EXPLO_KEY = "DexerSuite_AutoExplo"
 TARGET_REDS_KEY = "DexerSuite_TargetReds"
 TARGET_GRAYS_KEY = "DexerSuite_TargetGrays"
 BASE_STR_KEY = "DexerSuite_BaseStr"
@@ -87,6 +90,7 @@ HOTKEY_HEAL_POTION_KEY = "DexerSuite_HK_HealPotion"
 HOTKEY_CURE_POTION_KEY = "DexerSuite_HK_CurePotion"
 HOTKEY_REFRESH_POTION_KEY = "DexerSuite_HK_RefreshPotion"
 HOTKEY_BANDAGE_KEY = "DexerSuite_HK_Bandage"
+HOTKEY_EXPLO_POTION_KEY = "DexerSuite_HK_ExploPotion"
 HOTKEY_PAUSE_KEY = "DexerSuite_HK_Pause"
 HOTKEY_ATTACK_KEY = "DexerSuite_HK_Attack"
 
@@ -112,6 +116,7 @@ bandage_diff_threshold = DEFAULT_BANDAGE_DIFF
 auto_heal = True
 auto_buff = True              # Auto-maintain STR/AGI buffs
 auto_target = False           # Continuous auto-targeting when target dies
+auto_explo = False            # Auto-throw explosion potions at enemies
 target_reds = True
 target_grays = True
 
@@ -131,6 +136,7 @@ HOTKEY_HEAL_POTION = "F1"
 HOTKEY_CURE_POTION = "F2"
 HOTKEY_REFRESH_POTION = "F3"
 HOTKEY_BANDAGE = "F6"
+HOTKEY_EXPLO_POTION = "F7"
 HOTKEY_PAUSE = "PAUSE"
 HOTKEY_ATTACK = "TAB"  # TAB works, backtick (`) doesn't register
 
@@ -627,6 +633,14 @@ def toggle_auto_target():
         API.SysMsg("Auto-Target: OFF", 32)
         current_attack_target = 0  # Clear current target
 
+def toggle_auto_explo():
+    global auto_explo
+    auto_explo = not auto_explo
+    API.SavePersistentVar(AUTO_EXPLO_KEY, str(auto_explo), API.PersistentVar.Char)
+    autoExploBtn.SetText("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]")
+    autoExploBtn.SetBackgroundHue(68 if auto_explo else 90)
+    API.SysMsg("Auto-Explosion: " + ("ON" if auto_explo else "OFF"), 68 if auto_explo else 32)
+
 def toggle_use_trapped_pouch():
     global use_trapped_pouch
     use_trapped_pouch = not use_trapped_pouch
@@ -649,6 +663,96 @@ def on_drink_refresh():
 
 def on_bandage_button():
     start_bandage()
+
+# ============ EXPLOSION POTIONS ============
+def get_best_explosion_potion():
+    """Get best available explosion potion (Greater > Normal > Lesser)"""
+    if get_item_count(POTION_EXPLOSION_GREATER) > 0:
+        return (POTION_EXPLOSION_GREATER, "Greater Explosion")
+    elif get_item_count(POTION_EXPLOSION) > 0:
+        return (POTION_EXPLOSION, "Explosion")
+    elif get_item_count(POTION_EXPLOSION_LESSER) > 0:
+        return (POTION_EXPLOSION_LESSER, "Lesser Explosion")
+    return (None, None)
+
+def throw_explosion_potion(target_serial=None):
+    """Throw explosion potion at target"""
+    global potion_cooldown_end
+
+    if not potion_ready():
+        remaining = int(potion_cooldown_end - time.time())
+        API.SysMsg("Potion on cooldown: " + str(remaining) + "s", 43)
+        return False
+
+    # Get target
+    if target_serial is None:
+        # Use current attack target or find nearest
+        if current_attack_target != 0:
+            target = API.FindMobile(current_attack_target)
+            if target and not target.IsDead:
+                target_serial = current_attack_target
+
+        if target_serial is None:
+            enemy = find_attack_target()
+            if enemy:
+                target_serial = enemy.Serial
+
+    if target_serial is None:
+        API.SysMsg("No target for explosion potion!", 43)
+        return False
+
+    # Check target is valid and in range
+    target = API.FindMobile(target_serial)
+    if not target or target.IsDead:
+        API.SysMsg("Target invalid!", 32)
+        return False
+
+    target_distance = getattr(target, 'Distance', 999) if target else 999
+    if target_distance > 12:
+        API.SysMsg("Target out of range!", 32)
+        return False
+
+    # Get best potion
+    potion_graphic, potion_label = get_best_explosion_potion()
+    if potion_graphic is None:
+        API.SysMsg("Out of explosion potions!", 32)
+        return False
+
+    potion = None
+    if API.FindType(potion_graphic):
+        potion = API.Found
+
+    if not potion:
+        API.SysMsg("Out of " + potion_label + "!", 32)
+        return False
+
+    try:
+        # Target and throw
+        cancel_all_targets()
+        API.PreTarget(target_serial, "harmful")
+        API.Pause(0.1)
+        API.UseObject(potion, False)
+        API.Pause(0.1)
+        cancel_all_targets()
+
+        potion_cooldown_end = time.time() + POTION_COOLDOWN
+        statusLabel.SetText(potion_label + "!")
+        API.HeadMsg("BOOM!", target_serial, 32)
+
+        # Create cooldown bar
+        try:
+            API.CreateCooldownBar(POTION_COOLDOWN, potion_label, 32)
+        except (AttributeError, Exception):
+            pass
+
+        return True
+    except Exception as e:
+        API.SysMsg("Explosion potion error: " + str(e), 32)
+        return False
+
+def on_throw_explo():
+    """Hotkey callback for manual explosion potion throw"""
+    throw_explosion_potion()
 
 # ============ ATTACK/TARGETING ============
 def find_attack_target():
@@ -687,8 +791,8 @@ def handle_auto_target():
     if current_attack_target == 0:
         return
 
-    # Check if current target is still valid - FIXED: Use API.Mobiles.FindMobile
-    target = API.Mobiles.FindMobile(current_attack_target)
+    # Check if current target is still valid
+    target = API.FindMobile(current_attack_target)
 
     # If target is dead, gone, or out of range, find next target
     target_distance = getattr(target, 'Distance', 999) if target else 999
@@ -742,6 +846,9 @@ def on_refresh_potion_hotkey():
 def on_bandage_hotkey():
     start_bandage()
 
+def on_explo_potion_hotkey():
+    throw_explosion_potion()
+
 def on_pause_hotkey():
     toggle_pause()
 
@@ -751,9 +858,9 @@ def on_attack_hotkey():
 # ============ PERSISTENCE ============
 def load_settings():
     global heal_threshold, critical_threshold, stamina_threshold, bandage_diff_threshold
-    global auto_heal, auto_buff, auto_target, target_reds, target_grays
+    global auto_heal, auto_buff, auto_target, auto_explo, target_reds, target_grays
     global HOTKEY_HEAL_POTION, HOTKEY_CURE_POTION, HOTKEY_REFRESH_POTION
-    global HOTKEY_BANDAGE, HOTKEY_PAUSE, HOTKEY_ATTACK
+    global HOTKEY_BANDAGE, HOTKEY_EXPLO_POTION, HOTKEY_PAUSE, HOTKEY_ATTACK
     global base_str, base_dex
     global trapped_pouch_serial, use_trapped_pouch
 
@@ -782,6 +889,7 @@ def load_settings():
     auto_heal = API.GetPersistentVar(AUTO_HEAL_KEY, "True", API.PersistentVar.Char) == "True"
     auto_buff = API.GetPersistentVar(AUTO_BUFF_KEY, "True", API.PersistentVar.Char) == "True"
     auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
+    auto_explo = API.GetPersistentVar(AUTO_EXPLO_KEY, "False", API.PersistentVar.Char) == "True"
     target_reds = API.GetPersistentVar(TARGET_REDS_KEY, "True", API.PersistentVar.Char) == "True"
     target_grays = API.GetPersistentVar(TARGET_GRAYS_KEY, "True", API.PersistentVar.Char) == "True"
     use_trapped_pouch = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
@@ -816,6 +924,7 @@ def load_settings():
     HOTKEY_CURE_POTION = API.GetPersistentVar(HOTKEY_CURE_POTION_KEY, "F2", API.PersistentVar.Char)
     HOTKEY_REFRESH_POTION = API.GetPersistentVar(HOTKEY_REFRESH_POTION_KEY, "F3", API.PersistentVar.Char)
     HOTKEY_BANDAGE = API.GetPersistentVar(HOTKEY_BANDAGE_KEY, "F6", API.PersistentVar.Char)
+    HOTKEY_EXPLO_POTION = API.GetPersistentVar(HOTKEY_EXPLO_POTION_KEY, "F7", API.PersistentVar.Char)
     HOTKEY_PAUSE = API.GetPersistentVar(HOTKEY_PAUSE_KEY, "PAUSE", API.PersistentVar.Char)
     HOTKEY_ATTACK = API.GetPersistentVar(HOTKEY_ATTACK_KEY, "TAB", API.PersistentVar.Char)
 
@@ -865,6 +974,12 @@ def update_display():
         healPotionLabel.SetText("Heal: " + str(get_item_count(POTION_HEAL)))
         curePotionLabel.SetText("Cure: " + str(get_item_count(POTION_CURE)))
         refreshPotionLabel.SetText("Refresh: " + str(get_item_count(POTION_REFRESH)))
+
+        # Explosion potion counts (Lesser/Normal/Greater)
+        explo_l = get_item_count(POTION_EXPLOSION_LESSER)
+        explo_n = get_item_count(POTION_EXPLOSION)
+        explo_g = get_item_count(POTION_EXPLOSION_GREATER)
+        exploPotionLabel.SetText("Explo: L" + str(explo_l) + "/N" + str(explo_n) + "/G" + str(explo_g))
 
         # Buff potions with timer display and progress bars
         str_count = get_item_count(POTION_STRENGTH)
@@ -962,6 +1077,12 @@ def cleanup():
         pass
 
     try:
+        if HOTKEY_EXPLO_POTION:
+            API.UnregisterHotkey(HOTKEY_EXPLO_POTION)
+    except Exception:
+        pass
+
+    try:
         if HOTKEY_PAUSE:
             API.UnregisterHotkey(HOTKEY_PAUSE)
     except Exception:
@@ -999,7 +1120,7 @@ bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
 bg.SetRect(0, 0, WINDOW_WIDTH, initial_height)
 gump.Add(bg)
 
-title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.4", 16, "#ff8800", aligned="center", maxWidth=280)
+title = API.Gumps.CreateGumpTTFLabel("Dexer Suite v1.5", 16, "#ff8800", aligned="center", maxWidth=280)
 title.SetPos(0, 5)
 gump.Add(title)
 
@@ -1136,6 +1257,21 @@ expander.add_control(drinkRefreshBtn)
 
 y += 20
 
+# Explosion Potion
+exploPotionLabel = API.Gumps.CreateGumpTTFLabel("Explo: L0/N0/G0", 15, "#ff00ff")
+exploPotionLabel.SetPos(leftX, y)
+gump.Add(exploPotionLabel)
+expander.add_control(exploPotionLabel)
+
+throwExploBtn = API.Gumps.CreateSimpleButton("[THROW]", 60, 18)
+throwExploBtn.SetPos(leftX + 120, y - 2)
+throwExploBtn.SetBackgroundHue(32)
+API.Gumps.AddControlOnClick(throwExploBtn, on_throw_explo)
+gump.Add(throwExploBtn)
+expander.add_control(throwExploBtn)
+
+y += 20
+
 # Strength potion with buff bar
 strPotionLabel = API.Gumps.CreateGumpTTFLabel("Str: 0", 15, "#aaaaaa")
 strPotionLabel.SetPos(leftX, y)
@@ -1254,6 +1390,16 @@ API.Gumps.AddControlOnClick(autoTargetBtn, toggle_auto_target)
 gump.Add(autoTargetBtn)
 expander.add_control(autoTargetBtn)
 
+y += 22
+
+# Auto-Explo Toggle
+autoExploBtn = API.Gumps.CreateSimpleButton("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]", 180, 18)
+autoExploBtn.SetPos(leftX, y)
+autoExploBtn.SetBackgroundHue(68 if auto_explo else 90)
+API.Gumps.AddControlOnClick(autoExploBtn, toggle_auto_explo)
+gump.Add(autoExploBtn)
+expander.add_control(autoExploBtn)
+
 y += 24
 
 # ========== UTILITIES SECTION ==========
@@ -1354,6 +1500,8 @@ if HOTKEY_REFRESH_POTION:
     API.OnHotKey(HOTKEY_REFRESH_POTION, on_refresh_potion_hotkey)
 if HOTKEY_BANDAGE:
     API.OnHotKey(HOTKEY_BANDAGE, on_bandage_hotkey)
+if HOTKEY_EXPLO_POTION:
+    API.OnHotKey(HOTKEY_EXPLO_POTION, on_explo_potion_hotkey)
 if HOTKEY_PAUSE:
     API.OnHotKey(HOTKEY_PAUSE, on_pause_hotkey)
 if HOTKEY_ATTACK:
@@ -1378,7 +1526,7 @@ except:
     pass
 
 API.SysMsg("Hotkeys: Heal=" + HOTKEY_HEAL_POTION + " Cure=" + HOTKEY_CURE_POTION + " Refresh=" + HOTKEY_REFRESH_POTION, 53)
-API.SysMsg("Bandage=" + HOTKEY_BANDAGE + " Attack=" + HOTKEY_ATTACK + " Pause=" + HOTKEY_PAUSE, 53)
+API.SysMsg("Bandage=" + HOTKEY_BANDAGE + " Explo=" + HOTKEY_EXPLO_POTION + " Attack=" + HOTKEY_ATTACK + " Pause=" + HOTKEY_PAUSE, 53)
 
 # ============ MAIN LOOP (NON-BLOCKING) ============
 while not API.StopRequested:
@@ -1406,6 +1554,13 @@ while not API.StopRequested:
         # AUTO-TARGET LOGIC (continuous combat when enabled)
         if not PAUSED:
             handle_auto_target()
+
+        # AUTO-EXPLO LOGIC (throw explosion potions at target)
+        if not PAUSED and auto_explo and potion_ready():
+            if current_attack_target != 0:
+                target = API.FindMobile(current_attack_target)
+                if target and not target.IsDead and getattr(target, 'Distance', 999) <= 12:
+                    throw_explosion_potion(current_attack_target)
 
         # Short pause - loop runs ~10x/second
         API.Pause(0.1)
