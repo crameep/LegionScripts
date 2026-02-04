@@ -56,8 +56,54 @@ def get_all_skills():
     skills = []
 
     try:
+        # Debug: Check what's available
+        API.SysMsg("Checking API attributes...", HUE_YELLOW)
+
+        has_get_skills = hasattr(API, 'GetSkills')
+        has_player_skills = hasattr(API.Player, 'Skills') if hasattr(API, 'Player') else False
+        has_get_skill = hasattr(API, 'GetSkill')
+        has_player_get_skill = hasattr(API.Player, 'GetSkill') if hasattr(API, 'Player') else False
+
+        API.SysMsg(f"API.GetSkills: {has_get_skills}", HUE_YELLOW)
+        API.SysMsg(f"API.Player.Skills: {has_player_skills}", HUE_YELLOW)
+        API.SysMsg(f"API.GetSkill: {has_get_skill}", HUE_YELLOW)
+        API.SysMsg(f"API.Player.GetSkill: {has_player_get_skill}", HUE_YELLOW)
+
+        # Try API.GetSkill(id) pattern
+        if has_get_skill:
+            API.SysMsg("Trying API.GetSkill pattern...", HUE_YELLOW)
+            for skill_id in range(58):
+                try:
+                    skill_val = API.GetSkill(skill_id)
+                    if skill_val and skill_val > 0:
+                        skills.append({
+                            'id': skill_id,
+                            'name': SKILL_NAMES.get(skill_id, f"Skill {skill_id}"),
+                            'value': skill_val / 10.0,  # Usually in tenths
+                            'cap': 100.0,
+                            'lock': LOCK_UP
+                        })
+                except:
+                    continue
+        # Try API.Player.GetSkill(id) pattern
+        elif has_player_get_skill:
+            API.SysMsg("Trying API.Player.GetSkill pattern...", HUE_YELLOW)
+            for skill_id in range(58):
+                try:
+                    skill_val = API.Player.GetSkill(skill_id)
+                    if skill_val and skill_val > 0:
+                        skills.append({
+                            'id': skill_id,
+                            'name': SKILL_NAMES.get(skill_id, f"Skill {skill_id}"),
+                            'value': skill_val / 10.0,
+                            'cap': 100.0,
+                            'lock': LOCK_UP
+                        })
+                except:
+                    continue
         # Try to get skills from API
-        if hasattr(API, 'GetSkills'):
+        elif has_get_skills:
+            API.SysMsg("Trying API.GetSkills pattern...", HUE_YELLOW)
             all_skills = API.GetSkills()
             for skill_id, skill_info in enumerate(all_skills):
                 if skill_info and skill_info.Value > 0:
@@ -68,7 +114,8 @@ def get_all_skills():
                         'cap': skill_info.Cap,
                         'lock': skill_info.Lock
                     })
-        elif hasattr(API.Player, 'Skills'):
+        elif has_player_skills:
+            API.SysMsg("Trying API.Player.Skills pattern...", HUE_YELLOW)
             # Alternative API format
             for skill_id in range(58):  # 0-57 skills
                 try:
@@ -84,8 +131,10 @@ def get_all_skills():
                 except:
                     continue
         else:
-            API.SysMsg("Skills API not found - using placeholder data", HUE_RED)
-            # Return empty list if API not available
+            API.SysMsg("No Skills API found!", HUE_RED)
+            # List what IS available on API
+            api_attrs = [attr for attr in dir(API) if not attr.startswith('_')]
+            API.SysMsg("Available API methods: " + ", ".join(api_attrs[:10]), HUE_YELLOW)
             return []
 
     except Exception as e:
