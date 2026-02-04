@@ -759,8 +759,12 @@ def toggle_auto_target():
     global auto_target, current_attack_target
     auto_target = not auto_target
     API.SavePersistentVar(AUTO_TARGET_KEY, str(auto_target), API.PersistentVar.Char)
-    autoTargetBtn.SetText("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]")
-    autoTargetBtn.SetBackgroundHue(68 if auto_target else 90)
+
+    # Update config window button if open
+    if "auto_target_btn" in config_controls:
+        config_controls["auto_target_btn"].SetText("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]")
+        config_controls["auto_target_btn"].SetBackgroundHue(68 if auto_target else 90)
+
     if auto_target:
         API.SysMsg("Auto-Target: ON (3 tile range)", 68)
     else:
@@ -771,16 +775,23 @@ def toggle_auto_explo():
     global auto_explo
     auto_explo = not auto_explo
     API.SavePersistentVar(AUTO_EXPLO_KEY, str(auto_explo), API.PersistentVar.Char)
-    autoExploBtn.SetText("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]")
-    autoExploBtn.SetBackgroundHue(68 if auto_explo else 90)
+
+    # Update config window button if open
+    if "auto_explo_btn" in config_controls:
+        config_controls["auto_explo_btn"].SetText("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]")
+        config_controls["auto_explo_btn"].SetBackgroundHue(68 if auto_explo else 90)
     API.SysMsg("Auto-Explosion: " + ("ON" if auto_explo else "OFF"), 68 if auto_explo else 32)
 
 def toggle_use_trapped_pouch():
     global use_trapped_pouch
     use_trapped_pouch = not use_trapped_pouch
     API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(use_trapped_pouch), API.PersistentVar.Char)
-    usePouchBtn.SetText("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]")
-    usePouchBtn.SetBackgroundHue(68 if use_trapped_pouch else 90)
+
+    # Update config window button if open
+    if "use_pouch_btn" in config_controls:
+        config_controls["use_pouch_btn"].SetText("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]")
+        config_controls["use_pouch_btn"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+
     API.SysMsg("Use Trapped Pouch: " + ("ON" if use_trapped_pouch else "OFF"), 68)
 
 def on_set_trapped_pouch():
@@ -1587,20 +1598,20 @@ def build_config_gump():
     y += 22
 
     # AUTO-TARGET button
-    auto_target_btn = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", 180, 18)
-    auto_target_btn.SetPos(left_x, y)
-    auto_target_btn.SetBackgroundHue(68 if auto_target else 90)
-    API.Gumps.AddControlOnClick(auto_target_btn, toggle_auto_target)
-    config_gump.Add(auto_target_btn)
+    config_controls["auto_target_btn"] = API.Gumps.CreateSimpleButton("[AUTO-TARGET:" + ("ON" if auto_target else "OFF") + "]", 180, 18)
+    config_controls["auto_target_btn"].SetPos(left_x, y)
+    config_controls["auto_target_btn"].SetBackgroundHue(68 if auto_target else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_target_btn"], toggle_auto_target)
+    config_gump.Add(config_controls["auto_target_btn"])
 
     y += 22
 
     # AUTO-EXPLO button
-    auto_explo_btn = API.Gumps.CreateSimpleButton("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]", 180, 18)
-    auto_explo_btn.SetPos(left_x, y)
-    auto_explo_btn.SetBackgroundHue(68 if auto_explo else 90)
-    API.Gumps.AddControlOnClick(auto_explo_btn, toggle_auto_explo)
-    config_gump.Add(auto_explo_btn)
+    config_controls["auto_explo_btn"] = API.Gumps.CreateSimpleButton("[AUTO-EXPLO:" + ("ON" if auto_explo else "OFF") + "]", 180, 18)
+    config_controls["auto_explo_btn"].SetPos(left_x, y)
+    config_controls["auto_explo_btn"].SetBackgroundHue(68 if auto_explo else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_explo_btn"], toggle_auto_explo)
+    config_gump.Add(config_controls["auto_explo_btn"])
 
     y += 30
 
@@ -1618,11 +1629,11 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(set_pouch_btn, on_set_trapped_pouch)
     config_gump.Add(set_pouch_btn)
 
-    use_pouch_btn = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 130, 18)
-    use_pouch_btn.SetPos(left_x + 95, y)
-    use_pouch_btn.SetBackgroundHue(68 if use_trapped_pouch else 90)
-    API.Gumps.AddControlOnClick(use_pouch_btn, toggle_use_trapped_pouch)
-    config_gump.Add(use_pouch_btn)
+    config_controls["use_pouch_btn"] = API.Gumps.CreateSimpleButton("[USE POUCH:" + ("ON" if use_trapped_pouch else "OFF") + "]", 130, 18)
+    config_controls["use_pouch_btn"].SetPos(left_x + 95, y)
+    config_controls["use_pouch_btn"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+    API.Gumps.AddControlOnClick(config_controls["use_pouch_btn"], toggle_use_trapped_pouch)
+    config_gump.Add(config_controls["use_pouch_btn"])
 
     y += 30
 
