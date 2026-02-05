@@ -129,6 +129,10 @@ healing_system = None     # HealingSystem instance
 
 # Banking system
 banking_system = None     # BankingSystem instance
+
+# Statistics tracking
+stats_tracker = None      # StatisticsTracker instance
+last_stats_update = 0     # Last time stats display was updated
 banking_triggers = None   # BankingTriggers instance
 
 # Healing tracking
@@ -3355,6 +3359,569 @@ class BankingSystem:
         distance = self.get_distance_to_bank()
         return distance != -1 and distance <= tolerance
 
+# ============ STATISTICS TRACKING SYSTEM ============
+
+class StatisticsTracker:
+    """
+    Comprehensive statistics tracking for farming sessions.
+    Tracks session stats, performance metrics, enemy breakdown, area performance,
+    danger events, and supply consumption. Updates displays in real-time.
+    """
+
+    def __init__(self, key_prefix):
+        """
+        Args:
+            key_prefix: Persistence key prefix for saving stats
+        """
+        self.key_prefix = key_prefix
+
+        # Session stats (updated in real-time)
+        self.gold_collected = 0
+        self.total_kills = 0
+        self.player_deaths = 0
+        self.pet_deaths = 0
+        self.flee_events = {"minor": 0, "major": 0, "critical": 0}
+        self.time_by_state = {
+            "farming": 0.0,
+            "banking": 0.0,
+            "fleeing": 0.0,
+            "recovering": 0.0,
+            "looting": 0.0,
+            "idle": 0.0
+        }
+        self.supplies_used = {"bandages": 0, "vet_kits": 0, "potions": 0}
+        self.session_start_time = time.time()
+
+        # Performance metrics (calculated periodically)
+        self.gold_per_hour = 0.0
+        self.kills_per_hour = 0.0
+        self.deaths_per_hour = 0.0
+        self.average_danger = 0.0
+        self.banking_efficiency = 0.0  # farming_time / total_time
+
+        # Enemy breakdown tracking (dict keyed by enemy name)
+        self.enemy_breakdown = {}
+        # Each entry: {"kill_count": int, "gold_total": int, "deaths_caused": int, "combat_time": float}
+
+        # Area performance tracking (dict keyed by area name)
+        self.area_performance = {}
+        # Each entry: {"time_in_area": float, "gold_from_area": int, "kills_in_area": int,
+        #              "flees_from_area": int, "danger_samples": [], "success_rate": float}
+
+        # Danger events tracking (list of event dicts)
+        self.danger_events = []
+        # Each event: {"timestamp": float, "area": str, "trigger_reason": str,
+        #              "danger_level": int, "enemies_present": list, "outcome": str}
+
+        # State tracking for time calculations
+        self.current_state = "idle"
+        self.state_start_time = time.time()
+        self.last_update_time = time.time()
+
+        # Combat tracking
+        self.current_enemy = None
+        self.combat_start_time = 0
+
+        # Load persistent stats
+        self._load_stats()
+
+    def _load_stats(self):
+        """Load persistent statistics from saved data"""
+        try:
+            # Load cumulative stats if they exist
+            self.gold_collected = int(API.GetPersistentVar(
+                self.key_prefix + "StatsGoldCollected", "0", API.PersistentVar.Char
+            ))
+            self.total_kills = int(API.GetPersistentVar(
+                self.key_prefix + "StatsTotalKills", "0", API.PersistentVar.Char
+            ))
+            self.player_deaths = int(API.GetPersistentVar(
+                self.key_prefix + "StatsPlayerDeaths", "0", API.PersistentVar.Char
+            ))
+            self.pet_deaths = int(API.GetPersistentVar(
+                self.key_prefix + "StatsPetDeaths", "0", API.PersistentVar.Char
+            ))
+        except:
+            pass
+
+    def _save_stats(self):
+        """Save persistent statistics"""
+        try:
+            API.SavePersistentVar(
+                self.key_prefix + "StatsGoldCollected",
+                str(self.gold_collected),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "StatsTotalKills",
+                str(self.total_kills),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "StatsPlayerDeaths",
+                str(self.player_deaths),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "StatsPetDeaths",
+                str(self.pet_deaths),
+                API.PersistentVar.Char
+            )
+        except:
+            pass
+
+    def update_state(self, new_state):
+        """
+        Update current state and track time spent in each state.
+
+        Args:
+            new_state: New state name (farming, banking, fleeing, etc.)
+        """
+        current_time = time.time()
+
+        # Add elapsed time to previous state
+        if self.current_state in self.time_by_state:
+            elapsed = current_time - self.state_start_time
+            self.time_by_state[self.current_state] += elapsed
+
+        # Update to new state
+        self.current_state = new_state
+        self.state_start_time = current_time
+
+    def increment_gold(self, amount, area_name="Unknown", enemy_name=None):
+        """
+        Increment gold collected and update related stats.
+
+        Args:
+            amount: Gold amount collected
+            area_name: Name of area where gold was collected
+            enemy_name: Name of enemy that dropped the gold (if applicable)
+        """
+        self.gold_collected += amount
+
+        # Update area performance
+        if area_name not in self.area_performance:
+            self.area_performance[area_name] = {
+                "time_in_area": 0.0,
+                "gold_from_area": 0,
+                "kills_in_area": 0,
+                "flees_from_area": 0,
+                "danger_samples": [],
+                "success_rate": 1.0
+            }
+        self.area_performance[area_name]["gold_from_area"] += amount
+
+        # Update enemy breakdown if enemy specified
+        if enemy_name:
+            if enemy_name not in self.enemy_breakdown:
+                self.enemy_breakdown[enemy_name] = {
+                    "kill_count": 0,
+                    "gold_total": 0,
+                    "deaths_caused": 0,
+                    "combat_time": 0.0
+                }
+            self.enemy_breakdown[enemy_name]["gold_total"] += amount
+
+        self._save_stats()
+
+    def increment_kills(self, enemy_name, area_name="Unknown", combat_duration=0.0):
+        """
+        Increment kill count and update enemy/area stats.
+
+        Args:
+            enemy_name: Name of killed enemy
+            area_name: Name of area where kill occurred
+            combat_duration: Time spent in combat (seconds)
+        """
+        self.total_kills += 1
+
+        # Update enemy breakdown
+        if enemy_name not in self.enemy_breakdown:
+            self.enemy_breakdown[enemy_name] = {
+                "kill_count": 0,
+                "gold_total": 0,
+                "deaths_caused": 0,
+                "combat_time": 0.0
+            }
+        self.enemy_breakdown[enemy_name]["kill_count"] += 1
+        self.enemy_breakdown[enemy_name]["combat_time"] += combat_duration
+
+        # Update area performance
+        if area_name not in self.area_performance:
+            self.area_performance[area_name] = {
+                "time_in_area": 0.0,
+                "gold_from_area": 0,
+                "kills_in_area": 0,
+                "flees_from_area": 0,
+                "danger_samples": [],
+                "success_rate": 1.0
+            }
+        self.area_performance[area_name]["kills_in_area"] += 1
+
+        self._save_stats()
+
+    def increment_player_deaths(self):
+        """Increment player death count"""
+        self.player_deaths += 1
+        self._save_stats()
+
+    def increment_pet_deaths(self):
+        """Increment pet death count"""
+        self.pet_deaths += 1
+        self._save_stats()
+
+    def increment_flee_event(self, severity, area_name="Unknown", trigger_reason="",
+                            danger_level=0, enemies_present=None, outcome="success"):
+        """
+        Record a flee event with full details.
+
+        Args:
+            severity: "minor", "major", or "critical"
+            area_name: Name of area where flee occurred
+            trigger_reason: Reason for fleeing
+            danger_level: Danger assessment score (0-100)
+            enemies_present: List of enemy names present
+            outcome: "success", "death", or "timeout"
+        """
+        # Update flee event counts
+        if severity in self.flee_events:
+            self.flee_events[severity] += 1
+
+        # Update area performance
+        if area_name not in self.area_performance:
+            self.area_performance[area_name] = {
+                "time_in_area": 0.0,
+                "gold_from_area": 0,
+                "kills_in_area": 0,
+                "flees_from_area": 0,
+                "danger_samples": [],
+                "success_rate": 1.0
+            }
+        self.area_performance[area_name]["flees_from_area"] += 1
+
+        # Recalculate success rate for area
+        area = self.area_performance[area_name]
+        total_events = area["kills_in_area"] + area["flees_from_area"]
+        if total_events > 0:
+            area["success_rate"] = area["kills_in_area"] / total_events
+
+        # Record detailed danger event
+        event = {
+            "timestamp": time.time(),
+            "area": area_name,
+            "trigger_reason": trigger_reason,
+            "danger_level": danger_level,
+            "enemies_present": enemies_present or [],
+            "outcome": outcome
+        }
+        self.danger_events.append(event)
+
+        # Keep only last 100 danger events
+        if len(self.danger_events) > 100:
+            self.danger_events = self.danger_events[-100:]
+
+    def increment_supply_usage(self, supply_type, amount=1):
+        """
+        Increment supply usage counter.
+
+        Args:
+            supply_type: "bandages", "vet_kits", or "potions"
+            amount: Amount used (default 1)
+        """
+        if supply_type in self.supplies_used:
+            self.supplies_used[supply_type] += amount
+
+    def update_area_time(self, area_name, elapsed_time):
+        """
+        Update time spent in a specific area.
+
+        Args:
+            area_name: Name of area
+            elapsed_time: Time spent in seconds
+        """
+        if area_name not in self.area_performance:
+            self.area_performance[area_name] = {
+                "time_in_area": 0.0,
+                "gold_from_area": 0,
+                "kills_in_area": 0,
+                "flees_from_area": 0,
+                "danger_samples": [],
+                "success_rate": 1.0
+            }
+        self.area_performance[area_name]["time_in_area"] += elapsed_time
+
+    def add_danger_sample(self, area_name, danger_level):
+        """
+        Add a danger level sample for an area.
+
+        Args:
+            area_name: Name of area
+            danger_level: Danger assessment score (0-100)
+        """
+        if area_name not in self.area_performance:
+            self.area_performance[area_name] = {
+                "time_in_area": 0.0,
+                "gold_from_area": 0,
+                "kills_in_area": 0,
+                "flees_from_area": 0,
+                "danger_samples": [],
+                "success_rate": 1.0
+            }
+
+        samples = self.area_performance[area_name]["danger_samples"]
+        samples.append(danger_level)
+
+        # Keep only last 50 samples
+        if len(samples) > 50:
+            self.area_performance[area_name]["danger_samples"] = samples[-50:]
+
+    def calculate_performance_metrics(self):
+        """
+        Calculate performance metrics based on current session data.
+        Should be called periodically (every few seconds) to update rates.
+        """
+        current_time = time.time()
+        session_duration = current_time - self.session_start_time
+
+        # Avoid division by zero
+        if session_duration < 1.0:
+            return
+
+        hours_elapsed = session_duration / 3600.0
+
+        # Calculate rates
+        self.gold_per_hour = self.gold_collected / hours_elapsed if hours_elapsed > 0 else 0
+        self.kills_per_hour = self.total_kills / hours_elapsed if hours_elapsed > 0 else 0
+        self.deaths_per_hour = (self.player_deaths + self.pet_deaths) / hours_elapsed if hours_elapsed > 0 else 0
+
+        # Calculate average danger level from all area samples
+        all_danger_samples = []
+        for area_data in self.area_performance.values():
+            all_danger_samples.extend(area_data["danger_samples"])
+
+        if all_danger_samples:
+            self.average_danger = sum(all_danger_samples) / len(all_danger_samples)
+        else:
+            self.average_danger = 0.0
+
+        # Calculate banking efficiency
+        farming_time = self.time_by_state.get("farming", 0.0)
+        total_active_time = sum(self.time_by_state.values())
+        if total_active_time > 0:
+            self.banking_efficiency = farming_time / total_active_time
+        else:
+            self.banking_efficiency = 0.0
+
+    def get_session_stats(self):
+        """
+        Get formatted session statistics dictionary.
+
+        Returns:
+            dict: Session statistics
+        """
+        return {
+            "gold_collected": self.gold_collected,
+            "total_kills": self.total_kills,
+            "player_deaths": self.player_deaths,
+            "pet_deaths": self.pet_deaths,
+            "flee_events": dict(self.flee_events),
+            "total_flees": sum(self.flee_events.values()),
+            "time_by_state": dict(self.time_by_state),
+            "supplies_used": dict(self.supplies_used),
+            "session_duration": time.time() - self.session_start_time
+        }
+
+    def get_performance_metrics(self):
+        """
+        Get formatted performance metrics dictionary.
+
+        Returns:
+            dict: Performance metrics
+        """
+        return {
+            "gold_per_hour": self.gold_per_hour,
+            "kills_per_hour": self.kills_per_hour,
+            "deaths_per_hour": self.deaths_per_hour,
+            "average_danger": self.average_danger,
+            "banking_efficiency": self.banking_efficiency
+        }
+
+    def get_enemy_breakdown(self):
+        """
+        Get enemy breakdown sorted by gold per enemy.
+
+        Returns:
+            list: List of enemy stat dicts sorted by average gold per kill
+        """
+        breakdown = []
+
+        for enemy_name, stats in self.enemy_breakdown.items():
+            kills = stats["kill_count"]
+            gold_total = stats["gold_total"]
+            avg_gold = gold_total / kills if kills > 0 else 0
+            avg_combat_time = stats["combat_time"] / kills if kills > 0 else 0
+
+            breakdown.append({
+                "name": enemy_name,
+                "kills": kills,
+                "gold_total": gold_total,
+                "avg_gold_per_kill": avg_gold,
+                "deaths_caused": stats["deaths_caused"],
+                "avg_combat_time": avg_combat_time
+            })
+
+        # Sort by average gold per kill (descending)
+        breakdown.sort(key=lambda x: x["avg_gold_per_kill"], reverse=True)
+
+        return breakdown
+
+    def get_area_performance(self):
+        """
+        Get area performance sorted by gold per hour.
+
+        Returns:
+            list: List of area performance dicts sorted by gold per hour
+        """
+        performance = []
+
+        for area_name, stats in self.area_performance.items():
+            time_in_area = stats["time_in_area"]
+            gold_from_area = stats["gold_from_area"]
+
+            # Calculate gold per hour for this area
+            hours = time_in_area / 3600.0 if time_in_area > 0 else 0
+            gold_per_hour = gold_from_area / hours if hours > 0 else 0
+
+            # Calculate average danger
+            danger_samples = stats["danger_samples"]
+            avg_danger = sum(danger_samples) / len(danger_samples) if danger_samples else 0
+
+            performance.append({
+                "area": area_name,
+                "time_in_area": time_in_area,
+                "gold_from_area": gold_from_area,
+                "gold_per_hour": gold_per_hour,
+                "kills": stats["kills_in_area"],
+                "flees": stats["flees_from_area"],
+                "success_rate": stats["success_rate"],
+                "avg_danger": avg_danger
+            })
+
+        # Sort by gold per hour (descending)
+        performance.sort(key=lambda x: x["gold_per_hour"], reverse=True)
+
+        return performance
+
+    def update_display(self, gui_controls):
+        """
+        Update GUI labels with current statistics.
+        Should be called periodically (every 2 seconds) to update displays.
+
+        Args:
+            gui_controls: Dictionary of GUI control references
+        """
+        try:
+            # Update performance metrics first
+            self.calculate_performance_metrics()
+
+            # Format session duration
+            duration = time.time() - self.session_start_time
+            hours = int(duration // 3600)
+            minutes = int((duration % 3600) // 60)
+            duration_str = f"{hours}h {minutes}m"
+
+            # Update main stats labels if they exist
+            if "label_gold" in gui_controls:
+                gui_controls["label_gold"].SetText(f"{self.gold_collected:,}g ({self.gold_per_hour:.0f}/hr)")
+
+            if "label_kills" in gui_controls:
+                gui_controls["label_kills"].SetText(f"{self.total_kills} ({self.kills_per_hour:.1f}/hr)")
+
+            if "label_deaths" in gui_controls:
+                total_deaths = self.player_deaths + self.pet_deaths
+                gui_controls["label_deaths"].SetText(f"P:{self.player_deaths} Pet:{self.pet_deaths}")
+
+            if "label_flees" in gui_controls:
+                total_flees = sum(self.flee_events.values())
+                gui_controls["label_flees"].SetText(f"{total_flees} (M:{self.flee_events['minor']} C:{self.flee_events['critical']})")
+
+            if "label_duration" in gui_controls:
+                gui_controls["label_duration"].SetText(duration_str)
+
+            if "label_efficiency" in gui_controls:
+                gui_controls["label_efficiency"].SetText(f"{self.banking_efficiency * 100:.0f}%")
+
+        except Exception as e:
+            # Silently fail to avoid disrupting main loop
+            pass
+
+    def save_session(self):
+        """
+        Save current session to logs/farming_sessions.json.
+        Appends session data to file.
+        """
+        import json
+        import os
+
+        try:
+            # Create logs directory if it doesn't exist
+            logs_dir = "logs"
+            if not os.path.exists(logs_dir):
+                os.makedirs(logs_dir)
+
+            # Calculate final metrics
+            self.calculate_performance_metrics()
+
+            # Build session data
+            session_data = {
+                "session_id": time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(self.session_start_time)),
+                "start_time": self.session_start_time,
+                "end_time": time.time(),
+                "duration_seconds": time.time() - self.session_start_time,
+                "stats": self.get_session_stats(),
+                "performance": self.get_performance_metrics(),
+                "enemy_breakdown": self.get_enemy_breakdown(),
+                "area_performance": self.get_area_performance(),
+                "danger_events": self.danger_events[-20:]  # Last 20 events only
+            }
+
+            # Load existing sessions
+            sessions_file = os.path.join(logs_dir, "farming_sessions.json")
+            sessions = []
+
+            if os.path.exists(sessions_file):
+                try:
+                    with open(sessions_file, 'r') as f:
+                        sessions = json.load(f)
+                except:
+                    sessions = []
+
+            # Append new session
+            sessions.append(session_data)
+
+            # Keep only last 100 sessions
+            if len(sessions) > 100:
+                sessions = sessions[-100:]
+
+            # Save back to file
+            with open(sessions_file, 'w') as f:
+                json.dump(sessions, f, indent=2)
+
+            API.SysMsg("Session saved to logs/farming_sessions.json", 68)
+
+        except Exception as e:
+            API.SysMsg(f"Error saving session: {str(e)}", 32)
+
+    def reset_session(self):
+        """Reset session statistics (keeps cumulative totals)"""
+        self.session_start_time = time.time()
+        self.time_by_state = {k: 0.0 for k in self.time_by_state}
+        self.flee_events = {k: 0 for k in self.flee_events}
+        self.supplies_used = {k: 0 for k in self.supplies_used}
+        self.danger_events = []
+        self.current_state = "idle"
+        self.state_start_time = time.time()
+
 # ============ GUI FUNCTIONS ============
 
 def build_main_gump():
@@ -4536,70 +5103,11 @@ def cycle_log_level():
 
 def export_session_data():
     """Export current session statistics to JSON file"""
-    import json
-    import os
-
-    try:
-        # Create logs directory if it doesn't exist
-        logs_dir = "logs"
-        if not os.path.exists(logs_dir):
-            os.makedirs(logs_dir)
-
-        # Gather session data
-        session_data = {
-            "session_info": {
-                "start_time": stats.get("session_start", time.time()),
-                "export_time": time.time(),
-                "duration_seconds": time.time() - stats.get("session_start", time.time())
-            },
-            "statistics": {
-                "kills": stats.get("kills", 0),
-                "deaths": stats.get("deaths", 0),
-                "gold_looted": stats.get("gold_looted", 0),
-                "banking_trips": stats.get("banking_trips", 0),
-                "flee_events": stats.get("flee_events", 0)
-            },
-            "configuration": {
-                "pets": [{"name": p["name"], "is_tank": p.get("is_tank", False)} for p in pets],
-                "area_type": area_type,
-                "healing_thresholds": {
-                    "player": player_heal_threshold,
-                    "tank": tank_heal_threshold,
-                    "pet": pet_heal_threshold
-                },
-                "banking_enabled": banking_enabled,
-                "loot_settings": {
-                    "enabled": loot_corpses,
-                    "gold_only": loot_gold_only,
-                    "threshold": loot_threshold_value
-                },
-                "advanced": {
-                    "movement_delay": movement_delay,
-                    "pause_frequency": pause_frequency,
-                    "pause_duration": pause_duration,
-                    "max_recovery_attempts": max_recovery_attempts,
-                    "recovery_backoff_time": recovery_backoff_time,
-                    "log_level": log_level
-                }
-            }
-        }
-
-        # Add pet death policy if recovery_system exists
-        if recovery_system:
-            session_data["configuration"]["pet_death_policy"] = recovery_system.pet_death_policy
-
-        # Generate filename with timestamp
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(logs_dir, f"session_{timestamp}.json")
-
-        # Write to file
-        with open(filename, 'w') as f:
-            json.dump(session_data, f, indent=2)
-
-        API.SysMsg(f"Session exported to {filename}", 68)
-
-    except Exception as e:
-        API.SysMsg(f"Export error: {str(e)}", 32)
+    # Use StatisticsTracker's save_session method if available
+    if stats_tracker:
+        stats_tracker.save_session()
+    else:
+        API.SysMsg("Statistics tracker not initialized", 43)
 
 # ============ HOTKEY CALLBACKS ============
 
@@ -4700,6 +5208,10 @@ def handle_recovering_state():
 def cleanup():
     """Clean up on script exit"""
     try:
+        # Save statistics session
+        if stats_tracker:
+            stats_tracker.save_session()
+
         if main_gump:
             main_gump.Dispose()
         if config_gump:
@@ -4728,6 +5240,10 @@ try:
     travel_system = TravelSystem(KEY_PREFIX)
     banking_triggers = BankingTriggers(KEY_PREFIX)
     banking_system = BankingSystem(travel_system, KEY_PREFIX)
+
+    # Initialize statistics tracker
+    stats_tracker = StatisticsTracker(KEY_PREFIX)
+    last_stats_update = time.time()
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
@@ -4758,6 +5274,21 @@ try:
         # Update supply tracking (every 30s automatically)
         if supply_tracker:
             supply_tracker.update_counts()
+
+        # Update statistics tracking (every 2s)
+        current_time = time.time()
+        if stats_tracker and current_time - last_stats_update >= 2.0:
+            # Update state time tracking
+            stats_tracker.update_state(STATE)
+
+            # Update performance metrics
+            stats_tracker.calculate_performance_metrics()
+
+            # Update display if GUI exists
+            if main_controls:
+                stats_tracker.update_display(main_controls)
+
+            last_stats_update = current_time
 
         # State machine dispatcher
         if STATE == "idle":
