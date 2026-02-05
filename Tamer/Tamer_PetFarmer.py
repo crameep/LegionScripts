@@ -135,6 +135,20 @@ stats_tracker = None      # StatisticsTracker instance
 last_stats_update = 0     # Last time stats display was updated
 banking_triggers = None   # BankingTriggers instance
 
+# Combat and patrol systems
+combat_manager = None     # CombatManager instance
+patrol_system = None      # PatrolSystem instance
+looting_system = None     # LootingSystem instance
+
+# Session logging
+session_logger = None     # SessionLogger instance
+
+# Error recovery
+error_recovery = None     # ErrorRecoverySystem instance
+
+# Travel system
+travel_system = None      # TravelSystem instance
+
 # Healing tracking
 last_heal_time = 0
 last_vet_kit_time = 0
@@ -3922,6 +3936,199 @@ class StatisticsTracker:
         self.current_state = "idle"
         self.state_start_time = time.time()
 
+# ============ COMBAT MANAGEMENT SYSTEM ============
+
+class CombatManager:
+    """
+    Combat management system for engaging enemies and coordinating pet attacks.
+    Handles enemy scanning, engagement decisions, and attack coordination.
+    TODO: Full implementation in future task.
+    """
+
+    def __init__(self, danger_assessment, npc_threat_map, pet_manager):
+        """
+        Args:
+            danger_assessment: DangerAssessment instance
+            npc_threat_map: NPCThreatMap instance
+            pet_manager: PetManager instance
+        """
+        self.danger_assessment = danger_assessment
+        self.npc_threat_map = npc_threat_map
+        self.pet_manager = pet_manager
+
+    def scan_for_enemies(self):
+        """Scan for enemies in range. Returns list of enemy dicts."""
+        # TODO: Implement enemy scanning
+        return []
+
+    def should_engage_enemy(self, enemy):
+        """Determine if should engage enemy. Returns bool."""
+        # TODO: Implement engagement logic
+        return False
+
+    def engage_enemy(self, enemy):
+        """Initiate combat with enemy."""
+        # TODO: Implement engagement
+        pass
+
+# ============ PATROL SYSTEM ============
+
+class PatrolSystem:
+    """
+    Patrol system for area navigation and waypoint management.
+    Handles pathfinding between waypoints and circle patrol.
+    TODO: Full implementation in future task.
+    """
+
+    def __init__(self):
+        """Initialize patrol system"""
+        self.current_waypoint_index = 0
+        self.is_patrolling = False
+
+    def start_patrol(self):
+        """Start patrolling"""
+        self.is_patrolling = True
+
+    def stop_patrol(self):
+        """Stop patrolling"""
+        self.is_patrolling = False
+
+    def get_next_waypoint(self):
+        """Get next waypoint to patrol to. Returns (x, y) or None."""
+        # TODO: Implement waypoint logic
+        return None
+
+# ============ LOOTING SYSTEM ============
+
+class LootingSystem:
+    """
+    Looting system for corpse scanning and item collection.
+    Handles selective looting based on preferences and weight limits.
+    TODO: Full implementation in future task.
+    """
+
+    def __init__(self):
+        """Initialize looting system"""
+        self.loot_preferences = {}
+        self.min_gold_amount = 0
+
+    def scan_for_loot(self):
+        """Scan for lootable corpses. Returns list of corpse serials."""
+        # TODO: Implement corpse scanning
+        return []
+
+    def should_loot_corpse(self, corpse_serial):
+        """Determine if should loot corpse. Returns bool."""
+        # TODO: Implement loot decision logic
+        return False
+
+    def loot_corpse(self, corpse_serial):
+        """Loot items from corpse."""
+        # TODO: Implement looting
+        pass
+
+# ============ SESSION LOGGING SYSTEM ============
+
+class SessionLogger:
+    """
+    Session history logging to JSON file with trend analysis.
+    Logs session statistics and provides historical data for analysis.
+    TODO: Full implementation in future task.
+    """
+
+    def __init__(self, key_prefix):
+        """
+        Args:
+            key_prefix: Persistence key prefix
+        """
+        self.key_prefix = key_prefix
+        self.log_file = "logs/farming_sessions.json"
+
+    def save_session(self, stats_dict):
+        """
+        Save session statistics to JSON log file.
+
+        Args:
+            stats_dict: Dictionary of session statistics
+        """
+        # TODO: Implement session saving
+        pass
+
+    def load_sessions(self, count=10):
+        """
+        Load last N sessions from log file.
+
+        Args:
+            count: Number of sessions to load
+
+        Returns:
+            List of session dicts
+        """
+        # TODO: Implement session loading
+        return []
+
+    def get_trend_data(self, metric_name, session_count=10):
+        """
+        Get trend data for a specific metric.
+
+        Args:
+            metric_name: Name of metric to extract
+            session_count: Number of sessions to analyze
+
+        Returns:
+            List of values
+        """
+        # TODO: Implement trend analysis
+        return []
+
+# ============ ERROR RECOVERY SYSTEM ============
+
+class ErrorRecoverySystem:
+    """
+    Error detection and recovery system for handling common failures.
+    Detects errors in movement, combat, resources, state, and pets.
+    Applies specific recovery strategies with backoff.
+    TODO: Full implementation in future task.
+    """
+
+    def __init__(self):
+        """Initialize error recovery system"""
+        self.error_history = []
+        self.recovery_attempts = {}
+
+    def detect_errors(self):
+        """
+        Detect errors in current state.
+
+        Returns:
+            List of detected errors with categories
+        """
+        # TODO: Implement error detection
+        return []
+
+    def recover_from_error(self, error):
+        """
+        Apply recovery strategy for detected error.
+
+        Args:
+            error: Error dict with type and details
+        """
+        # TODO: Implement error recovery
+        pass
+
+    def should_escalate(self, error_type):
+        """
+        Check if should escalate to safe state.
+
+        Args:
+            error_type: Type of error
+
+        Returns:
+            bool: True if max attempts exceeded
+        """
+        # TODO: Implement escalation logic
+        return False
+
 # ============ GUI FUNCTIONS ============
 
 def build_main_gump():
@@ -5206,58 +5413,172 @@ def handle_recovering_state():
 # ============ CLEANUP ============
 
 def cleanup():
-    """Clean up on script exit"""
+    """
+    Clean up on script exit: save session, dispose gumps, unregister hotkeys, save settings.
+    """
     try:
-        # Save statistics session
-        if stats_tracker:
+        # Save session statistics to log file
+        if 'stats_tracker' in globals() and stats_tracker:
+            if 'session_logger' in globals() and session_logger:
+                try:
+                    session_stats = stats_tracker.get_session_stats()
+                    session_logger.save_session(session_stats)
+                    API.SysMsg("Session saved to log", 68)
+                except Exception as e:
+                    API.SysMsg(f"Session save error: {str(e)}", 32)
+
+            # Also save stats tracker's internal state
             stats_tracker.save_session()
 
-        if main_gump:
-            main_gump.Dispose()
-        if config_gump:
-            config_gump.Dispose()
-        API.SysMsg("Pet Farmer stopped", 43)
+        # Dispose GUI windows
+        if 'main_gump' in globals() and main_gump:
+            try:
+                main_gump.Dispose()
+            except:
+                pass
+
+        if 'config_gump' in globals() and config_gump:
+            try:
+                config_gump.Dispose()
+            except:
+                pass
+
+        # Unregister hotkeys
+        try:
+            API.UnregisterHotkey("PAUSE")
+            API.UnregisterHotkey("F12")
+        except:
+            pass  # Hotkeys may not be registered if init failed
+
+        # Save final settings
+        try:
+            save_settings()
+        except Exception as e:
+            API.SysMsg(f"Settings save error: {str(e)}", 32)
+
+        # Final message
+        API.SysMsg("Pet Farmer stopped. Session saved.", 90)
+
     except Exception as e:
         API.SysMsg(f"Cleanup error: {str(e)}", 32)
 
 # ============ INITIALIZATION ============
 
+def initialize():
+    """
+    Initialize script: load settings, validate config, initialize systems, build GUI, register hotkeys.
+
+    Returns:
+        bool: True if initialization successful, False if critical config missing
+    """
+    global danger_assessment, pet_manager, area_manager, npc_threat_map
+    global flee_system, recovery_system, supply_tracker, healing_system
+    global travel_system, banking_triggers, banking_system, stats_tracker
+    global combat_manager, patrol_system, looting_system, session_logger
+    global error_recovery, last_stats_update
+
+    try:
+        # Load settings from persistence
+        load_settings()
+
+        # Validate required configuration
+        config_valid = True
+        missing_items = []
+
+        # Check for runebook (required for travel/banking)
+        if banking_enabled and (bank_runebook_serial == 0 or return_runebook_serial == 0):
+            missing_items.append("Banking runebooks")
+            config_valid = False
+
+        # Check for at least one farming area defined
+        if area_type == "none":
+            missing_items.append("Farming area")
+            config_valid = False
+
+        # If critical config missing, show error and open config window
+        if not config_valid:
+            API.SysMsg("INITIALIZATION INCOMPLETE", 32)
+            for item in missing_items:
+                API.SysMsg(f"  Missing: {item}", 43)
+            API.SysMsg("Please configure via F12", 68)
+
+            # Still register hotkeys and build GUI for configuration
+            API.OnHotKey("PAUSE", toggle_pause)
+            API.OnHotKey("F12", build_config_gump)
+            build_config_gump()
+
+            return False
+
+        # Initialize all system instances
+        danger_assessment = DangerAssessment()
+        pet_manager = PetManager(KEY_PREFIX)
+        area_manager = AreaManager(KEY_PREFIX)
+        npc_threat_map = NPCThreatMap()
+
+        # Initialize healing system
+        healing_system = HealingSystem()
+        healing_system.sync_from_globals()
+
+        # Initialize combat and patrol systems
+        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager)
+        patrol_system = PatrolSystem()
+
+        # Initialize flee and recovery systems
+        flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
+        recovery_system = RecoverySystem(pet_manager, area_manager, KEY_PREFIX)
+
+        # Initialize looting system
+        looting_system = LootingSystem()
+
+        # Initialize travel and banking systems
+        travel_system = TravelSystem(KEY_PREFIX)
+        banking_triggers = BankingTriggers(KEY_PREFIX)
+        banking_system = BankingSystem(travel_system, KEY_PREFIX)
+
+        # Initialize supply tracker
+        supply_tracker = SupplyTracker(KEY_PREFIX)
+
+        # Initialize statistics and logging
+        stats_tracker = StatisticsTracker(KEY_PREFIX)
+        session_logger = SessionLogger(KEY_PREFIX)
+        last_stats_update = time.time()
+
+        # Initialize error recovery
+        error_recovery = ErrorRecoverySystem()
+
+        # Scan for pets if configured
+        if pets:
+            pet_manager.scan_pets()
+
+        # Build main GUI
+        build_main_gump()
+
+        # Register hotkeys
+        API.OnHotKey("PAUSE", toggle_pause)
+        API.OnHotKey("F12", build_config_gump)
+
+        # Success messages
+        API.SysMsg(f"Pet Farmer v{__version__} initialized!", 68)
+        API.SysMsg("Press PAUSE to pause/unpause", 90)
+        API.SysMsg("Press F12 for config", 90)
+
+        return True
+
+    except Exception as e:
+        API.SysMsg(f"Init error: {str(e)}", 32)
+        import traceback
+        API.SysMsg(traceback.format_exc(), 32)
+        return False
+
+# Attempt initialization
 try:
-    load_settings()
-
-    # Initialize systems
-    danger_assessment = DangerAssessment()
-    pet_manager = PetManager(KEY_PREFIX)
-    area_manager = AreaManager(KEY_PREFIX)
-    npc_threat_map = NPCThreatMap()
-    flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
-    recovery_system = RecoverySystem(pet_manager, area_manager, KEY_PREFIX)
-    supply_tracker = SupplyTracker(KEY_PREFIX)
-    healing_system = HealingSystem()
-    healing_system.sync_from_globals()  # Load current settings
-
-    # Initialize travel and banking systems
-    travel_system = TravelSystem(KEY_PREFIX)
-    banking_triggers = BankingTriggers(KEY_PREFIX)
-    banking_system = BankingSystem(travel_system, KEY_PREFIX)
-
-    # Initialize statistics tracker
-    stats_tracker = StatisticsTracker(KEY_PREFIX)
-    last_stats_update = time.time()
-
-    API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
-    API.SysMsg("Press PAUSE to pause/unpause", 90)
-
-    # Register hotkeys
-    API.OnHotKey("PAUSE", toggle_pause)
-    API.OnHotKey("F12", build_config_gump)
-
-    # Open config window on startup
-    build_config_gump()
-    API.SysMsg("Press F12 to open config window", 68)
-
+    if not initialize():
+        API.SysMsg("Script started in config-only mode", 43)
+        API.SysMsg("Configure settings and restart", 43)
+        # Don't proceed to main loop if initialization failed
+        script_enabled = False
 except Exception as e:
-    API.SysMsg(f"Init error: {str(e)}", 32)
+    API.SysMsg(f"Fatal init error: {str(e)}", 32)
     cleanup()
     raise
 
@@ -5266,6 +5587,11 @@ except Exception as e:
 try:
     while not API.StopRequested:
         API.ProcessCallbacks()  # MUST be first
+
+        # If script not enabled (initialization failed), just keep GUI responsive
+        if not script_enabled:
+            API.Pause(0.5)
+            continue
 
         if script_paused:
             API.Pause(0.2)
