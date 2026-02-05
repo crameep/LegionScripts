@@ -30,11 +30,12 @@ if parent_dir not in sys.path:
 
 # Import from LegionUtils
 try:
-    from LegionUtils import WindowPositionTracker, DisplayGroup
+    from LegionUtils import WindowPositionTracker, DisplayGroup, HotkeyManager
 except ImportError as e:
     API.SysMsg("Failed to import LegionUtils: " + str(e), 32)
     WindowPositionTracker = None
     DisplayGroup = None
+    HotkeyManager = None
 
 # ========== CONSTANTS ==========
 KEY_PREFIX = "DungeonFarmer_"
@@ -4614,6 +4615,158 @@ class ErrorRecoverySystem:
         }
 
 
+# ========== HOTKEY SYSTEM ==========
+
+# Global hotkey manager instance
+hotkey_manager = None
+
+# Global state for pause tracking
+is_paused = False
+STATE = "idle"  # Will be used by main loop when implemented
+
+def on_pause():
+    """Hotkey callback: Toggle pause state"""
+    global is_paused, STATE
+
+    is_paused = not is_paused
+
+    # Update GUI if main_gui exists
+    if 'main_gui' in globals() and main_gui:
+        main_gui.update_pause_state(is_paused)
+
+    # System message
+    if is_paused:
+        API.SysMsg("Paused", 43)  # Yellow
+    else:
+        API.SysMsg("Resumed", 68)  # Green
+
+def on_emergency_recall():
+    """Hotkey callback: Emergency recall to home"""
+    global STATE
+
+    API.SysMsg("EMERGENCY RECALL!", 32)  # Red
+
+    # Cancel any active pathfinding
+    if API.Pathfinding():
+        API.CancelPathfinding()
+
+    # Issue "all follow" to pets
+    API.Msg("all follow me")
+    API.Pause(0.5)
+
+    # TODO: Implement travel to home via TravelSystem when implemented
+    # For now, just set state to recovering
+    # travel_system.travel_to_home()
+
+    STATE = "recovering"
+
+def on_cycle_area():
+    """Hotkey callback: Cycle to next farming area"""
+    global STATE
+
+    # TODO: Implement area cycling when AreaManager is integrated
+    # For now, just show message
+    # area = area_manager.get_next_area()
+    # travel_system.travel_to_area(area)
+    # API.SysMsg("Rotating to: " + area.name, 68)
+
+    API.SysMsg("Cycle Area - Not yet implemented", 43)
+
+def on_manual_heal():
+    """Hotkey callback: Manual heal target"""
+    API.SysMsg("Target pet to heal...", 68)
+
+    try:
+        target = API.RequestTarget(timeout=10)
+
+        if target and target > 0:
+            # Validate target is a pet
+            mob = API.Mobiles.FindMobile(target)
+            if mob and not mob.IsDead and mob.Notoriety == 1:  # Owned pet
+                # TODO: Use HealingSystem when integrated
+                # For now, just show confirmation
+                # healing_system.execute_heal(target, "bandage_pet", False)
+                API.SysMsg("Manual heal target: " + mob.Name, 68)
+
+                # Basic bandage application
+                bandage = API.FindType(BANDAGE_GRAPHIC)
+                if bandage:
+                    API.CancelPreTarget()
+                    API.PreTarget(target, "beneficial")
+                    API.Pause(0.1)
+                    API.UseObject(bandage, False)
+                    API.Pause(0.1)
+                    API.CancelPreTarget()
+                else:
+                    API.SysMsg("No bandages found!", 32)
+            else:
+                API.SysMsg("Invalid target - must be your pet", 32)
+        else:
+            API.SysMsg("No target selected", 43)
+
+    except Exception as e:
+        API.SysMsg("Manual heal error: " + str(e), 32)
+
+def setup_hotkeys():
+    """Initialize and register all hotkeys"""
+    global hotkey_manager
+
+    if HotkeyManager is None:
+        API.SysMsg("HotkeyManager not available - hotkeys disabled", 32)
+        return False
+
+    try:
+        # Create hotkey manager instance
+        hotkey_manager = HotkeyManager()
+
+        # Add hotkey bindings with persistence keys and defaults
+        hotkey_manager.add(
+            "pause",
+            KEY_PREFIX + "HotkeyPause",
+            "Pause",
+            on_pause,
+            None,  # Button will be added when GUI is created
+            "F1"
+        )
+
+        hotkey_manager.add(
+            "emergency_recall",
+            KEY_PREFIX + "HotkeyEmergencyRecall",
+            "Emergency Recall",
+            on_emergency_recall,
+            None,
+            "F2"
+        )
+
+        hotkey_manager.add(
+            "cycle_area",
+            KEY_PREFIX + "HotkeyCycleArea",
+            "Cycle Area",
+            on_cycle_area,
+            None,
+            "F3"
+        )
+
+        hotkey_manager.add(
+            "manual_heal",
+            KEY_PREFIX + "HotkeyManualHeal",
+            "Manual Heal",
+            on_manual_heal,
+            None,
+            "F4"
+        )
+
+        # Register all hotkeys with API
+        hotkey_manager.register_all()
+
+        API.SysMsg("Hotkeys registered: F1=Pause, F2=Emergency Recall, F3=Cycle Area, F4=Manual Heal", 68)
+        return True
+
+    except Exception as e:
+        API.SysMsg("Hotkey setup error: " + str(e), 32)
+        return False
+
+
 # ========== MAIN SCRIPT ==========
 # NOTE: This is a foundational implementation for the core classes.
 # The full dungeon farming script will be built up in subsequent tasks.
@@ -5552,6 +5705,80 @@ def test_error_recovery():
         import traceback
         API.SysMsg(str(traceback.format_exc()), 32)
 
+def test_hotkey_system():
+    """Test function to verify hotkey system integration"""
+    API.SysMsg("Testing Hotkey System...", 68)
+
+    try:
+        # Test 1: Initialize hotkey system
+        API.SysMsg("Test 1: Initializing hotkey system...", 68)
+        success = setup_hotkeys()
+        if success:
+            API.SysMsg("  Hotkeys initialized successfully!", 68)
+        else:
+            API.SysMsg("  Hotkey initialization failed!", 32)
+            return
+        API.Pause(2)
+
+        # Test 2: Test pause hotkey
+        API.SysMsg("Test 2: Testing PAUSE hotkey...", 68)
+        API.SysMsg("  Press F1 to toggle pause state", 43)
+        API.SysMsg("  Current state: " + ("PAUSED" if is_paused else "RUNNING"), 43)
+        API.Pause(5)
+
+        # Test 3: Display current hotkey bindings
+        API.SysMsg("Test 3: Current hotkey bindings...", 68)
+        if hotkey_manager:
+            for name, binding in hotkey_manager.bindings.items():
+                API.SysMsg("  " + binding.label + ": " + binding.current_key, 43)
+        API.Pause(3)
+
+        # Test 4: Test emergency recall hotkey
+        API.SysMsg("Test 4: Testing EMERGENCY RECALL hotkey...", 68)
+        API.SysMsg("  Press F2 to trigger emergency recall", 43)
+        API.SysMsg("  (Will issue 'all follow me' command)", 43)
+        API.Pause(5)
+
+        # Test 5: Test cycle area hotkey
+        API.SysMsg("Test 5: Testing CYCLE AREA hotkey...", 68)
+        API.SysMsg("  Press F3 to cycle to next area", 43)
+        API.SysMsg("  (Not yet fully implemented)", 43)
+        API.Pause(5)
+
+        # Test 6: Test manual heal hotkey
+        API.SysMsg("Test 6: Testing MANUAL HEAL hotkey...", 68)
+        API.SysMsg("  Press F4 to target a pet for manual heal", 43)
+        API.SysMsg("  (Will prompt for target)", 43)
+        API.Pause(5)
+
+        # Test 7: Test hotkey persistence
+        API.SysMsg("Test 7: Testing hotkey persistence...", 68)
+        if hotkey_manager:
+            # Check if keys were loaded from persistence
+            pause_binding = hotkey_manager.bindings.get("pause")
+            if pause_binding:
+                saved_key = API.GetPersistentVar(KEY_PREFIX + "HotkeyPause", "", API.PersistentVar.Char)
+                API.SysMsg("  Saved PAUSE key: " + (saved_key if saved_key else "None (using default)"), 43)
+        API.Pause(3)
+
+        # Test 8: Test responsiveness during loop
+        API.SysMsg("Test 8: Testing hotkey responsiveness...", 68)
+        API.SysMsg("  Simulating main loop with ProcessCallbacks()", 43)
+        API.SysMsg("  Press any hotkey (F1-F4) to verify responsiveness", 43)
+
+        loop_start = time.time()
+        while time.time() - loop_start < 10:
+            API.ProcessCallbacks()
+            API.Pause(0.1)
+
+        API.SysMsg("Hotkey system test complete!", 68)
+        API.SysMsg("All hotkeys should remain responsive during script execution.", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -5566,5 +5793,6 @@ def test_error_recovery():
 # test_main_gui()
 # test_config_gump()
 # test_error_recovery()
+# test_hotkey_system()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump + ErrorRecovery v1.11)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump + ErrorRecovery + HotkeySystem v1.12)", 68)
