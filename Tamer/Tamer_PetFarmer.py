@@ -185,6 +185,19 @@ current_config_tab = "healing"  # Current tab in config window
 last_error_time = 0
 error_count = 0
 
+# Advanced settings
+# Randomization
+movement_delay = 1.5         # Movement delay in seconds (range ±0.5s)
+pause_frequency = 20         # Chance (%) to pause per action
+pause_duration = 3.0         # Pause duration in seconds (random range)
+
+# Error Recovery
+max_recovery_attempts = 3    # Max recovery attempts before giving up
+recovery_backoff_time = 30   # Backoff time in seconds between recovery attempts
+
+# Logging
+log_level = "standard"       # "basic", "standard", "detailed"
+
 # ============ PERSISTENCE ============
 
 def save_settings():
@@ -233,6 +246,14 @@ def save_settings():
         API.SavePersistentVar(KEY_PREFIX + "UseMageryHealing", str(use_magery_healing), API.PersistentVar.Char)
         API.SavePersistentVar(KEY_PREFIX + "AutoCurePoison", str(auto_cure_poison), API.PersistentVar.Char)
 
+        # Advanced settings
+        API.SavePersistentVar(KEY_PREFIX + "MovementDelay", str(movement_delay), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "PauseFrequency", str(pause_frequency), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "PauseDuration", str(pause_duration), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "MaxRecoveryAttempts", str(max_recovery_attempts), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "RecoveryBackoffTime", str(recovery_backoff_time), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "LogLevel", log_level, API.PersistentVar.Char)
+
     except Exception as e:
         API.SysMsg(f"Save error: {str(e)}", 32)
 
@@ -244,6 +265,8 @@ def load_settings():
     global loot_threshold_value, player_heal_threshold, tank_heal_threshold, pet_heal_threshold
     global vetkit_graphic, vetkit_hp_threshold, vetkit_min_pets, vetkit_cooldown
     global vetkit_critical_hp, use_magery_healing, auto_cure_poison
+    global movement_delay, pause_frequency, pause_duration
+    global max_recovery_attempts, recovery_backoff_time, log_level
 
     try:
         # Script state
@@ -301,6 +324,14 @@ def load_settings():
         vetkit_critical_hp = int(API.GetPersistentVar(KEY_PREFIX + "VetkitCriticalHP", "50", API.PersistentVar.Char))
         use_magery_healing = API.GetPersistentVar(KEY_PREFIX + "UseMageryHealing", "False", API.PersistentVar.Char) == "True"
         auto_cure_poison = API.GetPersistentVar(KEY_PREFIX + "AutoCurePoison", "True", API.PersistentVar.Char) == "True"
+
+        # Advanced settings
+        movement_delay = float(API.GetPersistentVar(KEY_PREFIX + "MovementDelay", "1.5", API.PersistentVar.Char))
+        pause_frequency = int(API.GetPersistentVar(KEY_PREFIX + "PauseFrequency", "20", API.PersistentVar.Char))
+        pause_duration = float(API.GetPersistentVar(KEY_PREFIX + "PauseDuration", "3.0", API.PersistentVar.Char))
+        max_recovery_attempts = int(API.GetPersistentVar(KEY_PREFIX + "MaxRecoveryAttempts", "3", API.PersistentVar.Char))
+        recovery_backoff_time = int(API.GetPersistentVar(KEY_PREFIX + "RecoveryBackoffTime", "30", API.PersistentVar.Char))
+        log_level = API.GetPersistentVar(KEY_PREFIX + "LogLevel", "standard", API.PersistentVar.Char)
 
     except Exception as e:
         API.SysMsg(f"Load error: {str(e)}", 32)
@@ -3828,12 +3859,169 @@ def build_banking_tab():
     API.Gumps.AddControlOnClick(vetkit_set_btn, lambda: update_vetkit_alert())
 
 def build_advanced_tab():
-    """Build the Advanced tab content (stub)"""
-    global config_gump
+    """Build the Advanced tab content"""
+    global config_gump, config_controls, recovery_system
 
-    stub_label = API.Gumps.CreateGumpTTFLabel("Advanced tab not yet implemented", 15, "#888888")
-    stub_label.SetPos(10, 80)
-    config_gump.AddControl(stub_label)
+    y_offset = 70
+
+    # --- Randomization Section ---
+    section_label = API.Gumps.CreateGumpTTFLabel("Randomization", 16, "#ffcc00")
+    section_label.SetPos(10, y_offset)
+    config_gump.AddControl(section_label)
+    y_offset += 30
+
+    # Movement Delay
+    movement_label = API.Gumps.CreateGumpTTFLabel(f"Movement Delay: {movement_delay:.1f}s", 15, "#ffffff")
+    movement_label.SetPos(20, y_offset)
+    config_gump.AddControl(movement_label)
+    config_controls["movement_delay_label"] = movement_label
+
+    movement_input = API.Gumps.CreateGumpTextBox(str(movement_delay), 60, 22)
+    movement_input.SetPos(220, y_offset)
+    config_gump.AddControl(movement_input)
+    config_controls["movement_delay_input"] = movement_input
+
+    movement_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    movement_set_btn.SetPos(290, y_offset)
+    config_gump.AddControl(movement_set_btn)
+    API.Gumps.AddControlOnClick(movement_set_btn, update_movement_delay)
+    y_offset += 30
+
+    # Pause Frequency
+    pause_freq_label = API.Gumps.CreateGumpTTFLabel(f"Pause Frequency: {pause_frequency}%", 15, "#ffffff")
+    pause_freq_label.SetPos(20, y_offset)
+    config_gump.AddControl(pause_freq_label)
+    config_controls["pause_freq_label"] = pause_freq_label
+
+    pause_freq_input = API.Gumps.CreateGumpTextBox(str(pause_frequency), 60, 22)
+    pause_freq_input.SetPos(220, y_offset)
+    config_gump.AddControl(pause_freq_input)
+    config_controls["pause_freq_input"] = pause_freq_input
+
+    pause_freq_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    pause_freq_set_btn.SetPos(290, y_offset)
+    config_gump.AddControl(pause_freq_set_btn)
+    API.Gumps.AddControlOnClick(pause_freq_set_btn, update_pause_frequency)
+    y_offset += 30
+
+    # Pause Duration
+    pause_dur_label = API.Gumps.CreateGumpTTFLabel(f"Pause Duration: {pause_duration:.1f}s", 15, "#ffffff")
+    pause_dur_label.SetPos(20, y_offset)
+    config_gump.AddControl(pause_dur_label)
+    config_controls["pause_dur_label"] = pause_dur_label
+
+    pause_dur_input = API.Gumps.CreateGumpTextBox(str(pause_duration), 60, 22)
+    pause_dur_input.SetPos(220, y_offset)
+    config_gump.AddControl(pause_dur_input)
+    config_controls["pause_dur_input"] = pause_dur_input
+
+    pause_dur_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    pause_dur_set_btn.SetPos(290, y_offset)
+    config_gump.AddControl(pause_dur_set_btn)
+    API.Gumps.AddControlOnClick(pause_dur_set_btn, update_pause_duration)
+    y_offset += 35
+
+    # --- Pet Death Policy Section ---
+    section_label = API.Gumps.CreateGumpTTFLabel("Pet Death Policy", 16, "#ffcc00")
+    section_label.SetPos(10, y_offset)
+    config_gump.AddControl(section_label)
+    y_offset += 30
+
+    # Get current policy from recovery_system
+    current_policy = "auto_rez_continue"
+    if recovery_system:
+        current_policy = recovery_system.pet_death_policy
+
+    # Radio buttons for pet death policy
+    policies = [
+        ("auto_rez_continue", "Auto-Rez & Continue (10-15 min cooldown)"),
+        ("rez_and_cooldown", "Rez & Extended Cooldown (20-30 min)"),
+        ("stop_on_death", "Stop on Death (alert user)")
+    ]
+
+    for policy_id, policy_label in policies:
+        is_selected = (policy_id == current_policy)
+        radio_text = "(•) " if is_selected else "( ) "
+
+        radio_btn = API.Gumps.CreateSimpleButton(radio_text + policy_label, 340, 22)
+        radio_btn.SetPos(20, y_offset)
+        if is_selected:
+            radio_btn.SetBackgroundHue(68)  # Green for selected
+        else:
+            radio_btn.SetBackgroundHue(90)  # Gray for unselected
+
+        config_gump.AddControl(radio_btn)
+        config_controls[f"policy_{policy_id}"] = radio_btn
+        API.Gumps.AddControlOnClick(radio_btn, lambda pid=policy_id: on_policy_radio_change(pid))
+        y_offset += 28
+
+    y_offset += 10
+
+    # --- Error Recovery Section ---
+    section_label = API.Gumps.CreateGumpTTFLabel("Error Recovery", 16, "#ffcc00")
+    section_label.SetPos(10, y_offset)
+    config_gump.AddControl(section_label)
+    y_offset += 30
+
+    # Max Recovery Attempts
+    max_attempts_label = API.Gumps.CreateGumpTTFLabel(f"Max Recovery Attempts: {max_recovery_attempts}", 15, "#ffffff")
+    max_attempts_label.SetPos(20, y_offset)
+    config_gump.AddControl(max_attempts_label)
+    config_controls["max_attempts_label"] = max_attempts_label
+
+    max_attempts_input = API.Gumps.CreateGumpTextBox(str(max_recovery_attempts), 60, 22)
+    max_attempts_input.SetPos(260, y_offset)
+    config_gump.AddControl(max_attempts_input)
+    config_controls["max_attempts_input"] = max_attempts_input
+
+    max_attempts_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    max_attempts_set_btn.SetPos(330, y_offset)
+    config_gump.AddControl(max_attempts_set_btn)
+    API.Gumps.AddControlOnClick(max_attempts_set_btn, update_max_recovery_attempts)
+    y_offset += 30
+
+    # Recovery Backoff Time
+    backoff_label = API.Gumps.CreateGumpTTFLabel(f"Recovery Backoff: {recovery_backoff_time}s", 15, "#ffffff")
+    backoff_label.SetPos(20, y_offset)
+    config_gump.AddControl(backoff_label)
+    config_controls["backoff_label"] = backoff_label
+
+    backoff_input = API.Gumps.CreateGumpTextBox(str(recovery_backoff_time), 60, 22)
+    backoff_input.SetPos(260, y_offset)
+    config_gump.AddControl(backoff_input)
+    config_controls["backoff_input"] = backoff_input
+
+    backoff_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    backoff_set_btn.SetPos(330, y_offset)
+    config_gump.AddControl(backoff_set_btn)
+    API.Gumps.AddControlOnClick(backoff_set_btn, update_recovery_backoff)
+    y_offset += 35
+
+    # --- Logging Section ---
+    section_label = API.Gumps.CreateGumpTTFLabel("Logging", 16, "#ffcc00")
+    section_label.SetPos(10, y_offset)
+    config_gump.AddControl(section_label)
+    y_offset += 30
+
+    # Log Level (using buttons as dropdown alternative)
+    log_level_label = API.Gumps.CreateGumpTTFLabel(f"Log Level: {log_level.title()}", 15, "#ffffff")
+    log_level_label.SetPos(20, y_offset)
+    config_gump.AddControl(log_level_label)
+    config_controls["log_level_label"] = log_level_label
+
+    # Cycle button to change log level
+    cycle_log_btn = API.Gumps.CreateSimpleButton("Change Level", 120, 22)
+    cycle_log_btn.SetPos(180, y_offset)
+    config_gump.AddControl(cycle_log_btn)
+    API.Gumps.AddControlOnClick(cycle_log_btn, cycle_log_level)
+    y_offset += 30
+
+    # Export Session Data button
+    export_btn = API.Gumps.CreateSimpleButton("Export Session Data", 180, 22)
+    export_btn.SetPos(20, y_offset)
+    export_btn.SetBackgroundHue(68)  # Green
+    config_gump.AddControl(export_btn)
+    API.Gumps.AddControlOnClick(export_btn, export_session_data)
 
 # ============ HEALING TAB CALLBACKS ============
 
@@ -4213,6 +4401,205 @@ def update_vetkit_alert():
             API.SysMsg("Value must be 0 or greater", 32)
     except ValueError:
         API.SysMsg("Invalid value - must be a number", 32)
+
+# ============ ADVANCED TAB CALLBACKS ============
+
+def update_movement_delay():
+    """Update movement delay setting"""
+    global movement_delay, config_controls
+
+    if "movement_delay_input" not in config_controls:
+        return
+
+    try:
+        value = float(config_controls["movement_delay_input"].GetText())
+        if 0.5 <= value <= 3.0:
+            movement_delay = value
+            save_settings()
+            build_config_gump()  # Refresh display
+            API.SysMsg(f"Movement delay set to {movement_delay:.1f}s", 68)
+        else:
+            API.SysMsg("Value must be between 0.5 and 3.0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_pause_frequency():
+    """Update pause frequency setting"""
+    global pause_frequency, config_controls
+
+    if "pause_freq_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["pause_freq_input"].GetText())
+        if 0 <= value <= 50:
+            pause_frequency = value
+            save_settings()
+            build_config_gump()  # Refresh display
+            API.SysMsg(f"Pause frequency set to {pause_frequency}%", 68)
+        else:
+            API.SysMsg("Value must be between 0 and 50", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_pause_duration():
+    """Update pause duration setting"""
+    global pause_duration, config_controls
+
+    if "pause_dur_input" not in config_controls:
+        return
+
+    try:
+        value = float(config_controls["pause_dur_input"].GetText())
+        if 1.0 <= value <= 5.0:
+            pause_duration = value
+            save_settings()
+            build_config_gump()  # Refresh display
+            API.SysMsg(f"Pause duration set to {pause_duration:.1f}s", 68)
+        else:
+            API.SysMsg("Value must be between 1.0 and 5.0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def on_policy_radio_change(policy):
+    """Handle pet death policy radio button change"""
+    global recovery_system
+
+    if not recovery_system:
+        API.SysMsg("Recovery system not initialized", 32)
+        return
+
+    # Set the new policy
+    recovery_system.set_pet_death_policy(policy)
+
+    # Rebuild GUI to update radio button states
+    build_config_gump()
+
+    # Show confirmation message
+    policy_names = {
+        "auto_rez_continue": "Auto-Rez & Continue",
+        "rez_and_cooldown": "Rez & Extended Cooldown",
+        "stop_on_death": "Stop on Death"
+    }
+    API.SysMsg(f"Pet death policy: {policy_names.get(policy, policy)}", 68)
+
+def update_max_recovery_attempts():
+    """Update max recovery attempts setting"""
+    global max_recovery_attempts, config_controls
+
+    if "max_attempts_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["max_attempts_input"].GetText())
+        if 1 <= value <= 5:
+            max_recovery_attempts = value
+            save_settings()
+            build_config_gump()  # Refresh display
+            API.SysMsg(f"Max recovery attempts set to {max_recovery_attempts}", 68)
+        else:
+            API.SysMsg("Value must be between 1 and 5", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_recovery_backoff():
+    """Update recovery backoff time setting"""
+    global recovery_backoff_time, config_controls
+
+    if "backoff_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["backoff_input"].GetText())
+        if 10 <= value <= 60:
+            recovery_backoff_time = value
+            save_settings()
+            build_config_gump()  # Refresh display
+            API.SysMsg(f"Recovery backoff set to {recovery_backoff_time}s", 68)
+        else:
+            API.SysMsg("Value must be between 10 and 60", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def cycle_log_level():
+    """Cycle through log levels: basic -> standard -> detailed -> basic"""
+    global log_level
+
+    levels = ["basic", "standard", "detailed"]
+    current_index = levels.index(log_level) if log_level in levels else 1
+    next_index = (current_index + 1) % len(levels)
+    log_level = levels[next_index]
+
+    save_settings()
+    build_config_gump()  # Refresh display
+    API.SysMsg(f"Log level: {log_level.title()}", 68)
+
+def export_session_data():
+    """Export current session statistics to JSON file"""
+    import json
+    import os
+
+    try:
+        # Create logs directory if it doesn't exist
+        logs_dir = "logs"
+        if not os.path.exists(logs_dir):
+            os.makedirs(logs_dir)
+
+        # Gather session data
+        session_data = {
+            "session_info": {
+                "start_time": stats.get("session_start", time.time()),
+                "export_time": time.time(),
+                "duration_seconds": time.time() - stats.get("session_start", time.time())
+            },
+            "statistics": {
+                "kills": stats.get("kills", 0),
+                "deaths": stats.get("deaths", 0),
+                "gold_looted": stats.get("gold_looted", 0),
+                "banking_trips": stats.get("banking_trips", 0),
+                "flee_events": stats.get("flee_events", 0)
+            },
+            "configuration": {
+                "pets": [{"name": p["name"], "is_tank": p.get("is_tank", False)} for p in pets],
+                "area_type": area_type,
+                "healing_thresholds": {
+                    "player": player_heal_threshold,
+                    "tank": tank_heal_threshold,
+                    "pet": pet_heal_threshold
+                },
+                "banking_enabled": banking_enabled,
+                "loot_settings": {
+                    "enabled": loot_corpses,
+                    "gold_only": loot_gold_only,
+                    "threshold": loot_threshold_value
+                },
+                "advanced": {
+                    "movement_delay": movement_delay,
+                    "pause_frequency": pause_frequency,
+                    "pause_duration": pause_duration,
+                    "max_recovery_attempts": max_recovery_attempts,
+                    "recovery_backoff_time": recovery_backoff_time,
+                    "log_level": log_level
+                }
+            }
+        }
+
+        # Add pet death policy if recovery_system exists
+        if recovery_system:
+            session_data["configuration"]["pet_death_policy"] = recovery_system.pet_death_policy
+
+        # Generate filename with timestamp
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join(logs_dir, f"session_{timestamp}.json")
+
+        # Write to file
+        with open(filename, 'w') as f:
+            json.dump(session_data, f, indent=2)
+
+        API.SysMsg(f"Session exported to {filename}", 68)
+
+    except Exception as e:
+        API.SysMsg(f"Export error: {str(e)}", 32)
 
 # ============ HOTKEY CALLBACKS ============
 
