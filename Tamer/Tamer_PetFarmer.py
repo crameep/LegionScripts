@@ -5663,23 +5663,131 @@ def handle_idle_state():
     """Handle idle state - find next action"""
     global STATE, action_start_time, last_action
 
-    # TODO: Implement state logic in later tasks
-    pass
+    # Check banking triggers first
+    if banking_triggers and banking_system:
+        should_bank, reason = banking_triggers.should_bank()
+        if should_bank:
+            API.SysMsg(f"Banking triggered: {reason}", 43)
+            STATE = "traveling_to_bank"
+            return
+
+    # Scan for enemies in range
+    if combat_manager:
+        enemies = combat_manager.scan_for_enemies()
+        if enemies:
+            for enemy in enemies:
+                if combat_manager.should_engage_enemy(enemy):
+                    combat_manager.engage_enemy(enemy)
+                    STATE = "engaging"
+                    return
+
+    # If no enemies and no banking needed, patrol
+    if patrol_system and area_manager:
+        current_area = area_manager.get_current_area()
+        if current_area:
+            if current_area.area_type == "circle":
+                # Start circle patrol
+                patrol_system.start_patrol()
+                STATE = "patrolling"
+            elif current_area.area_type == "waypoints" and current_area.waypoints:
+                # Start waypoint patrol
+                patrol_system.start_patrol()
+                STATE = "patrolling"
+        # If no area defined, stay idle
+    # Else stay in idle (no patrol system or area defined)
+
+def handle_patrolling_state():
+    """Handle patrolling state - monitor arrival and check for enemies"""
+    global STATE
+
+    # Check for enemies while patrolling
+    if combat_manager:
+        enemies = combat_manager.scan_for_enemies()
+        if enemies:
+            for enemy in enemies:
+                if combat_manager.should_engage_enemy(enemy):
+                    if patrol_system:
+                        patrol_system.stop_patrol()
+                    combat_manager.engage_enemy(enemy)
+                    STATE = "engaging"
+                    return
+
+    # Check if patrol is complete or failed
+    if patrol_system and not patrol_system.is_patrolling:
+        # Patrol complete, return to idle
+        STATE = "idle"
 
 def handle_healing_state():
     """Handle healing state"""
-    global STATE
+    global STATE, action_start_time, combat_manager
 
     # Check if heal action is complete
-    if time.time() > action_start_time + BANDAGE_DELAY:
+    if healing_system and healing_system.check_heal_complete():
+        # Return to engaging if enemy exists, otherwise idle
+        if combat_manager and hasattr(combat_manager, 'engaged_enemy_serial') and combat_manager.engaged_enemy_serial:
+            STATE = "engaging"
+        else:
+            STATE = "idle"
+    elif time.time() > action_start_time + BANDAGE_DELAY:
+        # Fallback timeout if healing_system not available
         STATE = "idle"
 
-def handle_combat_state():
-    """Handle combat state"""
-    global STATE
+def handle_engaging_state():
+    """Handle engaging/combat state"""
+    global STATE, flee_system, healing_system, danger_assessment, looting_system
 
-    # TODO: Implement combat logic in later tasks
-    pass
+    # Monitor combat via combat manager
+    if combat_manager:
+        combat_manager.monitor_combat()
+
+    # Check danger level for flee trigger
+    if danger_assessment:
+        danger = danger_assessment.calculate_danger()
+        flee_threshold = getattr(danger_assessment, 'flee_threshold', 70)
+        if danger >= flee_threshold:
+            if flee_system:
+                flee_system.initiate_flee("danger_critical")
+                STATE = "fleeing"
+                return
+
+    # Check for healing needs (self or priority pets)
+    if healing_system:
+        heal_action = healing_system.get_next_heal_action()
+        if heal_action:
+            # heal_action is (target_serial, heal_type, ...)
+            heal_type = heal_action[1] if len(heal_action) > 1 else ""
+            # Only interrupt combat for self-heal or vet kit
+            if heal_type in ["bandage_self", "spell_self", "vetkit"]:
+                healing_system.execute_heal(*heal_action)
+                STATE = "healing"
+                return
+
+    # Check if combat is complete (enemy dead/gone)
+    if combat_manager and hasattr(combat_manager, 'engaged_enemy_serial'):
+        if combat_manager.engaged_enemy_serial == 0:
+            # Combat over, check for looting
+            if looting_system:
+                corpses = looting_system.scan_for_loot()
+                if corpses:
+                    STATE = "looting"
+                    return
+            # No loot, return to idle
+            STATE = "idle"
+
+def handle_looting_state():
+    """Handle looting state"""
+    global STATE, looting_system
+
+    if looting_system:
+        corpses = looting_system.scan_for_loot()
+        if corpses:
+            # Loot first corpse
+            corpse_serial = corpses[0]
+            if looting_system.should_loot_corpse(corpse_serial):
+                looting_system.loot_corpse(corpse_serial)
+
+    # Looting complete (or no corpses), return to idle
+    STATE = "idle"
 
 def handle_fleeing_state():
     """Handle fleeing state - monitor flee progress"""
@@ -5726,6 +5834,44 @@ def handle_fleeing_state():
         else:
             # Fallback if recovery system not initialized
             STATE = "idle"
+
+def handle_traveling_to_bank_state():
+    """Handle traveling to bank state"""
+    global STATE, banking_system
+
+    if banking_system:
+        # Travel to bank using runebook
+        success = banking_system.travel_to_bank()
+        if success:
+            # Navigate to banker NPC
+            if banking_system.bank_x > 0 and banking_system.bank_y > 0:
+                banking_system.navigate_to_bank(banking_system.bank_x, banking_system.bank_y)
+            STATE = "banking"
+        else:
+            API.SysMsg("Bank travel failed, returning to idle", 32)
+            STATE = "idle"
+    else:
+        # No banking system, return to idle
+        STATE = "idle"
+
+def handle_banking_state():
+    """Handle banking state - interact with bank, deposit items, restock supplies"""
+    global STATE, banking_system, banking_triggers
+
+    if banking_system:
+        # Interact with bank
+        success = banking_system.interact_with_bank(0)  # 0 = auto-detect banker
+        if success:
+            API.SysMsg("Banking complete", 68)
+            # Track last bank time
+            if banking_triggers:
+                banking_triggers.track_last_bank()
+        else:
+            API.SysMsg("Banking failed", 32)
+
+    # Return to farming area
+    STATE = "idle"
+    # Note: In future task, add "traveling_to_farm" state for recall back
 
 def handle_recovering_state():
     """Handle recovering state - wait for recovery to complete"""
@@ -5929,12 +6075,24 @@ try:
             API.Pause(0.2)
             continue
 
+        # Error detection (every loop)
+        if error_recovery:
+            errors = error_recovery.detect_errors()
+            if errors:
+                for error in errors:
+                    error_recovery.recover_from_error(error)
+
+        # Update NPC threat map (every 2s)
+        current_time = time.time()
+        if npc_threat_map and current_time - last_npc_scan >= 2.0:
+            npc_threat_map.scan_npcs()
+            last_npc_scan = current_time
+
         # Update supply tracking (every 30s automatically)
         if supply_tracker:
             supply_tracker.update_counts()
 
         # Update statistics tracking (every 2s)
-        current_time = time.time()
         if stats_tracker and current_time - last_stats_update >= 2.0:
             # Update state time tracking
             stats_tracker.update_state(STATE)
@@ -5951,14 +6109,28 @@ try:
         # State machine dispatcher
         if STATE == "idle":
             handle_idle_state()
+        elif STATE == "patrolling":
+            handle_patrolling_state()
+        elif STATE == "engaging":
+            handle_engaging_state()
         elif STATE == "healing":
             handle_healing_state()
-        elif STATE == "combat":
-            handle_combat_state()
+        elif STATE == "looting":
+            handle_looting_state()
         elif STATE == "fleeing":
             handle_fleeing_state()
+        elif STATE == "traveling_to_bank":
+            handle_traveling_to_bank_state()
+        elif STATE == "banking":
+            handle_banking_state()
         elif STATE == "recovering":
             handle_recovering_state()
+        elif STATE == "paused":
+            # Do nothing, wait for unpause
+            pass
+        elif STATE == "stopped":
+            API.SysMsg("Script stopped", 43)
+            break
 
         API.Pause(0.1)  # Short pause only
 
