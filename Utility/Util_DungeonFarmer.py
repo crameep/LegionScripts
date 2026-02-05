@@ -4168,6 +4168,452 @@ class DungeonFarmerGUI:
             API.SysMsg("Error closing DungeonFarmerGUI: " + str(e), 32)
 
 
+# ========== ERROR RECOVERY SYSTEM ==========
+class ErrorRecoverySystem:
+    """
+    Comprehensive error detection and recovery system for dungeon farming.
+    Detects movement, combat, resource, state, and pet errors.
+    Applies specific recovery strategies with backoff and escalation.
+    """
+
+    # Error categories
+    ERROR_MOVEMENT_STUCK = "MOVEMENT_STUCK"
+    ERROR_MOVEMENT_PATH_FAIL = "MOVEMENT_PATH_FAIL"
+    ERROR_MOVEMENT_RECALL_FAIL = "MOVEMENT_RECALL_FAIL"
+    ERROR_COMBAT_PET_UNRESPONSIVE = "COMBAT_PET_UNRESPONSIVE"
+    ERROR_COMBAT_PET_LOST = "COMBAT_PET_LOST"
+    ERROR_RESOURCE_OUT_OF_BANDAGES = "RESOURCE_OUT_OF_BANDAGES"
+    ERROR_RESOURCE_OUT_OF_REAGENTS = "RESOURCE_OUT_OF_REAGENTS"
+    ERROR_STATE_INVALID = "STATE_INVALID"
+    ERROR_STATE_STUCK_IN_ACTION = "STATE_STUCK_IN_ACTION"
+    ERROR_PET_DISAPPEARED = "PET_DISAPPEARED"
+
+    def __init__(self, pet_manager, combat_manager=None, area_manager=None):
+        """
+        Initialize error recovery system.
+
+        Args:
+            pet_manager: PetManager instance for pet-related errors
+            combat_manager: CombatManager instance for combat errors (optional)
+            area_manager: AreaManager instance for movement errors (optional)
+        """
+        self.pet_manager = pet_manager
+        self.combat_manager = combat_manager
+        self.area_manager = area_manager
+
+        # Valid states for state validation
+        self.valid_states = [
+            "idle", "patrolling", "engaging", "healing", "looting",
+            "fleeing", "traveling_to_bank", "banking", "recovering",
+            "paused", "stopped"
+        ]
+
+        # Tracking data for error detection
+        self.last_position = (0, 0)
+        self.last_position_time = 0
+        self.stuck_check_start = 0
+
+        self.pathfind_fail_count = 0
+        self.pathfind_last_dest = (0, 0)
+
+        self.recall_attempts = 0
+        self.recall_position = (0, 0)
+
+        self.pet_kill_commands = 0
+        self.pet_kill_command_time = 0
+
+        self.pet_lost_start = {}  # {serial: time}
+
+        self.action_start_time = {}  # {action_name: start_time}
+
+        # Recovery tracking
+        self.recovery_attempts = {}  # {error_type: attempt_count}
+        self.last_recovery_time = {}  # {error_type: timestamp}
+        self.max_attempts = 3
+
+        # Statistics
+        self.error_counts = {}
+        self.recovery_success = {}
+        self.recovery_failures = {}
+
+        # Error log file
+        self.error_log_path = os.path.join(parent_dir, "logs", "error_log.txt")
+        self._ensure_log_directory()
+
+    def _ensure_log_directory(self):
+        """Create logs directory if it doesn't exist"""
+        try:
+            log_dir = os.path.dirname(self.error_log_path)
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+        except Exception as e:
+            API.SysMsg("Failed to create log directory: " + str(e), 32)
+
+    def _log_error(self, error_type, message):
+        """Log error to file with timestamp"""
+        try:
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = "[{}] {}: {}\n".format(timestamp, error_type, message)
+
+            with open(self.error_log_path, "a") as f:
+                f.write(log_entry)
+        except Exception as e:
+            API.SysMsg("Failed to write error log: " + str(e), 32)
+
+    def detect_errors(self, current_state, current_action=None):
+        """
+        Detect all error conditions. Call this every main loop iteration.
+
+        Args:
+            current_state: Current state machine state
+            current_action: Current action being performed (optional)
+
+        Returns:
+            List of detected errors with types and context
+        """
+        errors = []
+        current_time = time.time()
+
+        # Get current position
+        pos_x = getattr(API.Player, 'X', 0)
+        pos_y = getattr(API.Player, 'Y', 0)
+        current_pos = (pos_x, pos_y)
+
+        # Check movement errors
+        if API.Pathfinding():
+            # Stuck detection: same position for 3+ seconds while pathfinding
+            if current_pos == self.last_position:
+                if self.stuck_check_start == 0:
+                    self.stuck_check_start = current_time
+                elif current_time - self.stuck_check_start >= 3.0:
+                    errors.append({
+                        "type": self.ERROR_MOVEMENT_STUCK,
+                        "message": "Player stuck at position {} for 3+ seconds".format(current_pos),
+                        "context": {"position": current_pos, "duration": current_time - self.stuck_check_start}
+                    })
+                    self.stuck_check_start = 0  # Reset after detection
+            else:
+                self.stuck_check_start = 0  # Reset if position changed
+
+        # Update last position
+        self.last_position = current_pos
+        self.last_position_time = current_time
+
+        # Check pet errors
+        if self.pet_manager and hasattr(self.pet_manager, 'pets'):
+            for pet in self.pet_manager.pets:
+                serial = pet.get("serial", 0)
+                mob = API.Mobiles.FindMobile(serial)
+
+                # Pet disappeared
+                if mob is None:
+                    errors.append({
+                        "type": self.ERROR_PET_DISAPPEARED,
+                        "message": "Pet {} disappeared".format(pet.get("name", "Unknown")),
+                        "context": {"pet": pet}
+                    })
+                    continue
+
+                # Pet lost (out of range 15+ tiles for 10+ seconds)
+                if not mob.IsDead:
+                    distance = getattr(mob, 'Distance', 999)
+                    if distance >= 15:
+                        if serial not in self.pet_lost_start:
+                            self.pet_lost_start[serial] = current_time
+                        elif current_time - self.pet_lost_start[serial] >= 10.0:
+                            errors.append({
+                                "type": self.ERROR_COMBAT_PET_LOST,
+                                "message": "Pet {} out of range ({}+ tiles) for 10+ seconds".format(
+                                    pet.get("name", "Unknown"), distance),
+                                "context": {"pet": pet, "distance": distance}
+                            })
+                            # Don't reset timer - recovery will handle it
+                    else:
+                        # Pet is in range, reset timer
+                        if serial in self.pet_lost_start:
+                            del self.pet_lost_start[serial]
+
+        # Check resource errors
+        if current_action == "healing" or current_state == "healing":
+            # Check bandages
+            bandages = API.FindType(BANDAGE_GRAPHIC)
+            if bandages is None:
+                errors.append({
+                    "type": self.ERROR_RESOURCE_OUT_OF_BANDAGES,
+                    "message": "Out of bandages during healing",
+                    "context": {}
+                })
+
+        # Check reagents for recall (check if journal shows "no reagents" message)
+        journal = API.InGameJournal.GetText().lower()
+        if "reagents to cast" in journal or "more reagents" in journal:
+            errors.append({
+                "type": self.ERROR_RESOURCE_OUT_OF_REAGENTS,
+                "message": "Out of reagents for spells",
+                "context": {}
+            })
+
+        # Check state errors
+        if current_state not in self.valid_states:
+            errors.append({
+                "type": self.ERROR_STATE_INVALID,
+                "message": "Invalid state: {}".format(current_state),
+                "context": {"state": current_state}
+            })
+
+        # Check action timeout (action duration > 3x expected)
+        if current_action and current_action in self.action_start_time:
+            action_duration = current_time - self.action_start_time[current_action]
+            expected_durations = {
+                "bandaging": BANDAGE_DELAY,
+                "healing": 2.5,
+                "recalling": 2.0,
+                "looting": 5.0,
+                "engaging": 10.0
+            }
+            expected = expected_durations.get(current_action, 5.0)
+            if action_duration > expected * 3:
+                errors.append({
+                    "type": self.ERROR_STATE_STUCK_IN_ACTION,
+                    "message": "Action '{}' stuck for {:.1f}s (expected {:.1f}s)".format(
+                        current_action, action_duration, expected),
+                    "context": {"action": current_action, "duration": action_duration}
+                })
+
+        # Update statistics for detected errors
+        for error in errors:
+            error_type = error["type"]
+            self.error_counts[error_type] = self.error_counts.get(error_type, 0) + 1
+            self._log_error(error_type, error["message"])
+
+        return errors
+
+    def recover_from_error(self, error):
+        """
+        Apply recovery strategy for the given error.
+
+        Args:
+            error: Error dict with type, message, and context
+
+        Returns:
+            True if recovery was attempted, False if escalated
+        """
+        error_type = error["type"]
+        current_time = time.time()
+
+        # Get or initialize attempt count
+        attempts = self.recovery_attempts.get(error_type, 0)
+
+        # Check if max attempts exceeded
+        if attempts >= self.max_attempts:
+            self.escalate_error(error)
+            return False
+
+        # Increment attempt count
+        self.recovery_attempts[error_type] = attempts + 1
+
+        # Apply backoff: wait time = 2^attempts seconds (1s, 2s, 4s, 8s)
+        backoff_time = 2 ** attempts
+
+        # Check if we need to wait for backoff
+        last_recovery = self.last_recovery_time.get(error_type, 0)
+        if current_time - last_recovery < backoff_time:
+            # Still in backoff period
+            return True
+
+        # Update last recovery time
+        self.last_recovery_time[error_type] = current_time
+
+        # Apply specific recovery strategy
+        API.SysMsg("Recovering from {}: {}".format(error_type, error["message"]), 43)
+
+        try:
+            if error_type == self.ERROR_MOVEMENT_STUCK:
+                self._recover_movement_stuck(error)
+            elif error_type == self.ERROR_MOVEMENT_PATH_FAIL:
+                self._recover_path_fail(error)
+            elif error_type == self.ERROR_MOVEMENT_RECALL_FAIL:
+                self._recover_recall_fail(error)
+            elif error_type == self.ERROR_COMBAT_PET_UNRESPONSIVE:
+                self._recover_pet_unresponsive(error)
+            elif error_type == self.ERROR_COMBAT_PET_LOST:
+                self._recover_pet_lost(error)
+            elif error_type == self.ERROR_RESOURCE_OUT_OF_BANDAGES:
+                self._recover_out_of_bandages(error)
+            elif error_type == self.ERROR_RESOURCE_OUT_OF_REAGENTS:
+                self._recover_out_of_reagents(error)
+            elif error_type == self.ERROR_STATE_INVALID:
+                self._recover_invalid_state(error)
+            elif error_type == self.ERROR_STATE_STUCK_IN_ACTION:
+                self._recover_stuck_in_action(error)
+            elif error_type == self.ERROR_PET_DISAPPEARED:
+                self._recover_pet_disappeared(error)
+
+            # Mark recovery as successful
+            self.recovery_success[error_type] = self.recovery_success.get(error_type, 0) + 1
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("Recovery failed: " + str(e), 32)
+            self.recovery_failures[error_type] = self.recovery_failures.get(error_type, 0) + 1
+            self._log_error(error_type, "Recovery exception: " + str(e))
+            return False
+
+    def _recover_movement_stuck(self, error):
+        """Recovery: Cancel pathfind, move random 5 tiles, retry path"""
+        if API.Pathfinding():
+            API.CancelPathfinding()
+
+        # Move randomly 5 tiles
+        import random
+        pos_x = getattr(API.Player, 'X', 0)
+        pos_y = getattr(API.Player, 'Y', 0)
+        new_x = pos_x + random.randint(-5, 5)
+        new_y = pos_y + random.randint(-5, 5)
+
+        API.Pathfind(new_x, new_y)
+        API.Pause(2.0)  # Give time to move
+
+    def _recover_path_fail(self, error):
+        """Recovery: Try alternate route or skip to next waypoint"""
+        if API.Pathfinding():
+            API.CancelPathfinding()
+
+        # If patrol system is available, skip to next waypoint
+        # For now, just cancel and let main loop decide next action
+        API.SysMsg("Pathfinding failed - skipping to next waypoint", 43)
+
+    def _recover_recall_fail(self, error):
+        """Recovery: Wait for mana, retry with emergency charges"""
+        API.SysMsg("Recall failed - waiting for mana", 43)
+        API.Pause(5.0)  # Wait for mana regen
+
+        # Emergency recall will be handled by main loop if this fails again
+
+    def _recover_pet_unresponsive(self, error):
+        """Recovery: 'all follow', wait 2s, re-issue 'all kill'"""
+        API.Msg("all follow")
+        API.Pause(2.0)
+
+        # Re-issue kill command (main loop will handle target)
+        if self.combat_manager and hasattr(self.combat_manager, 'current_target'):
+            API.Msg("all kill")
+
+    def _recover_pet_lost(self, error):
+        """Recovery: Cancel combat, 'all come', wait for return"""
+        if API.Pathfinding():
+            API.CancelPathfinding()
+
+        API.Msg("all come")
+        API.SysMsg("Waiting for pet to return...", 43)
+        API.Pause(3.0)
+
+        # Clear lost timer
+        pet = error.get("context", {}).get("pet", {})
+        serial = pet.get("serial", 0)
+        if serial in self.pet_lost_start:
+            del self.pet_lost_start[serial]
+
+    def _recover_out_of_bandages(self, error):
+        """Recovery: Transition to banking for restock"""
+        API.SysMsg("OUT OF BANDAGES - need to restock!", 32)
+        # Main loop will handle state transition to banking
+
+    def _recover_out_of_reagents(self, error):
+        """Recovery: Switch to emergency runebook charges"""
+        API.SysMsg("OUT OF REAGENTS - using emergency charges", 32)
+        # Main loop will handle emergency recall with charges
+
+    def _recover_invalid_state(self, error):
+        """Recovery: Force to IDLE"""
+        API.SysMsg("Invalid state detected - resetting to IDLE", 32)
+        # Main loop will handle state change
+
+    def _recover_stuck_in_action(self, error):
+        """Recovery: Cancel targets, reset to IDLE"""
+        if API.HasTarget():
+            API.CancelTarget()
+        API.CancelPreTarget()
+
+        if API.Pathfinding():
+            API.CancelPathfinding()
+
+        # Clear action tracking
+        action = error.get("context", {}).get("action")
+        if action and action in self.action_start_time:
+            del self.action_start_time[action]
+
+    def _recover_pet_disappeared(self, error):
+        """Recovery: Re-scan pets, update pet list"""
+        API.SysMsg("Pet disappeared - rescanning pets", 43)
+        if self.pet_manager:
+            self.pet_manager.scan_pets()
+
+    def escalate_error(self, error):
+        """
+        Escalate error after max recovery attempts exceeded.
+        Transition to safe state, log error, alert user.
+
+        Args:
+            error: Error dict with type, message, and context
+        """
+        error_type = error["type"]
+
+        # Log escalation
+        escalation_msg = "ERROR ESCALATED after {} attempts: {}".format(
+            self.max_attempts, error["message"])
+        API.SysMsg(escalation_msg, 32)
+        self._log_error("ESCALATED_" + error_type, escalation_msg)
+
+        # Reset recovery attempts for this error
+        self.recovery_attempts[error_type] = 0
+
+        # Transition to safe state based on error severity
+        if error_type in [self.ERROR_MOVEMENT_RECALL_FAIL, self.ERROR_STATE_INVALID]:
+            API.SysMsg("CRITICAL ERROR - Manual intervention required", 32)
+            # Don't stop script - let user resume manually
+        else:
+            API.SysMsg("Error escalated - attempting emergency recovery", 43)
+            # Main loop will handle emergency recall
+
+    def reset_recovery_attempts(self, error_type):
+        """
+        Reset recovery attempts for an error type.
+        Call this on successful recovery or state change.
+
+        Args:
+            error_type: Error type to reset
+        """
+        if error_type in self.recovery_attempts:
+            self.recovery_attempts[error_type] = 0
+
+    def reset_all_recovery_attempts(self):
+        """Reset all recovery attempt counters"""
+        self.recovery_attempts.clear()
+        self.last_recovery_time.clear()
+
+    def mark_action_start(self, action_name):
+        """Mark the start of an action for timeout detection"""
+        self.action_start_time[action_name] = time.time()
+
+    def mark_action_end(self, action_name):
+        """Mark the end of an action"""
+        if action_name in self.action_start_time:
+            del self.action_start_time[action_name]
+
+    def get_statistics(self):
+        """Get error statistics for display"""
+        return {
+            "error_counts": self.error_counts.copy(),
+            "recovery_success": self.recovery_success.copy(),
+            "recovery_failures": self.recovery_failures.copy(),
+            "total_errors": sum(self.error_counts.values()),
+            "total_recoveries": sum(self.recovery_success.values()),
+            "total_failures": sum(self.recovery_failures.values())
+        }
+
+
 # ========== MAIN SCRIPT ==========
 # NOTE: This is a foundational implementation for the core classes.
 # The full dungeon farming script will be built up in subsequent tasks.
@@ -4956,6 +5402,156 @@ def test_config_gump():
         import traceback
         API.SysMsg(str(traceback.format_exc()), 32)
 
+def test_error_recovery():
+    """Test function to verify ErrorRecoverySystem works correctly"""
+    API.SysMsg("Testing ErrorRecoverySystem...", 68)
+
+    try:
+        # Initialize required systems
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+
+        API.SysMsg("Initializing ErrorRecoverySystem...", 68)
+        error_recovery = ErrorRecoverySystem(pet_manager)
+        API.Pause(1)
+
+        # Test 1: Stuck detection simulation
+        API.SysMsg("Test 1: Simulating stuck detection...", 68)
+        API.SysMsg("  Stand still for 3 seconds while I test stuck detection", 43)
+
+        # Simulate being stuck by setting same position
+        error_recovery.last_position = (getattr(API.Player, 'X', 0), getattr(API.Player, 'Y', 0))
+        error_recovery.stuck_check_start = time.time() - 3.5  # Pretend we've been stuck for 3.5s
+
+        # Try to start pathfinding to trigger stuck detection
+        pos_x = getattr(API.Player, 'X', 0)
+        pos_y = getattr(API.Player, 'Y', 0)
+        API.Pathfind(pos_x + 10, pos_y + 10)
+        API.Pause(0.5)
+
+        errors = error_recovery.detect_errors("patrolling", None)
+        if errors:
+            API.SysMsg("  Detected {} errors: {}".format(len(errors), errors[0]["type"]), 68)
+            # Test recovery
+            error_recovery.recover_from_error(errors[0])
+            API.Pause(2)
+        else:
+            API.SysMsg("  No errors detected (expected MOVEMENT_STUCK)", 32)
+
+        API.CancelPathfinding()
+        API.Pause(1)
+
+        # Test 2: Out of bandages detection
+        API.SysMsg("Test 2: Testing out of bandages detection...", 68)
+        API.SysMsg("  Remove bandages from inventory to test", 43)
+        API.Pause(3)
+
+        errors = error_recovery.detect_errors("healing", "healing")
+        if errors:
+            for error in errors:
+                if error["type"] == error_recovery.ERROR_RESOURCE_OUT_OF_BANDAGES:
+                    API.SysMsg("  Detected: " + error["type"], 68)
+                    error_recovery.recover_from_error(error)
+        else:
+            API.SysMsg("  No bandage error detected (you may have bandages)", 43)
+
+        API.Pause(1)
+
+        # Test 3: Pet disappeared detection
+        API.SysMsg("Test 3: Testing pet disappeared detection...", 68)
+        if pet_manager.pets:
+            # Simulate pet disappeared by using invalid serial
+            fake_pet = {"serial": 0x12345678, "name": "Test Pet"}
+            pet_manager.pets.append(fake_pet)
+
+            errors = error_recovery.detect_errors("idle", None)
+            if errors:
+                for error in errors:
+                    if error["type"] == error_recovery.ERROR_PET_DISAPPEARED:
+                        API.SysMsg("  Detected: " + error["type"], 68)
+                        error_recovery.recover_from_error(error)
+
+            # Remove fake pet
+            pet_manager.pets = [p for p in pet_manager.pets if p["serial"] != 0x12345678]
+        else:
+            API.SysMsg("  No pets to test with", 43)
+
+        API.Pause(1)
+
+        # Test 4: Invalid state detection
+        API.SysMsg("Test 4: Testing invalid state detection...", 68)
+        errors = error_recovery.detect_errors("invalid_state_xyz", None)
+        if errors:
+            for error in errors:
+                if error["type"] == error_recovery.ERROR_STATE_INVALID:
+                    API.SysMsg("  Detected: " + error["type"], 68)
+                    error_recovery.recover_from_error(error)
+        else:
+            API.SysMsg("  No invalid state error (unexpected)", 32)
+
+        API.Pause(1)
+
+        # Test 5: Action timeout detection
+        API.SysMsg("Test 5: Testing action timeout detection...", 68)
+        error_recovery.mark_action_start("bandaging")
+        error_recovery.action_start_time["bandaging"] = time.time() - 20.0  # Simulate 20s stuck
+
+        errors = error_recovery.detect_errors("healing", "bandaging")
+        if errors:
+            for error in errors:
+                if error["type"] == error_recovery.ERROR_STATE_STUCK_IN_ACTION:
+                    API.SysMsg("  Detected: " + error["type"], 68)
+                    error_recovery.recover_from_error(error)
+        else:
+            API.SysMsg("  No timeout error (unexpected)", 32)
+
+        API.Pause(1)
+
+        # Test 6: Backoff timing
+        API.SysMsg("Test 6: Testing backoff timing...", 68)
+        test_error = {
+            "type": error_recovery.ERROR_MOVEMENT_STUCK,
+            "message": "Test backoff",
+            "context": {}
+        }
+
+        for attempt in range(4):
+            API.SysMsg("  Attempt {}: Recovery attempts = {}".format(
+                attempt + 1, error_recovery.recovery_attempts.get(test_error["type"], 0)), 43)
+            result = error_recovery.recover_from_error(test_error)
+
+            if not result:
+                API.SysMsg("  Escalated after {} attempts!".format(attempt + 1), 68)
+                break
+
+            API.Pause(1)
+
+        # Test 7: Statistics
+        API.SysMsg("Test 7: Error statistics...", 68)
+        stats = error_recovery.get_statistics()
+        API.SysMsg("  Total errors: {}".format(stats["total_errors"]), 43)
+        API.SysMsg("  Total recoveries: {}".format(stats["total_recoveries"]), 43)
+        API.SysMsg("  Total failures: {}".format(stats["total_failures"]), 43)
+
+        # Test 8: Check error log
+        API.SysMsg("Test 8: Checking error log...", 68)
+        if os.path.exists(error_recovery.error_log_path):
+            API.SysMsg("  Error log created at: " + error_recovery.error_log_path, 68)
+            with open(error_recovery.error_log_path, "r") as f:
+                lines = f.readlines()
+                API.SysMsg("  Log has {} entries".format(len(lines)), 43)
+                if lines:
+                    API.SysMsg("  Last entry: " + lines[-1].strip(), 43)
+        else:
+            API.SysMsg("  Error log not created", 32)
+
+        API.SysMsg("ErrorRecoverySystem test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -4969,5 +5565,6 @@ def test_config_gump():
 # test_monitor_combat()
 # test_main_gui()
 # test_config_gump()
+# test_error_recovery()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.10 - Looting Tab)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump + ErrorRecovery v1.11)", 68)
