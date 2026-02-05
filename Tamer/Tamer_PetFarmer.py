@@ -3731,7 +3731,7 @@ class StatisticsTracker:
         Get formatted session statistics dictionary.
 
         Returns:
-            dict: Session statistics
+            dict: Session statistics including area and enemy data
         """
         return {
             "gold_collected": self.gold_collected,
@@ -3742,7 +3742,9 @@ class StatisticsTracker:
             "total_flees": sum(self.flee_events.values()),
             "time_by_state": dict(self.time_by_state),
             "supplies_used": dict(self.supplies_used),
-            "session_duration": time.time() - self.session_start_time
+            "session_duration": time.time() - self.session_start_time,
+            "area_performance": self.get_area_performance(),
+            "enemy_breakdown": self.get_enemy_breakdown()
         }
 
     def get_performance_metrics(self):
@@ -4033,7 +4035,14 @@ class SessionLogger:
     """
     Session history logging to JSON file with trend analysis.
     Logs session statistics and provides historical data for analysis.
-    TODO: Full implementation in future task.
+
+    Features:
+    - Saves sessions to JSON with automatic cleanup (max 100 sessions)
+    - Loads historical sessions for analysis
+    - Extracts trend data for metrics across sessions
+    - Aggregates area performance across multiple sessions
+    - Identifies dangerous areas by flee rate
+    - Exports session data to CSV format
     """
 
     def __init__(self, key_prefix):
@@ -4043,16 +4052,116 @@ class SessionLogger:
         """
         self.key_prefix = key_prefix
         self.log_file = "logs/farming_sessions.json"
+        self._ensure_logs_directory()
+
+    def _ensure_logs_directory(self):
+        """Create logs directory if it doesn't exist"""
+        import os
+        log_dir = os.path.dirname(self.log_file)
+        if log_dir and not os.path.exists(log_dir):
+            try:
+                os.makedirs(log_dir)
+            except Exception:
+                pass  # Fail silently - will error on actual save if needed
 
     def save_session(self, stats_dict):
         """
         Save session statistics to JSON log file.
 
+        Session format:
+        {
+            "session_id": "YYYY-MM-DD_HH-MM-SS",
+            "start_time": timestamp,
+            "end_time": timestamp,
+            "duration_minutes": float,
+            "total_gold": int,
+            "gold_per_hour": float,
+            "kills": int,
+            "deaths": int,
+            "flee_events": int,
+            "supplies_used": {...},
+            "areas_farmed": [...],
+            "enemy_breakdown": {...},
+            "notes": ""
+        }
+
         Args:
-            stats_dict: Dictionary of session statistics
+            stats_dict: Dictionary of session statistics from StatisticsTracker
         """
-        # TODO: Implement session saving
-        pass
+        import json
+        import os
+        from datetime import datetime
+
+        # Create session data structure
+        end_time = time.time()
+        session_duration = stats_dict.get("session_duration", 0)
+        start_time = end_time - session_duration
+        duration_minutes = session_duration / 60.0
+
+        # Calculate gold per hour
+        hours = session_duration / 3600.0 if session_duration > 0 else 0
+        gold_per_hour = stats_dict.get("gold_collected", 0) / hours if hours > 0 else 0
+
+        # Format session ID as YYYY-MM-DD_HH-MM-SS
+        session_id = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d_%H-%M-%S")
+
+        session_data = {
+            "session_id": session_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration_minutes": duration_minutes,
+            "total_gold": stats_dict.get("gold_collected", 0),
+            "gold_per_hour": gold_per_hour,
+            "kills": stats_dict.get("total_kills", 0),
+            "deaths": stats_dict.get("player_deaths", 0) + stats_dict.get("pet_deaths", 0),
+            "flee_events": stats_dict.get("total_flees", 0),
+            "supplies_used": stats_dict.get("supplies_used", {}),
+            "areas_farmed": [],  # Will be populated from area_performance if available
+            "enemy_breakdown": {},  # Will be populated if available
+            "notes": ""
+        }
+
+        # Add area performance if available (from get_area_performance method)
+        # Note: stats_dict may need to be enhanced to include this data
+        if "area_performance" in stats_dict:
+            session_data["areas_farmed"] = [
+                {
+                    "area": area["area"],
+                    "gold": area.get("gold_from_area", 0),
+                    "time": area.get("time_in_area", 0)
+                }
+                for area in stats_dict["area_performance"]
+            ]
+
+        # Add enemy breakdown if available
+        if "enemy_breakdown" in stats_dict:
+            session_data["enemy_breakdown"] = stats_dict["enemy_breakdown"]
+
+        # Load existing sessions
+        sessions = []
+        if os.path.exists(self.log_file):
+            try:
+                with open(self.log_file, 'r') as f:
+                    sessions = json.load(f)
+                    if not isinstance(sessions, list):
+                        sessions = []
+            except Exception:
+                sessions = []
+
+        # Append new session
+        sessions.append(session_data)
+
+        # Maintain max 100 sessions (delete oldest if exceeded)
+        if len(sessions) > 100:
+            sessions = sessions[-100:]
+
+        # Save back to file
+        try:
+            with open(self.log_file, 'w') as f:
+                json.dump(sessions, f, indent=2)
+        except Exception as e:
+            # Silent fail - don't crash the script over logging
+            pass
 
     def load_sessions(self, count=10):
         """
@@ -4062,24 +4171,247 @@ class SessionLogger:
             count: Number of sessions to load
 
         Returns:
-            List of session dicts
+            List of session dicts (most recent first)
         """
-        # TODO: Implement session loading
-        return []
+        import json
+        import os
+
+        if not os.path.exists(self.log_file):
+            return []
+
+        try:
+            with open(self.log_file, 'r') as f:
+                sessions = json.load(f)
+                if not isinstance(sessions, list):
+                    return []
+
+                # Return last N sessions (most recent first)
+                return list(reversed(sessions[-count:])) if count > 0 else []
+        except Exception:
+            return []
 
     def get_trend_data(self, metric_name, session_count=10):
         """
-        Get trend data for a specific metric.
+        Get trend data for a specific metric across sessions.
+
+        Supported metrics:
+        - "gold_per_hour": Gold farming rate
+        - "deaths_per_hour": Death rate
+        - "avg_session_length": Average session duration in minutes
 
         Args:
             metric_name: Name of metric to extract
             session_count: Number of sessions to analyze
 
         Returns:
-            List of values
+            List of values (oldest to newest)
         """
-        # TODO: Implement trend analysis
-        return []
+        sessions = self.load_sessions(session_count)
+        if not sessions:
+            return []
+
+        # Reverse to get oldest to newest for trend analysis
+        sessions = list(reversed(sessions))
+
+        values = []
+        for session in sessions:
+            if metric_name == "gold_per_hour":
+                values.append(session.get("gold_per_hour", 0))
+            elif metric_name == "deaths_per_hour":
+                duration_hours = session.get("duration_minutes", 0) / 60.0
+                deaths = session.get("deaths", 0)
+                deaths_per_hour = deaths / duration_hours if duration_hours > 0 else 0
+                values.append(deaths_per_hour)
+            elif metric_name == "avg_session_length":
+                values.append(session.get("duration_minutes", 0))
+            else:
+                # Unknown metric - try direct access
+                values.append(session.get(metric_name, 0))
+
+        return values
+
+    def get_best_areas(self, session_count=10):
+        """
+        Aggregate area performance across sessions and identify best areas.
+
+        Args:
+            session_count: Number of sessions to analyze
+
+        Returns:
+            List of dicts sorted by avg_gold_per_hour (highest first)
+            Format: [{"area": "Dragon Lair", "avg_gold_per_hour": 22500, "sessions": 5}, ...]
+        """
+        sessions = self.load_sessions(session_count)
+        if not sessions:
+            return []
+
+        # Aggregate area data across sessions
+        area_aggregates = {}
+
+        for session in sessions:
+            areas = session.get("areas_farmed", [])
+            for area_data in areas:
+                area_name = area_data.get("area", "Unknown")
+                gold = area_data.get("gold", 0)
+                time_spent = area_data.get("time", 0)
+
+                if area_name not in area_aggregates:
+                    area_aggregates[area_name] = {
+                        "total_gold": 0,
+                        "total_time": 0,
+                        "session_count": 0
+                    }
+
+                area_aggregates[area_name]["total_gold"] += gold
+                area_aggregates[area_name]["total_time"] += time_spent
+                area_aggregates[area_name]["session_count"] += 1
+
+        # Calculate averages and format results
+        results = []
+        for area_name, data in area_aggregates.items():
+            hours = data["total_time"] / 3600.0 if data["total_time"] > 0 else 0
+            avg_gold_per_hour = data["total_gold"] / hours if hours > 0 else 0
+
+            results.append({
+                "area": area_name,
+                "avg_gold_per_hour": avg_gold_per_hour,
+                "sessions": data["session_count"],
+                "total_gold": data["total_gold"],
+                "total_time_minutes": data["total_time"] / 60.0
+            })
+
+        # Sort by avg_gold_per_hour (highest first)
+        results.sort(key=lambda x: x["avg_gold_per_hour"], reverse=True)
+        return results
+
+    def get_most_dangerous_areas(self, session_count=10):
+        """
+        Aggregate flee events by area across sessions to identify dangerous areas.
+
+        Args:
+            session_count: Number of sessions to analyze
+
+        Returns:
+            List of dicts sorted by flee_rate (highest first)
+            Format: [{"area": "Dragon Lair", "flee_rate": 0.35, "total_flees": 12}, ...]
+        """
+        sessions = self.load_sessions(session_count)
+        if not sessions:
+            return []
+
+        # Aggregate flee data by area
+        area_danger = {}
+
+        for session in sessions:
+            areas = session.get("areas_farmed", [])
+            total_flees = session.get("flee_events", 0)
+
+            # If no area breakdown available, skip this session
+            if not areas:
+                continue
+
+            # Distribute flees proportionally by time spent in each area
+            # (This is an approximation since we don't have per-area flee counts)
+            total_time = sum(area.get("time", 0) for area in areas)
+
+            for area_data in areas:
+                area_name = area_data.get("area", "Unknown")
+                time_spent = area_data.get("time", 0)
+
+                if area_name not in area_danger:
+                    area_danger[area_name] = {
+                        "total_flees": 0,
+                        "total_time": 0,
+                        "visits": 0
+                    }
+
+                # Proportional flee attribution
+                if total_time > 0:
+                    area_flees = total_flees * (time_spent / total_time)
+                    area_danger[area_name]["total_flees"] += area_flees
+
+                area_danger[area_name]["total_time"] += time_spent
+                area_danger[area_name]["visits"] += 1
+
+        # Calculate flee rates
+        results = []
+        for area_name, data in area_danger.items():
+            hours = data["total_time"] / 3600.0 if data["total_time"] > 0 else 0
+            flee_rate = data["total_flees"] / hours if hours > 0 else 0
+
+            results.append({
+                "area": area_name,
+                "flee_rate": flee_rate,
+                "total_flees": int(data["total_flees"]),
+                "visits": data["visits"],
+                "total_time_hours": hours
+            })
+
+        # Sort by flee_rate (highest first)
+        results.sort(key=lambda x: x["flee_rate"], reverse=True)
+        return results
+
+    def export_sessions_csv(self, session_count=10):
+        """
+        Export sessions to CSV format for external analysis.
+
+        Args:
+            session_count: Number of sessions to export
+
+        Returns:
+            bool: True if export successful
+        """
+        import csv
+        import os
+
+        sessions = self.load_sessions(session_count)
+        if not sessions:
+            return False
+
+        csv_file = "logs/farming_sessions_export.csv"
+
+        try:
+            with open(csv_file, 'w', newline='') as f:
+                # Define CSV columns
+                fieldnames = [
+                    "session_id",
+                    "duration_minutes",
+                    "total_gold",
+                    "gold_per_hour",
+                    "kills",
+                    "deaths",
+                    "flee_events",
+                    "bandages_used",
+                    "vet_kits_used",
+                    "potions_used",
+                    "notes"
+                ]
+
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                # Write each session (reverse to get chronological order)
+                for session in reversed(sessions):
+                    supplies = session.get("supplies_used", {})
+
+                    row = {
+                        "session_id": session.get("session_id", ""),
+                        "duration_minutes": round(session.get("duration_minutes", 0), 2),
+                        "total_gold": session.get("total_gold", 0),
+                        "gold_per_hour": round(session.get("gold_per_hour", 0), 2),
+                        "kills": session.get("kills", 0),
+                        "deaths": session.get("deaths", 0),
+                        "flee_events": session.get("flee_events", 0),
+                        "bandages_used": supplies.get("bandages", 0),
+                        "vet_kits_used": supplies.get("vet_kits", 0),
+                        "potions_used": supplies.get("potions", 0),
+                        "notes": session.get("notes", "")
+                    }
+                    writer.writerow(row)
+
+            return True
+        except Exception:
+            return False
 
 # ============ ERROR RECOVERY SYSTEM ============
 
