@@ -121,6 +121,9 @@ recovery_system = None    # RecoverySystem instance
 pet_manager = None        # PetManager instance
 danger_at_flee = 0        # Danger score when flee was initiated
 
+# Supply tracking
+supply_tracker = None     # SupplyTracker instance
+
 # Healing tracking
 last_heal_time = 0
 last_vet_kit_time = 0
@@ -1713,6 +1716,8 @@ class RecoverySystem:
                         bandages = API.FindType(BANDAGE)
                         if bandages:
                             API.UseObject(bandages, False)
+                            if supply_tracker:
+                                supply_tracker.track_usage('bandages')
                             API.Pause(BANDAGE_DELAY)
                             continue
 
@@ -1737,6 +1742,8 @@ class RecoverySystem:
                                 API.PreTarget(pet_serial, "beneficial")
                                 API.Pause(0.1)
                                 API.UseObject(bandages, False)
+                                if supply_tracker:
+                                    supply_tracker.track_usage('bandages')
                                 API.Pause(VET_DELAY)
                                 API.CancelPreTarget()
                                 break
@@ -1800,6 +1807,8 @@ class RecoverySystem:
             API.PreTarget(pet_serial, "beneficial")
             API.Pause(0.1)
             API.UseObject(bandages, False)
+            if supply_tracker:
+                supply_tracker.track_usage('bandages')
             API.Pause(REZ_DELAY)
             API.CancelPreTarget()
 
@@ -2062,6 +2071,336 @@ class RecoverySystem:
         except Exception as e:
             API.SysMsg(f"Get pet status error: {str(e)}", 32)
             return {'tank_hp_percent': 100, 'any_pet_deaths': False, 'pet_count': 0}
+
+# ============ SUPPLY TRACKING SYSTEM ============
+
+class SupplyTracker:
+    """
+    Tracks supply consumption rates, predicts depletion, optimizes banking timing.
+    Monitors bandages and vet kits, calculates usage rates, and helps determine
+    optimal times to bank (combining gold dump + restocking).
+    """
+
+    def __init__(self, key_prefix):
+        """
+        Args:
+            key_prefix: Persistence key prefix for saving historical data
+        """
+        self.key_prefix = key_prefix
+        self.check_interval = 30.0  # Check supplies every 30 seconds
+        self.last_check_time = 0
+
+        # Tracked supplies
+        self.supplies = {
+            'bandages': {'graphic': 0x0E21, 'usage_history': [], 'last_count': 0},
+            'vet_kits': {'graphic': 0x0E50, 'usage_history': [], 'last_count': 0}
+        }
+
+        # Load historical data
+        self._load_history()
+
+    def _load_history(self):
+        """Load historical usage data from persistence"""
+        try:
+            for supply_name in self.supplies:
+                history_str = API.GetPersistentVar(
+                    self.key_prefix + f"Supply_{supply_name}_History",
+                    "",
+                    API.PersistentVar.Char
+                )
+                if history_str:
+                    # Format: "timestamp:count|timestamp:count|..."
+                    entries = [x for x in history_str.split("|") if x]
+                    history = []
+                    for entry in entries[-100:]:  # Keep last 100 entries
+                        parts = entry.split(":")
+                        if len(parts) == 2:
+                            try:
+                                timestamp = float(parts[0])
+                                count = int(parts[1])
+                                # Only keep entries from last 24 hours
+                                if time.time() - timestamp < 86400:
+                                    history.append({'timestamp': timestamp, 'count': count})
+                            except (ValueError, IndexError):
+                                pass
+                    self.supplies[supply_name]['usage_history'] = history
+
+        except Exception as e:
+            API.SysMsg(f"Load supply history error: {str(e)}", 32)
+
+    def _save_history(self):
+        """Save historical usage data to persistence"""
+        try:
+            for supply_name, data in self.supplies.items():
+                # Format: "timestamp:count|timestamp:count|..."
+                history = data['usage_history']
+                history_str = "|".join([f"{h['timestamp']}:{h['count']}" for h in history[-100:]])
+                API.SavePersistentVar(
+                    self.key_prefix + f"Supply_{supply_name}_History",
+                    history_str,
+                    API.PersistentVar.Char
+                )
+        except Exception as e:
+            API.SysMsg(f"Save supply history error: {str(e)}", 32)
+
+    def _count_supply(self, graphic):
+        """Count items of given graphic in player's backpack"""
+        try:
+            backpack = API.Player.Backpack
+            if not backpack:
+                return 0
+
+            count = 0
+            items = API.FindType(graphic, backpack.Serial)
+            if items:
+                for item in items:
+                    if item and hasattr(item, 'Amount'):
+                        count += item.Amount
+            return count
+        except Exception as e:
+            API.SysMsg(f"Count supply error: {str(e)}", 32)
+            return 0
+
+    def track_usage(self, supply_name):
+        """
+        Manually track usage of a supply (call when using bandage/vet kit).
+        This increments the usage counter and stores timestamp.
+
+        Args:
+            supply_name: Name of supply ('bandages' or 'vet_kits')
+        """
+        if supply_name not in self.supplies:
+            return
+
+        try:
+            current_count = self._count_supply(self.supplies[supply_name]['graphic'])
+            timestamp = time.time()
+
+            # Add to history
+            self.supplies[supply_name]['usage_history'].append({
+                'timestamp': timestamp,
+                'count': current_count
+            })
+
+            # Keep only last 24 hours
+            cutoff = timestamp - 86400
+            self.supplies[supply_name]['usage_history'] = [
+                h for h in self.supplies[supply_name]['usage_history']
+                if h['timestamp'] > cutoff
+            ]
+
+            # Save to persistence
+            self._save_history()
+
+        except Exception as e:
+            API.SysMsg(f"Track usage error: {str(e)}", 32)
+
+    def update_counts(self):
+        """
+        Automatically update supply counts periodically.
+        Call this in main loop to track consumption without manual tracking.
+        """
+        try:
+            current_time = time.time()
+            if current_time < self.last_check_time + self.check_interval:
+                return
+
+            self.last_check_time = current_time
+
+            for supply_name, data in self.supplies.items():
+                current_count = self._count_supply(data['graphic'])
+
+                # Only add to history if count changed
+                if current_count != data['last_count']:
+                    data['usage_history'].append({
+                        'timestamp': current_time,
+                        'count': current_count
+                    })
+
+                    # Keep only last 24 hours
+                    cutoff = current_time - 86400
+                    data['usage_history'] = [
+                        h for h in data['usage_history']
+                        if h['timestamp'] > cutoff
+                    ]
+
+                    data['last_count'] = current_count
+
+            # Save to persistence
+            self._save_history()
+
+        except Exception as e:
+            API.SysMsg(f"Update counts error: {str(e)}", 32)
+
+    def _calculate_usage_rate(self, supply_name, hours=1.0):
+        """
+        Calculate usage rate per hour from historical data.
+
+        Args:
+            supply_name: Name of supply
+            hours: Time window to calculate rate over (default 1 hour)
+
+        Returns:
+            Usage rate (items per hour), or 0 if insufficient data
+        """
+        if supply_name not in self.supplies:
+            return 0
+
+        try:
+            history = self.supplies[supply_name]['usage_history']
+            if len(history) < 2:
+                return 0  # Not enough data
+
+            current_time = time.time()
+            cutoff = current_time - (hours * 3600)
+
+            # Get entries within time window
+            recent = [h for h in history if h['timestamp'] > cutoff]
+            if len(recent) < 2:
+                return 0
+
+            # Calculate rate from first to last entry in window
+            time_span = recent[-1]['timestamp'] - recent[0]['timestamp']
+            if time_span < 60:  # Need at least 1 minute of data
+                return 0
+
+            count_change = recent[0]['count'] - recent[-1]['count']  # Consumed = decrease
+            if count_change <= 0:
+                return 0  # Count increased or no change
+
+            # Convert to per-hour rate
+            hours_span = time_span / 3600.0
+            rate = count_change / hours_span
+
+            return max(0, rate)
+
+        except Exception as e:
+            API.SysMsg(f"Calculate usage rate error: {str(e)}", 32)
+            return 0
+
+    def predict_depletion_time(self, supply_name):
+        """
+        Predict when supply will run out based on current count and usage rate.
+
+        Args:
+            supply_name: Name of supply
+
+        Returns:
+            Hours remaining until depletion, or -1 if cannot predict
+        """
+        if supply_name not in self.supplies:
+            return -1
+
+        try:
+            current_count = self._count_supply(self.supplies[supply_name]['graphic'])
+            if current_count == 0:
+                return 0  # Already out
+
+            usage_rate = self._calculate_usage_rate(supply_name, hours=1.0)
+            if usage_rate == 0:
+                return -1  # No usage data or not consuming
+
+            hours_remaining = current_count / usage_rate
+            return hours_remaining
+
+        except Exception as e:
+            API.SysMsg(f"Predict depletion error: {str(e)}", 32)
+            return -1
+
+    def should_prioritize_restock(self, critical_hours=1.0):
+        """
+        Check if any supply is running low and should prioritize restocking.
+
+        Args:
+            critical_hours: Hours remaining threshold for critical status
+
+        Returns:
+            True if any supply depleting within critical_hours
+        """
+        try:
+            for supply_name in self.supplies:
+                hours_remaining = self.predict_depletion_time(supply_name)
+                if hours_remaining >= 0 and hours_remaining < critical_hours:
+                    return True
+            return False
+        except Exception as e:
+            API.SysMsg(f"Check priority restock error: {str(e)}", 32)
+            return False
+
+    def get_supply_status(self):
+        """
+        Get detailed status for all tracked supplies.
+
+        Returns:
+            Dict mapping supply_name -> {count, rate, hours_remaining, status}
+            Status: "good" (>2hr), "low" (1-2hr), "critical" (<1hr), "out" (0)
+        """
+        status = {}
+        try:
+            for supply_name in self.supplies:
+                count = self._count_supply(self.supplies[supply_name]['graphic'])
+                rate = self._calculate_usage_rate(supply_name, hours=1.0)
+                hours_remaining = self.predict_depletion_time(supply_name)
+
+                # Determine status
+                if count == 0:
+                    supply_status = "out"
+                elif hours_remaining < 0:
+                    supply_status = "unknown"
+                elif hours_remaining < 1.0:
+                    supply_status = "critical"
+                elif hours_remaining < 2.0:
+                    supply_status = "low"
+                else:
+                    supply_status = "good"
+
+                status[supply_name] = {
+                    'count': count,
+                    'rate': rate,
+                    'hours_remaining': hours_remaining,
+                    'status': supply_status
+                }
+
+            return status
+
+        except Exception as e:
+            API.SysMsg(f"Get supply status error: {str(e)}", 32)
+            return {}
+
+    def optimize_bank_timing(self, gold_current, gold_threshold, weight_percent):
+        """
+        Suggest optimal time to bank by combining triggers.
+        Returns True if should bank now to combine gold dump + restocking.
+
+        Args:
+            gold_current: Current gold amount
+            gold_threshold: Gold trigger threshold
+            weight_percent: Current weight as percentage of max
+
+        Returns:
+            True if should bank now to optimize trip
+        """
+        try:
+            # Check if restocking is prioritized
+            need_restock = self.should_prioritize_restock(critical_hours=1.0)
+
+            # Check if gold is close to threshold (within 20%)
+            gold_close = gold_current >= (gold_threshold * 0.8)
+
+            # Check if weight is high (>70%)
+            weight_high = weight_percent > 70
+
+            # Suggest banking if:
+            # 1. Need restock AND (gold close OR weight high)
+            # 2. This combines multiple trips into one
+            if need_restock and (gold_close or weight_high):
+                return True
+
+            return False
+
+        except Exception as e:
+            API.SysMsg(f"Optimize bank timing error: {str(e)}", 32)
+            return False
 
 # ============ BANKING TRIGGER SYSTEM ============
 
@@ -2965,6 +3304,7 @@ try:
     npc_threat_map = NPCThreatMap()
     flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
     recovery_system = RecoverySystem(pet_manager, area_manager, KEY_PREFIX)
+    supply_tracker = SupplyTracker(KEY_PREFIX)
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
@@ -2989,6 +3329,10 @@ try:
         if script_paused:
             API.Pause(0.2)
             continue
+
+        # Update supply tracking (every 30s automatically)
+        if supply_tracker:
+            supply_tracker.update_counts()
 
         # State machine dispatcher
         if STATE == "idle":
