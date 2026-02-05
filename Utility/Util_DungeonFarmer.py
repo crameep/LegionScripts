@@ -26,6 +26,11 @@ BANDAGE_GRAPHIC = 0x0E21
 BANDAGE_COOLDOWN = 10.0  # Seconds between bandages per target
 HEAL_RANGE = 2  # Tiles
 
+# Timing constants for healing actions
+BANDAGE_DELAY = 4.5  # Seconds for bandage to complete
+VETKIT_DELAY = 5.0   # Seconds for vet kit to complete
+CURE_DELAY = 2.5     # Seconds for cure spell to complete
+
 # ========== PET MANAGER CLASS ==========
 class PetManager:
     """Handles pet detection, tracking, and tank designation"""
@@ -157,6 +162,18 @@ class HealingSystem:
         self.vet_kit_critical_hp = 50
         self.last_vetkit_use = 0
         self.out_of_vetkit_warned = False
+
+        # Healing state tracking
+        self.STATE = "idle"  # idle, healing
+        self.heal_start_time = 0
+        self.current_heal_target = 0
+        self.current_heal_type = ""
+        self.out_of_bandages_warned = False
+
+        # Statistics tracking
+        self.bandages_used = 0
+        self.vetkits_used = 0
+        self.cures_cast = 0
 
     def can_bandage(self, target_serial):
         """Check if target's bandage cooldown has expired"""
@@ -327,6 +344,159 @@ class HealingSystem:
         # Nothing needs healing
         return None
 
+    def execute_heal(self, target_serial, action_type, is_self):
+        """
+        Execute a healing action.
+
+        Args:
+            target_serial: Serial of target (0 for vetkit AOE)
+            action_type: "bandage_self", "bandage_pet", "vetkit", or "cure"
+            is_self: True if healing self, False otherwise
+
+        Returns:
+            True if action started successfully, False otherwise
+        """
+        try:
+            # Handle bandage_self
+            if action_type == "bandage_self":
+                bandage = API.FindType(BANDAGE_GRAPHIC)
+                if not bandage:
+                    if not self.out_of_bandages_warned:
+                        API.SysMsg("Out of bandages!", 32)
+                        self.out_of_bandages_warned = True
+                    return False
+                else:
+                    self.out_of_bandages_warned = False
+
+                # Use bandage on self
+                API.UseObject(bandage.Serial, False)
+                self.STATE = "healing"
+                self.heal_start_time = time.time()
+                self.current_heal_target = target_serial
+                self.current_heal_type = action_type
+                self.track_bandage_cooldown(target_serial)
+                self.bandages_used += 1
+                return True
+
+            # Handle bandage_pet
+            elif action_type == "bandage_pet":
+                bandage = API.FindType(BANDAGE_GRAPHIC)
+                if not bandage:
+                    if not self.out_of_bandages_warned:
+                        API.SysMsg("Out of bandages!", 32)
+                        self.out_of_bandages_warned = True
+                    return False
+                else:
+                    self.out_of_bandages_warned = False
+
+                # Check if target is in range
+                target_mob = API.Mobiles.FindMobile(target_serial)
+                if not target_mob or target_mob.IsDead or not self._is_in_range(target_mob):
+                    return False
+
+                # Cancel any existing targets
+                if API.HasTarget():
+                    API.CancelTarget()
+                API.CancelPreTarget()
+
+                # Setup and execute targeting
+                API.PreTarget(target_serial, "beneficial")
+                API.Pause(0.1)
+                API.UseObject(bandage.Serial, False)
+                API.Pause(0.1)
+                API.CancelPreTarget()
+
+                self.STATE = "healing"
+                self.heal_start_time = time.time()
+                self.current_heal_target = target_serial
+                self.current_heal_type = action_type
+                self.track_bandage_cooldown(target_serial)
+                self.bandages_used += 1
+                return True
+
+            # Handle vetkit
+            elif action_type == "vetkit":
+                if self.use_vetkit():
+                    self.STATE = "healing"
+                    self.heal_start_time = time.time()
+                    self.current_heal_target = 0
+                    self.current_heal_type = action_type
+                    self.vetkits_used += 1
+                    return True
+                return False
+
+            # Handle cure (poison cure for pets)
+            elif action_type == "cure":
+                # For now, use bandages on poisoned pets
+                # Full magery cure spell will be added later
+                bandage = API.FindType(BANDAGE_GRAPHIC)
+                if not bandage:
+                    if not self.out_of_bandages_warned:
+                        API.SysMsg("Out of bandages!", 32)
+                        self.out_of_bandages_warned = True
+                    return False
+                else:
+                    self.out_of_bandages_warned = False
+
+                # Check if target is in range
+                target_mob = API.Mobiles.FindMobile(target_serial)
+                if not target_mob or target_mob.IsDead or not self._is_in_range(target_mob):
+                    return False
+
+                # Cancel any existing targets
+                if API.HasTarget():
+                    API.CancelTarget()
+                API.CancelPreTarget()
+
+                # Setup and execute targeting
+                API.PreTarget(target_serial, "beneficial")
+                API.Pause(0.1)
+                API.UseObject(bandage.Serial, False)
+                API.Pause(0.1)
+                API.CancelPreTarget()
+
+                self.STATE = "healing"
+                self.heal_start_time = time.time()
+                self.current_heal_target = target_serial
+                self.current_heal_type = action_type
+                self.track_bandage_cooldown(target_serial)
+                self.cures_cast += 1
+                self.bandages_used += 1
+                return True
+
+            return False
+
+        except Exception as e:
+            API.SysMsg("execute_heal error: " + str(e), 32)
+            self.STATE = "idle"
+            return False
+
+    def check_heal_complete(self):
+        """
+        Check if current healing action has completed.
+
+        Returns:
+            True if healing is complete or no healing in progress
+        """
+        if self.STATE != "healing":
+            return True
+
+        # Determine delay based on heal type
+        delay = BANDAGE_DELAY
+        if self.current_heal_type == "vetkit":
+            delay = VETKIT_DELAY
+        elif self.current_heal_type == "cure":
+            delay = CURE_DELAY
+
+        # Check if enough time has passed
+        if time.time() > self.heal_start_time + delay:
+            self.STATE = "idle"
+            self.current_heal_target = 0
+            self.current_heal_type = ""
+            return True
+
+        return False
+
     def set_vetkit_graphic(self, graphic):
         """Set vet kit graphic and save to persistence"""
         self.vet_kit_graphic = graphic
@@ -395,14 +565,33 @@ def test_healing_system():
     pet_count = pet_manager.scan_pets()
     API.SysMsg("Found " + str(pet_count) + " pets", 68)
 
-    # Check for heal action
+    # Test 1: Check for heal action
     heal_action = healing_system.get_next_heal_action()
     if heal_action:
         target_serial, action_type, is_self = heal_action
         target_str = "self" if is_self else "pet #" + str(target_serial)
         API.SysMsg("Next heal: " + action_type + " on " + target_str, 43)
+
+        # Test 2: Execute the heal action
+        if healing_system.execute_heal(target_serial, action_type, is_self):
+            API.SysMsg("Heal action started successfully", 68)
+            API.SysMsg("STATE: " + healing_system.STATE, 43)
+
+            # Test 3: Wait and check completion
+            API.Pause(1.0)
+            if healing_system.check_heal_complete():
+                API.SysMsg("Heal completed (or still in progress)", 68)
+            else:
+                API.SysMsg("Heal still in progress", 43)
+        else:
+            API.SysMsg("Failed to start heal action", 32)
     else:
         API.SysMsg("No healing needed", 68)
+
+    # Test 4: Display statistics
+    API.SysMsg("Stats - Bandages: " + str(healing_system.bandages_used) +
+               " VetKits: " + str(healing_system.vetkits_used) +
+               " Cures: " + str(healing_system.cures_cast), 43)
 
     API.SysMsg("HealingSystem test complete", 68)
 
