@@ -549,9 +549,434 @@ class HealingSystem:
         return "ready"
 
 
+# ========== SAFE SPOT CLASS ==========
+class SafeSpot:
+    """Represents a safe spot location with escape method"""
+
+    def __init__(self, x, y, escape_method="direct_recall", gump_id=0, button_id=0, is_primary=True):
+        """
+        Initialize a safe spot.
+
+        Args:
+            x, y: Coordinates of the safe spot
+            escape_method: "direct_recall", "gump_gate", "timer_gate", or "run_outside"
+            gump_id: Gump ID if using gump_gate method
+            button_id: Button ID if using gump_gate method
+            is_primary: True for primary safe spot, False for backup
+        """
+        self.x = x
+        self.y = y
+        self.escape_method = escape_method
+        self.gump_id = gump_id
+        self.button_id = button_id
+        self.is_primary = is_primary
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            "x": self.x,
+            "y": self.y,
+            "escape_method": self.escape_method,
+            "gump_id": self.gump_id,
+            "button_id": self.button_id,
+            "is_primary": self.is_primary
+        }
+
+    @staticmethod
+    def from_dict(data):
+        """Create SafeSpot from dictionary"""
+        return SafeSpot(
+            x=data.get("x", 0),
+            y=data.get("y", 0),
+            escape_method=data.get("escape_method", "direct_recall"),
+            gump_id=data.get("gump_id", 0),
+            button_id=data.get("button_id", 0),
+            is_primary=data.get("is_primary", True)
+        )
+
+    def get_distance_to(self, x, y):
+        """Calculate distance from this safe spot to given coordinates"""
+        import math
+        return math.sqrt((self.x - x) ** 2 + (self.y - y) ** 2)
+
+
+# ========== FARMING AREA CLASS ==========
+class FarmingArea:
+    """Represents a farming area with configuration"""
+
+    def __init__(self, name, area_type="circle"):
+        """
+        Initialize a farming area.
+
+        Args:
+            name: Unique name for this area
+            area_type: "circle" or "waypoints"
+        """
+        self.name = name
+        self.area_type = area_type
+
+        # Circle area properties
+        self.center_x = 0
+        self.center_y = 0
+        self.radius = 0
+
+        # Waypoint area properties
+        self.waypoints = []  # List of (x, y) tuples
+
+        # Area configuration
+        self.difficulty = "medium"  # "low", "medium", "high"
+        self.safe_spots = []  # List of SafeSpot objects
+        self.loot_filter = []  # List of graphic IDs to collect
+        self.notes = ""
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            "name": self.name,
+            "area_type": self.area_type,
+            "center_x": self.center_x,
+            "center_y": self.center_y,
+            "radius": self.radius,
+            "waypoints": self.waypoints,
+            "difficulty": self.difficulty,
+            "safe_spots": [spot.to_dict() for spot in self.safe_spots],
+            "loot_filter": self.loot_filter,
+            "notes": self.notes
+        }
+
+    @staticmethod
+    def from_dict(data):
+        """Create FarmingArea from dictionary"""
+        area = FarmingArea(
+            name=data.get("name", "Unnamed"),
+            area_type=data.get("area_type", "circle")
+        )
+
+        area.center_x = data.get("center_x", 0)
+        area.center_y = data.get("center_y", 0)
+        area.radius = data.get("radius", 0)
+        area.waypoints = [tuple(wp) for wp in data.get("waypoints", [])]
+        area.difficulty = data.get("difficulty", "medium")
+        area.safe_spots = [SafeSpot.from_dict(spot) for spot in data.get("safe_spots", [])]
+        area.loot_filter = data.get("loot_filter", [])
+        area.notes = data.get("notes", "")
+
+        return area
+
+    def is_in_area(self, x, y):
+        """Check if coordinates are within this farming area"""
+        import math
+
+        if self.area_type == "circle":
+            # Calculate distance from center
+            distance = math.sqrt((x - self.center_x) ** 2 + (y - self.center_y) ** 2)
+            return distance <= self.radius
+
+        elif self.area_type == "waypoints":
+            # For waypoint-based areas, check if within reasonable distance of any waypoint
+            # Use radius of 15 tiles from any waypoint
+            for wp_x, wp_y in self.waypoints:
+                distance = math.sqrt((x - wp_x) ** 2 + (y - wp_y) ** 2)
+                if distance <= 15:
+                    return True
+            return False
+
+        return False
+
+    def get_nearest_safe_spot(self, x, y):
+        """Get the nearest safe spot to given coordinates"""
+        if not self.safe_spots:
+            return None
+
+        nearest = None
+        min_distance = float('inf')
+
+        for spot in self.safe_spots:
+            distance = spot.get_distance_to(x, y)
+            if distance < min_distance:
+                min_distance = distance
+                nearest = spot
+
+        return nearest
+
+    def get_primary_safe_spot(self):
+        """Get the primary safe spot, or first safe spot if no primary marked"""
+        for spot in self.safe_spots:
+            if spot.is_primary:
+                return spot
+
+        # Return first spot if no primary
+        return self.safe_spots[0] if self.safe_spots else None
+
+
+# ========== AREA MANAGER CLASS ==========
+class AreaManager:
+    """Manages farming areas with persistence"""
+
+    def __init__(self):
+        self.areas = {}  # Cache: {name: FarmingArea}
+        self._load_area_list()
+
+    def _load_area_list(self):
+        """Load list of area names from persistence"""
+        area_list_str = API.GetPersistentVar(KEY_PREFIX + "AreaList", "", API.PersistentVar.Char)
+        if area_list_str:
+            area_names = [name.strip() for name in area_list_str.split("|") if name.strip()]
+            for name in area_names:
+                # Load each area into cache
+                self._load_area_from_persistence(name)
+
+    def _save_area_list(self):
+        """Save list of area names to persistence"""
+        area_names = list(self.areas.keys())
+        area_list_str = "|".join(area_names)
+        API.SavePersistentVar(KEY_PREFIX + "AreaList", area_list_str, API.PersistentVar.Char)
+
+    def _load_area_from_persistence(self, name):
+        """Load a specific area from persistence into cache"""
+        import json
+
+        key = KEY_PREFIX + "Area_" + name
+        json_str = API.GetPersistentVar(key, "", API.PersistentVar.Char)
+
+        if json_str:
+            try:
+                data = json.loads(json_str)
+                area = FarmingArea.from_dict(data)
+                self.areas[name] = area
+                return area
+            except Exception as e:
+                API.SysMsg("Error loading area " + name + ": " + str(e), 32)
+                return None
+
+        return None
+
+    def add_area(self, area):
+        """
+        Add or update a farming area.
+
+        Args:
+            area: FarmingArea object to save
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        import json
+
+        try:
+            # Add to cache
+            self.areas[area.name] = area
+
+            # Serialize to JSON
+            json_str = json.dumps(area.to_dict())
+
+            # Save to persistence
+            key = KEY_PREFIX + "Area_" + area.name
+            API.SavePersistentVar(key, json_str, API.PersistentVar.Char)
+
+            # Update area list
+            self._save_area_list()
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("Error saving area: " + str(e), 32)
+            return False
+
+    def get_area(self, name):
+        """
+        Retrieve a farming area by name.
+
+        Args:
+            name: Area name
+
+        Returns:
+            FarmingArea object or None if not found
+        """
+        # Check cache first
+        if name in self.areas:
+            return self.areas[name]
+
+        # Try loading from persistence
+        return self._load_area_from_persistence(name)
+
+    def list_areas(self):
+        """
+        Get list of all area names.
+
+        Returns:
+            List of area name strings
+        """
+        return list(self.areas.keys())
+
+    def delete_area(self, name):
+        """
+        Delete a farming area.
+
+        Args:
+            name: Area name to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        if name not in self.areas:
+            return False
+
+        try:
+            # Remove from cache
+            del self.areas[name]
+
+            # Remove from persistence
+            key = KEY_PREFIX + "Area_" + name
+            API.SavePersistentVar(key, "", API.PersistentVar.Char)
+
+            # Update area list
+            self._save_area_list()
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("Error deleting area: " + str(e), 32)
+            return False
+
+    def get_current_area(self):
+        """
+        Get the farming area player is currently in (by proximity).
+
+        Returns:
+            FarmingArea object or None if not in any area
+        """
+        player_x = getattr(API.Player, 'X', 0)
+        player_y = getattr(API.Player, 'Y', 0)
+
+        for area in self.areas.values():
+            if area.is_in_area(player_x, player_y):
+                return area
+
+        return None
+
+    def get_area_count(self):
+        """Get total number of configured areas"""
+        return len(self.areas)
+
+
 # ========== MAIN SCRIPT ==========
-# NOTE: This is a foundational implementation for the HealingSystem class.
+# NOTE: This is a foundational implementation for the core classes.
 # The full dungeon farming script will be built up in subsequent tasks.
+
+def test_farming_areas():
+    """Test function to verify FarmingArea and AreaManager work correctly"""
+    API.SysMsg("Testing FarmingArea System...", 68)
+
+    try:
+        # Test 1: Create AreaManager
+        area_manager = AreaManager()
+        API.SysMsg("AreaManager initialized", 68)
+
+        # Test 2: Create a circle-based farming area
+        orc_fort = FarmingArea("Orc Fort", "circle")
+        orc_fort.center_x = 1000
+        orc_fort.center_y = 1000
+        orc_fort.radius = 15
+        orc_fort.difficulty = "low"
+        orc_fort.loot_filter = [0x0EED]  # Gold
+        orc_fort.notes = "Low risk orc farming spot"
+
+        # Add safe spot with direct recall
+        safe_spot = SafeSpot(x=995, y=995, escape_method="direct_recall", is_primary=True)
+        orc_fort.safe_spots.append(safe_spot)
+
+        # Test 3: Save area to persistence
+        if area_manager.add_area(orc_fort):
+            API.SysMsg("Saved 'Orc Fort' area", 68)
+        else:
+            API.SysMsg("Failed to save area", 32)
+            return
+
+        # Test 4: Create a waypoint-based farming area
+        dungeon_path = FarmingArea("Dungeon Path", "waypoints")
+        dungeon_path.waypoints = [(1100, 1100), (1110, 1105), (1120, 1110)]
+        dungeon_path.difficulty = "medium"
+        dungeon_path.loot_filter = [0x0EED, 0x0F0E]  # Gold + gems
+        dungeon_path.notes = "Medium risk dungeon route"
+
+        # Add safe spot with gump gate
+        safe_gate = SafeSpot(x=1095, y=1095, escape_method="gump_gate", gump_id=89, button_id=10, is_primary=True)
+        dungeon_path.safe_spots.append(safe_gate)
+
+        # Add backup safe spot
+        backup_spot = SafeSpot(x=1090, y=1090, escape_method="run_outside", is_primary=False)
+        dungeon_path.safe_spots.append(backup_spot)
+
+        # Test 5: Save second area
+        if area_manager.add_area(dungeon_path):
+            API.SysMsg("Saved 'Dungeon Path' area", 68)
+        else:
+            API.SysMsg("Failed to save second area", 32)
+            return
+
+        # Test 6: List all areas
+        area_list = area_manager.list_areas()
+        API.SysMsg("Total areas: " + str(len(area_list)), 43)
+        for area_name in area_list:
+            API.SysMsg("  - " + area_name, 43)
+
+        # Test 7: Retrieve and verify an area
+        retrieved_area = area_manager.get_area("Orc Fort")
+        if retrieved_area:
+            API.SysMsg("Retrieved 'Orc Fort':", 68)
+            API.SysMsg("  Type: " + retrieved_area.area_type, 43)
+            API.SysMsg("  Center: (" + str(retrieved_area.center_x) + ", " + str(retrieved_area.center_y) + ")", 43)
+            API.SysMsg("  Radius: " + str(retrieved_area.radius), 43)
+            API.SysMsg("  Difficulty: " + retrieved_area.difficulty, 43)
+            API.SysMsg("  Safe spots: " + str(len(retrieved_area.safe_spots)), 43)
+            API.SysMsg("  Notes: " + retrieved_area.notes, 43)
+        else:
+            API.SysMsg("Failed to retrieve area", 32)
+            return
+
+        # Test 8: Test is_in_area
+        if retrieved_area.is_in_area(1005, 1005):
+            API.SysMsg("Position (1005, 1005) is IN area (correct)", 68)
+        else:
+            API.SysMsg("Position (1005, 1005) NOT in area (error)", 32)
+
+        if not retrieved_area.is_in_area(2000, 2000):
+            API.SysMsg("Position (2000, 2000) is NOT in area (correct)", 68)
+        else:
+            API.SysMsg("Position (2000, 2000) in area (error)", 32)
+
+        # Test 9: Test safe spot retrieval
+        primary_spot = retrieved_area.get_primary_safe_spot()
+        if primary_spot:
+            API.SysMsg("Primary safe spot: (" + str(primary_spot.x) + ", " + str(primary_spot.y) + ")", 68)
+            API.SysMsg("  Escape method: " + primary_spot.escape_method, 43)
+
+        nearest_spot = retrieved_area.get_nearest_safe_spot(1000, 1000)
+        if nearest_spot:
+            API.SysMsg("Nearest safe spot: (" + str(nearest_spot.x) + ", " + str(nearest_spot.y) + ")", 68)
+
+        # Test 10: Test waypoint area
+        waypoint_area = area_manager.get_area("Dungeon Path")
+        if waypoint_area:
+            API.SysMsg("Retrieved 'Dungeon Path':", 68)
+            API.SysMsg("  Type: " + waypoint_area.area_type, 43)
+            API.SysMsg("  Waypoints: " + str(len(waypoint_area.waypoints)), 43)
+            for i, wp in enumerate(waypoint_area.waypoints):
+                API.SysMsg("    WP" + str(i + 1) + ": " + str(wp), 43)
+
+        # Test 11: Delete an area
+        if area_manager.delete_area("Orc Fort"):
+            API.SysMsg("Deleted 'Orc Fort'", 68)
+            remaining = area_manager.list_areas()
+            API.SysMsg("Remaining areas: " + str(len(remaining)), 43)
+        else:
+            API.SysMsg("Failed to delete area", 32)
+
+        API.SysMsg("FarmingArea System test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
 
 def test_healing_system():
     """Simple test function to verify HealingSystem works"""
@@ -595,8 +1020,9 @@ def test_healing_system():
 
     API.SysMsg("HealingSystem test complete", 68)
 
-# Run test if script is loaded
+# Run tests if script is loaded
 # Uncomment to test:
+# test_farming_areas()
 # test_healing_system()
 
-API.SysMsg("Dungeon Farmer loaded (HealingSystem v1.0)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem v1.1)", 68)
