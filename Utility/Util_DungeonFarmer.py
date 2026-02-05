@@ -1060,6 +1060,509 @@ class NPCThreatMap:
         self.npc_positions = []
 
 
+# ========== DANGER ASSESSMENT CLASS ==========
+class DangerAssessment:
+    """Evaluates threat level based on multiple factors"""
+
+    def __init__(self, pet_manager):
+        """
+        Initialize danger assessment system.
+
+        Args:
+            pet_manager: PetManager instance for pet HP tracking
+        """
+        self.pet_manager = pet_manager
+
+        # Configurable weights for danger factors (default values)
+        self.weights = {
+            "player_hp": 40,        # Weight for player HP (0-50)
+            "tank_pet_hp": 25,      # Weight for tank pet HP (0-50)
+            "enemy_count": 15,      # Weight per enemy (5-30)
+            "nearby_npcs": 5,       # Weight per nearby NPC (0-20)
+            "damage_rate": 20       # Weight for damage rate (0-30)
+        }
+
+        # Danger zone thresholds
+        self.thresholds = {
+            "safe": 30,         # 0-30 = safe
+            "elevated": 50,     # 31-50 = elevated
+            "high": 70          # 51-70 = high, 71+ = critical
+        }
+
+        # Danger history tracking (last 10 readings)
+        self.danger_history = []
+        self.max_history_size = 10
+
+        # Damage rate tracking
+        self.last_player_hp = 0
+        self.last_hp_check_time = 0
+        self.recent_damage = []  # List of (damage, time) tuples
+
+    def configure_weights(self, player_hp=None, tank_pet_hp=None, enemy_count=None, nearby_npcs=None, damage_rate=None):
+        """Update danger calculation weights"""
+        if player_hp is not None:
+            self.weights["player_hp"] = player_hp
+        if tank_pet_hp is not None:
+            self.weights["tank_pet_hp"] = tank_pet_hp
+        if enemy_count is not None:
+            self.weights["enemy_count"] = enemy_count
+        if nearby_npcs is not None:
+            self.weights["nearby_npcs"] = nearby_npcs
+        if damage_rate is not None:
+            self.weights["damage_rate"] = damage_rate
+
+    def configure_thresholds(self, safe=None, elevated=None, high=None):
+        """Update danger zone thresholds"""
+        if safe is not None:
+            self.thresholds["safe"] = safe
+        if elevated is not None:
+            self.thresholds["elevated"] = elevated
+        if high is not None:
+            self.thresholds["high"] = high
+
+    def _get_player_danger(self):
+        """Calculate danger from player HP"""
+        try:
+            player_hp_pct = (API.Player.Hits / API.Player.HitsMax) if API.Player.HitsMax > 0 else 1.0
+            danger = self.weights["player_hp"] * (1.0 - player_hp_pct)
+            return danger
+        except:
+            return 0
+
+    def _get_tank_pet_danger(self):
+        """Calculate danger from tank pet HP"""
+        try:
+            tank_pet = self.pet_manager.get_tank_pet()
+            if tank_pet is None:
+                return 0
+
+            tank_mob = API.Mobiles.FindMobile(tank_pet["serial"])
+            if tank_mob is None:
+                return 0
+
+            if tank_mob.IsDead:
+                return self.weights["tank_pet_hp"] + 50  # Extra danger if tank dead
+
+            tank_hp_pct = (tank_mob.Hits / tank_mob.HitsMax) if tank_mob.HitsMax > 0 else 1.0
+            danger = self.weights["tank_pet_hp"] * (1.0 - tank_hp_pct)
+            return danger
+        except:
+            return 0
+
+    def _get_enemy_danger(self, enemy_count):
+        """Calculate danger from nearby enemy count"""
+        return enemy_count * self.weights["enemy_count"]
+
+    def _get_npc_danger(self, npc_count):
+        """Calculate danger from nearby NPC count"""
+        return npc_count * self.weights["nearby_npcs"]
+
+    def _get_damage_danger(self):
+        """Calculate danger from recent damage rate"""
+        try:
+            current_time = time.time()
+
+            # Track player HP changes
+            current_hp = API.Player.Hits
+            if self.last_player_hp > 0 and current_hp < self.last_player_hp:
+                damage = self.last_player_hp - current_hp
+                self.recent_damage.append((damage, current_time))
+
+            self.last_player_hp = current_hp
+            self.last_hp_check_time = current_time
+
+            # Remove damage events older than 3 seconds
+            self.recent_damage = [(dmg, t) for dmg, t in self.recent_damage if current_time - t <= 3.0]
+
+            # Calculate damage rate (total damage in last 3 seconds)
+            total_damage = sum(dmg for dmg, _ in self.recent_damage)
+
+            # Normalize damage rate (assume 100 HP = full danger weight)
+            max_hp = API.Player.HitsMax if API.Player.HitsMax > 0 else 100
+            damage_ratio = min(1.0, total_damage / max_hp)
+
+            return self.weights["damage_rate"] * damage_ratio
+
+        except:
+            return 0
+
+    def _get_positioning_danger(self):
+        """Calculate danger from pet positioning (too far from player)"""
+        try:
+            tank_pet = self.pet_manager.get_tank_pet()
+            if tank_pet is None:
+                return 0
+
+            tank_mob = API.Mobiles.FindMobile(tank_pet["serial"])
+            if tank_mob is None or tank_mob.IsDead:
+                return 0
+
+            # Add danger if tank pet is more than 5 tiles away
+            distance = tank_mob.Distance
+            if distance > 5:
+                return min(15, (distance - 5) * 3)  # Up to 15 extra danger
+
+            return 0
+        except:
+            return 0
+
+    def calculate_danger(self, enemy_count=0, npc_count=0):
+        """
+        Calculate overall danger score from all factors.
+
+        Args:
+            enemy_count: Number of hostile enemies nearby
+            npc_count: Number of non-hostile NPCs nearby
+
+        Returns:
+            Danger score (0-100)
+        """
+        try:
+            # Calculate individual danger factors
+            player_danger = self._get_player_danger()
+            tank_danger = self._get_tank_pet_danger()
+            enemy_danger = self._get_enemy_danger(enemy_count)
+            npc_danger = self._get_npc_danger(npc_count)
+            damage_danger = self._get_damage_danger()
+            positioning_danger = self._get_positioning_danger()
+
+            # Sum all factors
+            total_danger = (
+                player_danger +
+                tank_danger +
+                enemy_danger +
+                npc_danger +
+                damage_danger +
+                positioning_danger
+            )
+
+            # Clamp to 0-100
+            total_danger = max(0, min(100, total_danger))
+
+            # Track in history
+            self.danger_history.append(total_danger)
+            if len(self.danger_history) > self.max_history_size:
+                self.danger_history.pop(0)
+
+            return total_danger
+
+        except Exception as e:
+            API.SysMsg("DangerAssessment.calculate_danger error: " + str(e), 32)
+            return 0
+
+    def get_danger_zone(self, danger_score=None):
+        """
+        Get danger zone name for a danger score.
+
+        Args:
+            danger_score: Optional danger score (uses last calculated if None)
+
+        Returns:
+            "safe", "elevated", "high", or "critical"
+        """
+        if danger_score is None:
+            if not self.danger_history:
+                return "safe"
+            danger_score = self.danger_history[-1]
+
+        if danger_score <= self.thresholds["safe"]:
+            return "safe"
+        elif danger_score <= self.thresholds["elevated"]:
+            return "elevated"
+        elif danger_score <= self.thresholds["high"]:
+            return "high"
+        else:
+            return "critical"
+
+    def get_danger_trend(self):
+        """
+        Analyze danger trend from recent history.
+
+        Returns:
+            "rising", "falling", or "stable"
+        """
+        if len(self.danger_history) < 3:
+            return "stable"
+
+        # Compare last 3 readings to previous 3
+        recent_avg = sum(self.danger_history[-3:]) / 3
+        previous_avg = sum(self.danger_history[-6:-3]) / 3 if len(self.danger_history) >= 6 else recent_avg
+
+        diff = recent_avg - previous_avg
+
+        if diff > 5:
+            return "rising"
+        elif diff < -5:
+            return "falling"
+        else:
+            return "stable"
+
+    def get_current_danger(self):
+        """Get most recent danger score"""
+        return self.danger_history[-1] if self.danger_history else 0
+
+    def reset_damage_tracking(self):
+        """Reset damage rate tracking"""
+        self.recent_damage = []
+        self.last_player_hp = API.Player.Hits
+        self.last_hp_check_time = time.time()
+
+
+# ========== COMBAT MANAGER CLASS ==========
+class CombatManager:
+    """Handles enemy detection, engagement decisions, and combat monitoring"""
+
+    def __init__(self, danger_assessment, npc_threat_map, pet_manager):
+        """
+        Initialize combat manager.
+
+        Args:
+            danger_assessment: DangerAssessment instance
+            npc_threat_map: NPCThreatMap instance
+            pet_manager: PetManager instance
+        """
+        self.danger_assessment = danger_assessment
+        self.npc_threat_map = npc_threat_map
+        self.pet_manager = pet_manager
+
+        # Configurable engagement settings
+        self.enemy_scan_range = 10
+        self.max_danger_to_engage = 50
+        self.max_nearby_hostiles = 1
+        self.npc_proximity_radius = 6
+        self.max_npcs_near_target = 2
+        self.min_tank_hp_to_engage = 60  # Percentage
+
+        # Engagement state
+        self.engaged_enemy_serial = 0
+        self.combat_start_time = 0
+
+        # Settings for enemy types to engage
+        self.attack_reds = True      # Notoriety 5
+        self.attack_grays = False    # Notoriety 6
+
+    def configure_engagement(self, scan_range=None, max_danger=None, max_hostiles=None,
+                           proximity_radius=None, max_npcs=None, min_tank_hp=None):
+        """Update engagement configuration"""
+        if scan_range is not None:
+            self.enemy_scan_range = scan_range
+        if max_danger is not None:
+            self.max_danger_to_engage = max_danger
+        if max_hostiles is not None:
+            self.max_nearby_hostiles = max_hostiles
+        if proximity_radius is not None:
+            self.npc_proximity_radius = proximity_radius
+        if max_npcs is not None:
+            self.max_npcs_near_target = max_npcs
+        if min_tank_hp is not None:
+            self.min_tank_hp_to_engage = min_tank_hp
+
+    def configure_enemy_types(self, attack_reds=None, attack_grays=None):
+        """Configure which enemy types to attack"""
+        if attack_reds is not None:
+            self.attack_reds = attack_reds
+        if attack_grays is not None:
+            self.attack_grays = attack_grays
+
+    def scan_for_enemies(self, scan_range=None):
+        """
+        Scan for hostile enemies within range.
+
+        Args:
+            scan_range: Optional override for scan range (uses default if None)
+
+        Returns:
+            List of enemy serials sorted by distance (closest first)
+        """
+        try:
+            if scan_range is None:
+                scan_range = self.enemy_scan_range
+
+            all_mobiles = API.Mobiles.GetMobiles()
+            enemies = []
+
+            for mob in all_mobiles:
+                if mob is None or mob.IsDead:
+                    continue
+
+                # Skip player
+                if mob.Serial == API.Player.Serial:
+                    continue
+
+                # Skip pets (Notoriety 1)
+                if mob.Notoriety == 1:
+                    continue
+
+                # Check if this enemy type is enabled
+                if mob.Notoriety == 5 and not self.attack_reds:
+                    continue
+                if mob.Notoriety == 6 and not self.attack_grays:
+                    continue
+
+                # Filter by notoriety (5=red, 6=gray)
+                if mob.Notoriety not in [5, 6]:
+                    continue
+
+                # Check range
+                if mob.Distance > scan_range:
+                    continue
+
+                # Add to enemy list with distance for sorting
+                enemies.append((mob.Serial, mob.Distance))
+
+            # Sort by distance (closest first)
+            enemies.sort(key=lambda x: x[1])
+
+            # Return just serials
+            return [serial for serial, _ in enemies]
+
+        except Exception as e:
+            API.SysMsg("CombatManager.scan_for_enemies error: " + str(e), 32)
+            return []
+
+    def should_engage_enemy(self, enemy_serial):
+        """
+        Evaluate if it's safe to engage an enemy.
+
+        Args:
+            enemy_serial: Enemy serial to evaluate
+
+        Returns:
+            True if safe to engage, False otherwise
+        """
+        try:
+            # Get enemy mobile
+            enemy = API.Mobiles.FindMobile(enemy_serial)
+            if enemy is None or enemy.IsDead:
+                return False
+
+            # Check 1: Current danger level
+            current_danger = self.danger_assessment.get_current_danger()
+            if current_danger > self.max_danger_to_engage:
+                return False
+
+            # Check 2: Count nearby hostiles
+            nearby_hostiles = self.scan_for_enemies()
+            if len(nearby_hostiles) > self.max_nearby_hostiles:
+                return False
+
+            # Check 3: Scan for NPCs near target enemy (pull risk assessment)
+            import math
+            enemy_x = getattr(enemy, 'X', 0)
+            enemy_y = getattr(enemy, 'Y', 0)
+
+            npcs_near_target = 0
+            all_mobiles = API.Mobiles.GetMobiles()
+
+            for mob in all_mobiles:
+                if mob is None or mob.IsDead:
+                    continue
+
+                # Skip player and pets
+                if mob.Serial == API.Player.Serial or mob.Notoriety == 1:
+                    continue
+
+                # Skip the target enemy itself
+                if mob.Serial == enemy_serial:
+                    continue
+
+                # Calculate distance to target enemy
+                mob_x = getattr(mob, 'X', enemy_x)
+                mob_y = getattr(mob, 'Y', enemy_y)
+                distance = math.sqrt((mob_x - enemy_x) ** 2 + (mob_y - enemy_y) ** 2)
+
+                if distance <= self.npc_proximity_radius:
+                    npcs_near_target += 1
+
+            if npcs_near_target > self.max_npcs_near_target:
+                return False
+
+            # Check 4: Tank pet HP
+            tank_pet = self.pet_manager.get_tank_pet()
+            if tank_pet is not None:
+                tank_mob = API.Mobiles.FindMobile(tank_pet["serial"])
+                if tank_mob is not None and not tank_mob.IsDead:
+                    tank_hp_pct = (tank_mob.Hits / tank_mob.HitsMax * 100) if tank_mob.HitsMax > 0 else 100
+                    if tank_hp_pct < self.min_tank_hp_to_engage:
+                        return False
+
+            # All checks passed
+            return True
+
+        except Exception as e:
+            API.SysMsg("CombatManager.should_engage_enemy error: " + str(e), 32)
+            return False
+
+    def engage_enemy(self, enemy_serial):
+        """
+        Engage an enemy in combat.
+
+        Args:
+            enemy_serial: Enemy serial to engage
+
+        Returns:
+            True if engagement started successfully, False otherwise
+        """
+        try:
+            # Verify enemy is valid
+            enemy = API.Mobiles.FindMobile(enemy_serial)
+            if enemy is None or enemy.IsDead:
+                return False
+
+            # Cancel any existing targets
+            if API.HasTarget():
+                API.CancelTarget()
+            API.CancelPreTarget()
+
+            # Issue "all kill" command
+            API.Msg("all kill")
+            API.Pause(0.3)
+
+            # Target enemy
+            API.PreTarget(enemy_serial, "harmful")
+            API.Pause(0.1)
+            API.CancelPreTarget()
+
+            # Update engagement state
+            self.engaged_enemy_serial = enemy_serial
+            self.combat_start_time = time.time()
+
+            API.HeadMsg("Engaging!", API.Player.Serial, 68)
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("CombatManager.engage_enemy error: " + str(e), 32)
+            return False
+
+    def get_engaged_enemy(self):
+        """
+        Get currently engaged enemy mobile.
+
+        Returns:
+            Enemy mobile or None
+        """
+        if self.engaged_enemy_serial == 0:
+            return None
+
+        enemy = API.Mobiles.FindMobile(self.engaged_enemy_serial)
+        if enemy and not enemy.IsDead:
+            return enemy
+
+        return None
+
+    def clear_engagement(self):
+        """Clear engagement state"""
+        self.engaged_enemy_serial = 0
+        self.combat_start_time = 0
+
+    def get_combat_duration(self):
+        """Get duration of current combat in seconds"""
+        if self.combat_start_time == 0:
+            return 0
+        return time.time() - self.combat_start_time
+
+
 # ========== PATROL SYSTEM CLASS ==========
 class PatrolSystem:
     """Handles patrol movement for circle and waypoint-based areas"""
@@ -2178,6 +2681,154 @@ def test_npc_threat_map():
         import traceback
         API.SysMsg(str(traceback.format_exc()), 32)
 
+def test_danger_assessment():
+    """Test function to verify DangerAssessment works correctly"""
+    API.SysMsg("Testing DangerAssessment...", 68)
+
+    try:
+        # Initialize systems
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+        danger_assessment = DangerAssessment(pet_manager)
+
+        API.SysMsg("DangerAssessment initialized", 68)
+        API.SysMsg("Default weights: Player=" + str(danger_assessment.weights["player_hp"]) +
+                   ", Tank=" + str(danger_assessment.weights["tank_pet_hp"]) +
+                   ", Enemy=" + str(danger_assessment.weights["enemy_count"]), 43)
+
+        # Test 1: Calculate danger with no enemies
+        danger = danger_assessment.calculate_danger(enemy_count=0, npc_count=0)
+        zone = danger_assessment.get_danger_zone()
+        API.SysMsg("Danger (no enemies): " + str(int(danger)) + " - Zone: " + zone, 68)
+
+        # Test 2: Calculate danger with 3 enemies
+        danger = danger_assessment.calculate_danger(enemy_count=3, npc_count=0)
+        zone = danger_assessment.get_danger_zone()
+        API.SysMsg("Danger (3 enemies): " + str(int(danger)) + " - Zone: " + zone, 68)
+
+        # Test 3: Calculate danger with 5 nearby NPCs
+        danger = danger_assessment.calculate_danger(enemy_count=1, npc_count=5)
+        zone = danger_assessment.get_danger_zone()
+        API.SysMsg("Danger (1 enemy + 5 NPCs): " + str(int(danger)) + " - Zone: " + zone, 68)
+
+        # Test 4: Test weight adjustment
+        API.SysMsg("Adjusting enemy_count weight to 30...", 43)
+        danger_assessment.configure_weights(enemy_count=30)
+        danger = danger_assessment.calculate_danger(enemy_count=3, npc_count=0)
+        zone = danger_assessment.get_danger_zone()
+        API.SysMsg("Danger (3 enemies, higher weight): " + str(int(danger)) + " - Zone: " + zone, 68)
+
+        # Test 5: Test trend analysis
+        for i in range(10):
+            danger_assessment.calculate_danger(enemy_count=i, npc_count=0)
+            API.Pause(0.1)
+
+        trend = danger_assessment.get_danger_trend()
+        API.SysMsg("Danger trend (increasing enemies): " + trend, 68)
+
+        # Test 6: Test threshold configuration
+        API.SysMsg("Adjusting thresholds (safe=20, elevated=40, high=60)...", 43)
+        danger_assessment.configure_thresholds(safe=20, elevated=40, high=60)
+        danger = 35
+        zone = danger_assessment.get_danger_zone(danger)
+        API.SysMsg("Danger " + str(danger) + " with new thresholds: " + zone, 68)
+
+        API.SysMsg("DangerAssessment test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+
+def test_combat_manager():
+    """Test function to verify CombatManager works correctly"""
+    API.SysMsg("Testing CombatManager...", 68)
+
+    try:
+        # Initialize systems
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+        danger_assessment = DangerAssessment(pet_manager)
+        npc_threat_map = NPCThreatMap()
+        npc_threat_map.scan_npcs(force_scan=True)
+        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager)
+
+        API.SysMsg("CombatManager initialized", 68)
+        API.SysMsg("Settings: Scan range=" + str(combat_manager.enemy_scan_range) +
+                   ", Max danger=" + str(combat_manager.max_danger_to_engage) +
+                   ", Max hostiles=" + str(combat_manager.max_nearby_hostiles), 43)
+
+        # Test 1: Scan for enemies
+        API.SysMsg("Scanning for enemies...", 68)
+        enemies = combat_manager.scan_for_enemies()
+        API.SysMsg("Found " + str(len(enemies)) + " enemies", 68)
+
+        for i, enemy_serial in enumerate(enemies[:3]):  # Show first 3
+            enemy = API.Mobiles.FindMobile(enemy_serial)
+            if enemy:
+                API.SysMsg("  Enemy " + str(i + 1) + ": " + enemy.Name +
+                          " (Serial: " + str(enemy_serial) + ", Distance: " + str(enemy.Distance) + ")", 43)
+
+        # Test 2: Evaluate engagement for first enemy
+        if enemies:
+            first_enemy = enemies[0]
+            API.SysMsg("Evaluating engagement for first enemy...", 68)
+
+            # Calculate current danger
+            current_danger = danger_assessment.calculate_danger(enemy_count=len(enemies), npc_count=npc_threat_map.get_threat_count())
+            API.SysMsg("Current danger: " + str(int(current_danger)), 43)
+
+            should_engage = combat_manager.should_engage_enemy(first_enemy)
+            API.SysMsg("Should engage: " + str(should_engage), 68 if should_engage else 32)
+
+            # Test 3: Test with high danger (should refuse to engage)
+            API.SysMsg("Testing with danger > max_danger_to_engage...", 43)
+            danger_assessment.configure_weights(player_hp=50)  # Increase player HP weight
+            danger_assessment.calculate_danger(enemy_count=len(enemies) + 5, npc_count=10)
+            should_engage = combat_manager.should_engage_enemy(first_enemy)
+            API.SysMsg("Should engage (high danger): " + str(should_engage) + " (expected False)", 43)
+
+            # Test 4: Test engagement (only if should_engage is True)
+            danger_assessment.configure_weights(player_hp=40)  # Reset
+            current_danger = danger_assessment.calculate_danger(enemy_count=len(enemies), npc_count=npc_threat_map.get_threat_count())
+
+            if should_engage and current_danger <= combat_manager.max_danger_to_engage:
+                API.SysMsg("Attempting to engage enemy (will issue 'all kill')...", 68)
+                if combat_manager.engage_enemy(first_enemy):
+                    API.SysMsg("Engagement started! Engaged enemy serial: " + str(combat_manager.engaged_enemy_serial), 68)
+                    API.SysMsg("Combat duration: " + str(combat_manager.get_combat_duration()) + "s", 43)
+
+                    # Clear engagement
+                    API.Pause(1.0)
+                    combat_manager.clear_engagement()
+                    API.SysMsg("Engagement cleared", 43)
+                else:
+                    API.SysMsg("Failed to engage enemy", 32)
+        else:
+            API.SysMsg("No enemies found to test engagement", 43)
+
+        # Test 5: Test configuration
+        API.SysMsg("Testing configuration update...", 68)
+        combat_manager.configure_engagement(scan_range=15, max_danger=60, max_hostiles=2)
+        API.SysMsg("New settings: Scan range=" + str(combat_manager.enemy_scan_range) +
+                   ", Max danger=" + str(combat_manager.max_danger_to_engage) +
+                   ", Max hostiles=" + str(combat_manager.max_nearby_hostiles), 43)
+
+        # Test 6: Test enemy type configuration
+        API.SysMsg("Testing enemy type configuration...", 68)
+        combat_manager.configure_enemy_types(attack_reds=True, attack_grays=True)
+        enemies_with_grays = combat_manager.scan_for_enemies()
+        API.SysMsg("Enemies (reds + grays): " + str(len(enemies_with_grays)), 43)
+
+        combat_manager.configure_enemy_types(attack_reds=True, attack_grays=False)
+        enemies_reds_only = combat_manager.scan_for_enemies()
+        API.SysMsg("Enemies (reds only): " + str(len(enemies_reds_only)), 43)
+
+        API.SysMsg("CombatManager test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -2186,5 +2837,7 @@ def test_npc_threat_map():
 # test_patrol_system()
 # test_waypoint_patrol()
 # test_npc_threat_map()
+# test_danger_assessment()
+# test_combat_manager()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + AreaRecordingGump v1.4)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager v1.5)", 68)
