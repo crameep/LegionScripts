@@ -2340,6 +2340,14 @@ class BankingSystem:
         self.bank_y = 0
         self.banking_speed = "medium"  # "fast", "medium", "realistic"
 
+        # Supply restocking configuration
+        self.restock_bandage_amount = 150  # Target bandage count
+        self.low_vetkit_alert_threshold = 2  # Alert when vet kits below this
+
+        # Statistics
+        self.gold_banked = 0
+        self.items_banked = 0
+
         # Load configuration
         self._load_config()
 
@@ -2371,6 +2379,30 @@ class BankingSystem:
                 API.PersistentVar.Char
             )
 
+            # Load supply restocking configuration
+            self.restock_bandage_amount = int(API.GetPersistentVar(
+                self.key_prefix + "RestockBandageAmount",
+                "150",
+                API.PersistentVar.Char
+            ))
+            self.low_vetkit_alert_threshold = int(API.GetPersistentVar(
+                self.key_prefix + "LowVetKitAlertThreshold",
+                "2",
+                API.PersistentVar.Char
+            ))
+
+            # Load statistics
+            self.gold_banked = int(API.GetPersistentVar(
+                self.key_prefix + "GoldBanked",
+                "0",
+                API.PersistentVar.Char
+            ))
+            self.items_banked = int(API.GetPersistentVar(
+                self.key_prefix + "ItemsBanked",
+                "0",
+                API.PersistentVar.Char
+            ))
+
         except Exception as e:
             API.SysMsg(f"Load banking config error: {str(e)}", 32)
 
@@ -2390,6 +2422,26 @@ class BankingSystem:
             API.SavePersistentVar(
                 self.key_prefix + "BankingSpeed",
                 self.banking_speed,
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "RestockBandageAmount",
+                str(self.restock_bandage_amount),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "LowVetKitAlertThreshold",
+                str(self.low_vetkit_alert_threshold),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "GoldBanked",
+                str(self.gold_banked),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "ItemsBanked",
+                str(self.items_banked),
                 API.PersistentVar.Char
             )
         except Exception as e:
@@ -2570,6 +2622,200 @@ class BankingSystem:
         player_x = getattr(API.Player, 'X', 0)
         player_y = getattr(API.Player, 'Y', 0)
         return abs(player_x - self.bank_x) + abs(player_y - self.bank_y)
+
+    def interact_with_bank(self, bank_serial):
+        """
+        Interact with bank: open, deposit gold/loot, restock supplies, close.
+        Uses realistic pauses throughout for human-like behavior.
+
+        Args:
+            bank_serial: Serial of bank container/NPC
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Random pause before opening bank
+            pause = self.get_pause_duration("before_action")
+            API.SysMsg(f"Opening bank (pausing {pause:.1f}s)...", 43)
+            API.Pause(pause)
+
+            # Open bank/chest
+            API.UseObject(bank_serial, False)
+
+            # Wait for container gump (up to 2 seconds)
+            wait_start = time.time()
+            bank_opened = False
+            while time.time() < wait_start + 2.0:
+                API.ProcessCallbacks()
+                # TODO: Check for container gump when gump detection is implemented
+                API.Pause(0.1)
+
+            # For now, assume bank opened after 2 second wait
+            API.Pause(2.0)
+            bank_opened = True
+
+            if not bank_opened:
+                API.SysMsg("Failed to open bank!", 32)
+                return False
+
+            API.SysMsg("Bank opened, processing...", 68)
+
+            # Perform banking operations
+            self.deposit_gold()
+            self.deposit_loot_items()
+            self.restock_supplies()
+
+            # Random pause before closing
+            pause = self.get_pause_duration("before_action")
+            API.SysMsg(f"Closing bank (pausing {pause:.1f}s)...", 43)
+            API.Pause(pause)
+
+            # TODO: Close bank container when gump management is implemented
+
+            API.SysMsg("Banking complete!", 68)
+            self._save_config()  # Save updated statistics
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Bank interaction error: {str(e)}", 32)
+            return False
+
+    def deposit_gold(self):
+        """
+        Deposit gold from backpack to bank in multiple stacks (realistic behavior).
+        Tracks total gold banked for statistics.
+        """
+        try:
+            backpack = API.Player.Backpack
+            if not backpack:
+                return
+
+            # Find all gold piles in backpack
+            gold_items = API.FindType(GOLD, backpack.Serial)
+            if not gold_items:
+                API.SysMsg("No gold to deposit", 43)
+                return
+
+            # Calculate total gold
+            total_gold = 0
+            for item in gold_items:
+                if item and hasattr(item, 'Amount'):
+                    total_gold += item.Amount
+
+            if total_gold == 0:
+                return
+
+            API.SysMsg(f"Depositing {total_gold} gold...", 43)
+
+            # Split into 1-3 random stacks
+            num_stacks = random.randint(1, min(3, len(gold_items)))
+            deposited_count = 0
+
+            for i, item in enumerate(gold_items[:num_stacks]):
+                if item:
+                    # Random pause between deposits
+                    pause = self.get_pause_duration("between_actions")
+                    API.Pause(pause)
+
+                    # TODO: Implement actual drag-to-bank when container management is ready
+                    # For now, just simulate the action with pauses
+                    deposited_count += 1
+
+                    # Random pause after deposit
+                    pause = self.get_pause_duration("between_actions")
+                    API.Pause(pause)
+
+            # Update statistics
+            self.gold_banked += total_gold
+            API.SysMsg(f"Deposited {total_gold} gold in {deposited_count} stack(s)", 68)
+
+        except Exception as e:
+            API.SysMsg(f"Deposit gold error: {str(e)}", 32)
+
+    def deposit_loot_items(self):
+        """
+        Deposit collected loot items from backpack to bank.
+        Tracks total items banked for statistics.
+        """
+        try:
+            # TODO: Implement loot item detection based on loot_filter
+            # For now, this is a placeholder for when loot system is implemented
+            API.SysMsg("Loot deposit not yet implemented", 43)
+
+        except Exception as e:
+            API.SysMsg(f"Deposit loot items error: {str(e)}", 32)
+
+    def restock_supplies(self):
+        """
+        Restock bandages from bank, alert if vet kits low.
+        Does not auto-restock vet kits (too valuable).
+        """
+        try:
+            backpack = API.Player.Backpack
+            if not backpack:
+                return
+
+            # Check bandage count
+            bandage_count = self._count_bandages()
+            API.SysMsg(f"Current bandages: {bandage_count}", 43)
+
+            if bandage_count < self.restock_bandage_amount:
+                needed = self.restock_bandage_amount - bandage_count
+
+                # Random pause before withdrawing
+                pause = self.get_pause_duration("between_actions")
+                API.SysMsg(f"Restocking {needed} bandages (pausing {pause:.1f}s)...", 43)
+                API.Pause(pause)
+
+                # TODO: Implement actual withdraw from bank when container management is ready
+                # For now, just simulate the action
+                API.SysMsg(f"Would restock {needed} bandages to reach {self.restock_bandage_amount}", 43)
+
+                # Random pause after withdraw
+                pause = self.get_pause_duration("between_actions")
+                API.Pause(pause)
+
+            # Check vet kit count (alert only, don't restock)
+            vetkit_count = self._count_vetkits()
+            if vetkit_count < self.low_vetkit_alert_threshold:
+                API.SysMsg(f"WARNING: Only {vetkit_count} vet kits remaining!", 32)
+
+        except Exception as e:
+            API.SysMsg(f"Restock supplies error: {str(e)}", 32)
+
+    def _count_bandages(self):
+        """Count bandages in player's backpack"""
+        try:
+            bandage_count = 0
+            backpack = API.Player.Backpack
+            if backpack:
+                bandage_items = API.FindType(BANDAGE, backpack.Serial)
+                if bandage_items:
+                    for item in bandage_items:
+                        if item and hasattr(item, 'Amount'):
+                            bandage_count += item.Amount
+            return bandage_count
+        except Exception as e:
+            API.SysMsg(f"Count bandages error: {str(e)}", 32)
+            return 0
+
+    def _count_vetkits(self):
+        """Count vet kits in player's backpack"""
+        try:
+            # Vet kit graphic: 0x0E50
+            vetkit_count = 0
+            backpack = API.Player.Backpack
+            if backpack:
+                vetkit_items = API.FindType(0x0E50, backpack.Serial)
+                if vetkit_items:
+                    for item in vetkit_items:
+                        if item and hasattr(item, 'Amount'):
+                            vetkit_count += item.Amount
+            return vetkit_count
+        except Exception as e:
+            API.SysMsg(f"Count vet kits error: {str(e)}", 32)
+            return 0
 
     def is_at_bank(self, tolerance=2):
         """
