@@ -2773,7 +2773,7 @@ class AreaRecordingGump:
 class ConfigGump:
     """Configuration window with tabs for Setup, Combat, Healing, Looting, Banking, and Advanced settings"""
 
-    def __init__(self, area_manager, danger_assessment=None, combat_manager=None):
+    def __init__(self, area_manager, danger_assessment=None, combat_manager=None, looting_system=None):
         """
         Initialize the configuration window.
 
@@ -2781,10 +2781,12 @@ class ConfigGump:
             area_manager: AreaManager instance for farming area management
             danger_assessment: Optional DangerAssessment instance for combat configuration
             combat_manager: Optional CombatManager instance for combat configuration
+            looting_system: Optional LootingSystem instance for loot filter configuration
         """
         self.area_manager = area_manager
         self.danger_assessment = danger_assessment
         self.combat_manager = combat_manager
+        self.looting_system = looting_system
         self.gump = None
         self.controls = {}
         self.pos_tracker = None
@@ -2794,6 +2796,12 @@ class ConfigGump:
         self.runebook_serial = self._load_runebook_serial()
         self.bank_slot = self._load_int("BankSlot", 1)
         self.home_slot = self._load_int("HomeSlot", 2)
+        self.loot_filter = self._load_loot_filter()
+        self.weight_threshold = self._load_int("WeightThreshold", 80)
+
+        # Looting tab UI state
+        self.loot_scroll_offset = 0
+        self.loot_items_per_page = 8
 
         # Area list scrolling
         self.area_scroll_offset = 0
@@ -2821,6 +2829,34 @@ class ConfigGump:
     def _save_int(self, key, value):
         """Save integer to persistence"""
         API.SavePersistentVar(KEY_PREFIX + key, str(value), API.PersistentVar.Char)
+
+    def _load_loot_filter(self):
+        """Load loot filter list from persistence"""
+        saved = API.GetPersistentVar(KEY_PREFIX + "LootFilter", "", API.PersistentVar.Char)
+        if not saved:
+            return [0x0EED]  # Default: Gold only
+        # Parse pipe-separated list of graphics (hex or decimal)
+        graphics = []
+        for item in saved.split("|"):
+            if not item:
+                continue
+            try:
+                if item.startswith("0x"):
+                    graphics.append(int(item, 16))
+                else:
+                    graphics.append(int(item))
+            except:
+                pass
+        return graphics if graphics else [0x0EED]
+
+    def _save_loot_filter(self):
+        """Save loot filter list to persistence"""
+        # Save as pipe-separated hex strings for readability
+        items = [hex(g) for g in self.loot_filter]
+        API.SavePersistentVar(KEY_PREFIX + "LootFilter", "|".join(items), API.PersistentVar.Char)
+        # Update LootingSystem if available
+        if self.looting_system:
+            self.looting_system.configure_loot_filter(self.loot_filter)
 
     def _build_gump(self):
         """Build the configuration window UI"""
@@ -3234,12 +3270,130 @@ class ConfigGump:
         self.gump.AddControl(placeholder)
 
     def _build_looting_tab(self):
-        """Build Looting tab content (placeholder)"""
+        """Build Looting tab content: item filter list, presets, and weight threshold"""
         y = 80
-        placeholder = API.Gumps.CreateGumpTTFLabel("Looting settings - Not yet implemented", 15, "#888888")
-        placeholder.SetPos(10, y)
-        self.controls["content_placeholder"] = placeholder
-        self.gump.AddControl(placeholder)
+
+        # ========== ITEM FILTER SECTION ==========
+        filter_header = API.Gumps.CreateGumpTTFLabel("Loot Filter (Gold always collected)", 16, "#ffaa00")
+        filter_header.SetPos(10, y)
+        self.controls["content_filter_header"] = filter_header
+        self.gump.AddControl(filter_header)
+        y += 30
+
+        # Display scrollable list of loot filter items (show 8 at a time)
+        visible_items = self.loot_filter[self.loot_scroll_offset:self.loot_scroll_offset + self.loot_items_per_page]
+
+        for i, graphic in enumerate(visible_items):
+            item_y = y + (i * 28)
+
+            # Graphic display (e.g., "0x0F15")
+            graphic_label = API.Gumps.CreateGumpTTFLabel(hex(graphic), 15, "#ffcc00")
+            graphic_label.SetPos(10, item_y)
+            self.controls["content_loot_item_" + str(i)] = graphic_label
+            self.gump.AddControl(graphic_label)
+
+            # [Remove] button
+            remove_btn = API.Gumps.CreateSimpleButton("[Remove]", 80, 22)
+            remove_btn.SetPos(100, item_y)
+            self.controls["content_loot_remove_" + str(i)] = remove_btn
+            self.gump.AddControl(remove_btn)
+            API.Gumps.AddControlOnClick(remove_btn, lambda g=graphic: self._remove_item_from_filter(g))
+
+        y += (self.loot_items_per_page * 28) + 10
+
+        # Scroll buttons (if needed)
+        if len(self.loot_filter) > self.loot_items_per_page:
+            scroll_up_btn = API.Gumps.CreateSimpleButton("[Up]", 50, 22)
+            scroll_up_btn.SetPos(10, y)
+            self.controls["content_loot_scroll_up"] = scroll_up_btn
+            self.gump.AddControl(scroll_up_btn)
+            API.Gumps.AddControlOnClick(scroll_up_btn, self._scroll_loot_up)
+
+            scroll_down_btn = API.Gumps.CreateSimpleButton("[Down]", 50, 22)
+            scroll_down_btn.SetPos(70, y)
+            self.controls["content_loot_scroll_down"] = scroll_down_btn
+            self.gump.AddControl(scroll_down_btn)
+            API.Gumps.AddControlOnClick(scroll_down_btn, self._scroll_loot_down)
+
+            y += 30
+
+        # Input field for adding new items
+        add_label = API.Gumps.CreateGumpTTFLabel("Graphic ID:", 15, "#ffffff")
+        add_label.SetPos(10, y)
+        self.controls["content_add_label"] = add_label
+        self.gump.AddControl(add_label)
+
+        add_input = API.Gumps.CreateGumpTextBox("0x", 100, 22)
+        add_input.SetPos(100, y)
+        self.controls["content_add_input"] = add_input
+        self.gump.AddControl(add_input)
+
+        add_btn = API.Gumps.CreateSimpleButton("[Add Item]", 90, 22)
+        add_btn.SetPos(210, y)
+        self.controls["content_add_btn"] = add_btn
+        self.gump.AddControl(add_btn)
+        API.Gumps.AddControlOnClick(add_btn, self._add_item_from_input)
+        y += 35
+
+        # Preset buttons
+        preset_label = API.Gumps.CreateGumpTTFLabel("Quick Add:", 15, "#ffffff")
+        preset_label.SetPos(10, y)
+        self.controls["content_preset_label"] = preset_label
+        self.gump.AddControl(preset_label)
+
+        gems_btn = API.Gumps.CreateSimpleButton("[Add Gems]", 90, 22)
+        gems_btn.SetPos(100, y)
+        self.controls["content_gems_btn"] = gems_btn
+        self.gump.AddControl(gems_btn)
+        API.Gumps.AddControlOnClick(gems_btn, self._add_gems_preset)
+
+        reagents_btn = API.Gumps.CreateSimpleButton("[Add Reagents]", 120, 22)
+        reagents_btn.SetPos(200, y)
+        self.controls["content_reagents_btn"] = reagents_btn
+        self.gump.AddControl(reagents_btn)
+        API.Gumps.AddControlOnClick(reagents_btn, self._add_reagents_preset)
+        y += 30
+
+        # Clear all button
+        clear_btn = API.Gumps.CreateSimpleButton("[Clear All]", 100, 22)
+        clear_btn.SetPos(10, y)
+        self.controls["content_clear_btn"] = clear_btn
+        self.gump.AddControl(clear_btn)
+        API.Gumps.AddControlOnClick(clear_btn, self._clear_loot_filter)
+        y += 40
+
+        # ========== WEIGHT MANAGEMENT SECTION ==========
+        weight_header = API.Gumps.CreateGumpTTFLabel("Weight Management", 16, "#ffaa00")
+        weight_header.SetPos(10, y)
+        self.controls["content_weight_header"] = weight_header
+        self.gump.AddControl(weight_header)
+        y += 30
+
+        # Weight threshold slider
+        weight_label = API.Gumps.CreateGumpTTFLabel("Stop looting at:", 15, "#ffffff")
+        weight_label.SetPos(10, y)
+        self.controls["content_weight_label"] = weight_label
+        self.gump.AddControl(weight_label)
+
+        # [-] button
+        weight_minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 22)
+        weight_minus_btn.SetPos(150, y)
+        self.controls["content_weight_minus"] = weight_minus_btn
+        self.gump.AddControl(weight_minus_btn)
+        API.Gumps.AddControlOnClick(weight_minus_btn, lambda: self._adjust_weight_threshold(-5))
+
+        # Value display
+        weight_value = API.Gumps.CreateGumpTTFLabel(str(self.weight_threshold) + "% capacity", 15, "#ffcc00")
+        weight_value.SetPos(190, y)
+        self.controls["content_weight_value"] = weight_value
+        self.gump.AddControl(weight_value)
+
+        # [+] button
+        weight_plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 22)
+        weight_plus_btn.SetPos(310, y)
+        self.controls["content_weight_plus"] = weight_plus_btn
+        self.gump.AddControl(weight_plus_btn)
+        API.Gumps.AddControlOnClick(weight_plus_btn, lambda: self._adjust_weight_threshold(5))
 
     def _build_banking_tab(self):
         """Build Banking tab content (placeholder)"""
@@ -3337,6 +3491,128 @@ class ConfigGump:
         API.SysMsg("Opening Safe Spot Recording...", 68)
         # TODO: Implement safe spot recording sub-panel
         API.SysMsg("Safe spot recording - TODO", 43)
+
+    def _scroll_loot_up(self):
+        """Scroll loot filter list up"""
+        self.loot_scroll_offset = max(0, self.loot_scroll_offset - self.loot_items_per_page)
+        self.rebuild()
+
+    def _scroll_loot_down(self):
+        """Scroll loot filter list down"""
+        max_offset = max(0, len(self.loot_filter) - self.loot_items_per_page)
+        self.loot_scroll_offset = min(max_offset, self.loot_scroll_offset + self.loot_items_per_page)
+        self.rebuild()
+
+    def _add_item_from_input(self):
+        """Add item to loot filter from input textbox"""
+        try:
+            # Get input value
+            input_ctrl = self.controls.get("content_add_input")
+            if not input_ctrl:
+                return
+
+            input_text = input_ctrl.GetText().strip()
+            if not input_text:
+                API.SysMsg("Enter a graphic ID", 43)
+                return
+
+            # Parse graphic (hex or decimal)
+            if input_text.startswith("0x"):
+                graphic = int(input_text, 16)
+            else:
+                graphic = int(input_text)
+
+            # Add to filter
+            self._add_item_to_filter(graphic)
+
+            # Clear input
+            input_ctrl.SetText("0x")
+
+        except ValueError:
+            API.SysMsg("Invalid graphic ID: " + str(input_text), 32)
+        except Exception as e:
+            API.SysMsg("Error adding item: " + str(e), 32)
+
+    def _add_item_to_filter(self, graphic):
+        """Add a single item graphic to loot filter"""
+        if graphic in self.loot_filter:
+            API.SysMsg("Item " + hex(graphic) + " already in filter", 43)
+            return
+
+        self.loot_filter.append(graphic)
+        self._save_loot_filter()
+        API.SysMsg("Added " + hex(graphic) + " to loot filter", 68)
+        self.rebuild()
+
+    def _remove_item_from_filter(self, graphic):
+        """Remove item from loot filter"""
+        if graphic in self.loot_filter:
+            self.loot_filter.remove(graphic)
+            self._save_loot_filter()
+            API.SysMsg("Removed " + hex(graphic) + " from loot filter", 68)
+            self.rebuild()
+
+    def _add_gems_preset(self):
+        """Add common gem graphics to loot filter"""
+        gem_graphics = [0x0F15, 0x0F16, 0x0F19, 0x0F21, 0x0F25, 0x0F26, 0x0F2B]
+        added = 0
+        for graphic in gem_graphics:
+            if graphic not in self.loot_filter:
+                self.loot_filter.append(graphic)
+                added += 1
+
+        if added > 0:
+            self._save_loot_filter()
+            API.SysMsg("Added " + str(added) + " gem graphics to filter", 68)
+            self.rebuild()
+        else:
+            API.SysMsg("All gem graphics already in filter", 43)
+
+    def _add_reagents_preset(self):
+        """Add all reagent graphics to loot filter"""
+        reagent_graphics = [
+            0x0F7A,  # Black Pearl
+            0x0F7B,  # Bloodmoss
+            0x0F84,  # Garlic
+            0x0F85,  # Ginseng
+            0x0F86,  # Mandrake Root
+            0x0F88,  # Nightshade
+            0x0F8D,  # Spider's Silk
+            0x0F8C   # Sulfurous Ash
+        ]
+        added = 0
+        for graphic in reagent_graphics:
+            if graphic not in self.loot_filter:
+                self.loot_filter.append(graphic)
+                added += 1
+
+        if added > 0:
+            self._save_loot_filter()
+            API.SysMsg("Added " + str(added) + " reagent graphics to filter", 68)
+            self.rebuild()
+        else:
+            API.SysMsg("All reagent graphics already in filter", 43)
+
+    def _clear_loot_filter(self):
+        """Clear all items from loot filter (except gold)"""
+        self.loot_filter = [0x0EED]  # Keep gold
+        self._save_loot_filter()
+        API.SysMsg("Loot filter cleared (gold retained)", 68)
+        self.rebuild()
+
+    def _adjust_weight_threshold(self, delta):
+        """Adjust weight threshold (60-95%)"""
+        self.weight_threshold = max(60, min(95, self.weight_threshold + delta))
+        self._save_int("WeightThreshold", self.weight_threshold)
+
+        # Update LootingSystem if available
+        if self.looting_system:
+            self.looting_system.configure_weight_threshold(self.weight_threshold)
+            API.SysMsg("Weight threshold set to " + str(self.weight_threshold) + "%", 68)
+        else:
+            API.SysMsg("Weight threshold: " + str(self.weight_threshold) + "% (LootingSystem not connected)", 43)
+
+        self.rebuild()
 
     def _adjust_weight(self, weight_id, delta, min_val, max_val):
         """Adjust danger weight value and update DangerAssessment"""
@@ -4629,9 +4905,10 @@ def test_config_gump():
         npc_threat_map = NPCThreatMap()
         healing_system = HealingSystem(pet_manager)
         combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager, healing_system)
+        looting_system = LootingSystem()
 
-        API.SysMsg("Initializing ConfigGump with combat systems...", 68)
-        config_gump = ConfigGump(area_manager, danger_assessment, combat_manager)
+        API.SysMsg("Initializing ConfigGump with combat and looting systems...", 68)
+        config_gump = ConfigGump(area_manager, danger_assessment, combat_manager, looting_system)
 
         API.SysMsg("ConfigGump created - verify window displays at saved position", 43)
         API.SysMsg("Test tab switching, runebook targeting, area management, and combat settings", 43)
@@ -4693,4 +4970,4 @@ def test_config_gump():
 # test_main_gui()
 # test_config_gump()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.9 - Combat Tab)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.10 - Looting Tab)", 68)
