@@ -1,0 +1,699 @@
+================================================================================
+TAMER PET FARMER - COMPREHENSIVE TESTING CHECKLIST
+================================================================================
+Version: 1.0
+Created: 2026-02-05
+Script: Tamer_PetFarmer.py
+
+PURPOSE:
+Systematic validation of all systems in controlled environment before live
+dungeon farming. Progress through phases sequentially, documenting issues
+and tuning settings based on results.
+
+TESTING ENVIRONMENT:
+- Safe low-tier dungeon (recommend: Covetous Level 1, Shame Level 1)
+- Weak enemies for initial combat testing (ettins, orcs, lizardmen)
+- Character with pets ready, supplies stocked
+
+ISSUE TRACKING:
+- Log all issues in logs/testing_issues.txt
+- Critical issues must be fixed before proceeding to next phase
+- Non-critical issues can be deferred to post-testing
+
+================================================================================
+PHASE 1: STATIC TESTING (NO COMBAT)
+================================================================================
+Focus: Verify initialization, GUI, persistence, configuration
+
+[ ] 1.1 Script Initialization
+    [ ] Load script in TazUO
+    [ ] Verify initializes without errors
+    [ ] Check system messages for initialization confirmation
+    [ ] Verify no exceptions in error log
+
+[ ] 1.2 GUI Layout Verification
+    [ ] Open main GUI window
+    [ ] Verify fonts are 15pt or larger (work machine compatibility)
+    [ ] Check all labels render correctly (no IndexOutOfRange errors)
+    [ ] Verify window positioning (should restore last position)
+    [ ] Check all tabs are accessible
+
+[ ] 1.3 Configuration Tabs Testing
+    [ ] Open Pet Config tab
+        [ ] Verify pet list displays
+        [ ] Test "Scan Pets" button
+        [ ] Test tank pet designation
+        [ ] Verify settings save/load correctly
+    [ ] Open Area Config tab
+        [ ] Test area type selection (circle/waypoint)
+        [ ] Record test area (circle type)
+        [ ] Verify area persists after restart
+    [ ] Open Combat Config tab
+        [ ] Review combat settings
+        [ ] Verify toggles work
+        [ ] Test settings persistence
+    [ ] Open Banking Config tab
+        [ ] Verify banking options display
+        [ ] Test threshold settings
+        [ ] Check persistence
+
+[ ] 1.4 Safe Spot Recording
+    [ ] Navigate to safe location (outside dungeon or safe corner)
+    [ ] Open safe spot config
+    [ ] Record safe spot coordinates
+    [ ] Verify coordinates save correctly
+    [ ] Restart script, verify safe spot persists
+    [ ] Test "Go to Safe Spot" button (if available)
+
+[ ] 1.5 Area Recording UI
+    [ ] Open area recording interface
+    [ ] Test circle area recording
+        [ ] Stand at center point
+        [ ] Record center
+        [ ] Set radius
+        [ ] Verify circle parameters save
+    [ ] Test waypoint area recording (if applicable)
+        [ ] Record first waypoint
+        [ ] Record additional waypoints (3-5)
+        [ ] Verify waypoint path records correctly
+        [ ] Check waypoint list display
+
+[ ] 1.6 Hotkey Testing
+    [ ] Test PAUSE hotkey (toggle pause)
+    [ ] Test each registered hotkey
+    [ ] Verify hotkeys respond even during loops
+    [ ] Verify ProcessCallbacks() is being called (responsive UI)
+    [ ] Check for any hotkey conflicts
+
+[ ] 1.7 Persistence Testing
+    [ ] Configure all settings (pets, area, safe spot, combat, banking)
+    [ ] Stop script
+    [ ] Restart script
+    [ ] Verify ALL settings restored correctly
+    [ ] Repeat restart 2-3 times
+    [ ] Test with different setting combinations
+
+[ ] 1.8 Initial State Validation
+    [ ] Verify script starts in "idle" or "stopped" state
+    [ ] Check that script doesn't auto-start farming
+    [ ] Verify all systems initialized (check logs/GUI)
+
+PHASE 1 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 2: PET SYSTEM TESTING
+================================================================================
+Focus: Pet detection, healing priority, vet kit usage
+
+[ ] 2.1 Pet Detection & Scanning
+    [ ] Have 2+ pets following
+    [ ] Click "Scan Pets" button
+    [ ] Verify all pets detected and listed
+    [ ] Check pet serials, names, HP displayed correctly
+    [ ] Verify tank pet designation works
+    [ ] Verify tank pet persists after restart
+
+[ ] 2.2 Vet Kit Configuration
+    [ ] Open vet kit config
+    [ ] Target vet kit item
+    [ ] Verify graphic ID saves
+    [ ] Restart script, verify vet kit persists
+    [ ] Check vet kit status in GUI
+
+[ ] 2.3 Healing Priority Testing
+    Setup: Damage pets to different HP levels
+    [ ] Poison a non-tank pet
+        [ ] Verify script prioritizes poison cure
+    [ ] Damage tank pet to 60% HP
+        [ ] Verify tank pet healed before other pets
+    [ ] Damage multiple pets
+        [ ] Verify lowest HP pet healed first (after tank)
+    [ ] Reduce self HP
+        [ ] Verify player healed before pets (except poison)
+    [ ] Multiple pets poisoned
+        [ ] Verify all poisoned pets cured
+
+[ ] 2.4 Vet Kit Usage
+    [ ] Damage 2+ pets below threshold
+    [ ] Verify vet kit used (multi-pet healing)
+    [ ] Check vet kit cooldown respected (10 seconds)
+    [ ] Verify bandages still used for single targets
+    [ ] Check supply tracking updates after vet kit use
+
+[ ] 2.5 Heal Action Execution
+    [ ] Damage a pet
+    [ ] Watch healing sequence
+    [ ] Verify bandage targeting correct
+    [ ] Verify ~4.5s delay respected
+    [ ] Check state transitions (idle → healing → idle)
+    [ ] Verify no target cursor stuck issues
+
+[ ] 2.6 Pet Resurrection (if pet dies)
+    [ ] Kill a pet (or let it die)
+    [ ] Verify script detects pet death
+    [ ] Verify resurrection attempted
+    [ ] Check ~10s delay respected
+    [ ] Verify pet re-scanned after rez
+
+PHASE 2 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 3: PATROL TESTING
+================================================================================
+Focus: Movement, NPC avoidance, stuck detection
+
+[ ] 3.1 Circle Patrol
+    [ ] Start patrol in recorded circle area
+    [ ] Verify picks random destinations within radius
+    [ ] Watch for 5+ destination changes
+    [ ] Verify stays within defined circle
+    [ ] Check movement is reasonably varied
+
+[ ] 3.2 Waypoint Patrol (if configured)
+    [ ] Start waypoint patrol
+    [ ] Verify follows recorded path
+    [ ] Check for variation around waypoints
+    [ ] Verify loops back to start after last waypoint
+    [ ] Watch for smooth transitions between points
+
+[ ] 3.3 NPC Avoidance
+    [ ] Patrol near friendly NPCs
+    [ ] Verify NPCs detected in threat map
+    [ ] Verify patrol avoids NPC positions
+    [ ] Check NPC positions update as they move
+    [ ] Verify no pathing through NPCs
+
+[ ] 3.4 Stuck Detection
+    [ ] Block path with obstacles/other players
+    [ ] Wait for stuck detection to trigger
+    [ ] Verify script attempts alternate path
+    [ ] Check timeout/retry logic
+    [ ] Verify eventually recovers (finds new destination)
+
+[ ] 3.5 Pathfinding Integration
+    [ ] Verify API.Pathfind() calls working
+    [ ] Check pathfinding cancellation when needed
+    [ ] Verify destination reached detection
+    [ ] Test pathfinding to distant waypoint
+
+PHASE 3 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 4: COMBAT TESTING (SAFE ENEMY)
+================================================================================
+Focus: Enemy detection, engagement, combat flow, looting
+
+Recommended enemies: Ettin, Orc, Lizardman, Earth Elemental (low danger)
+
+[ ] 4.1 Enemy Scanning
+    [ ] Move near weak enemy
+    [ ] Verify enemy detected by script
+    [ ] Check enemy appears in combat GUI/logs
+    [ ] Verify enemy serial tracked
+    [ ] Check distance calculation accurate
+
+[ ] 4.2 Engagement Decision
+    [ ] Position near enemy
+    [ ] Verify script evaluates engagement (danger assessment)
+    [ ] Check decision logic (should engage weak enemy)
+    [ ] Verify doesn't engage if too dangerous
+    [ ] Test engagement range limits
+
+[ ] 4.3 Combat Execution
+    [ ] Script engages enemy
+    [ ] Verify "all kill" command issued to pets
+    [ ] Check pets attack enemy
+    [ ] Monitor combat state transitions
+    [ ] Verify script tracks combat status
+
+[ ] 4.4 Enemy Status Monitoring
+    [ ] During combat, watch enemy HP tracking
+    [ ] Verify script detects when enemy dies
+    [ ] Check combat state exits when enemy dead
+    [ ] Verify no targeting of dead enemies
+
+[ ] 4.5 Looting
+    [ ] Kill enemy, let corpse appear
+    [ ] Verify script detects corpse
+    [ ] Check looting attempted
+    [ ] Verify gold collected (if present)
+    [ ] Check loot tracking in statistics
+    [ ] Test looting range limits
+
+[ ] 4.6 Combat + Healing Integration
+    [ ] During combat, damage pets
+    [ ] Verify healing continues during combat
+    [ ] Check healing priority maintained
+    [ ] Verify combat doesn't block healing
+
+PHASE 4 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 5: DANGER SYSTEM TESTING
+================================================================================
+Focus: Danger assessment, flee triggers, recovery
+
+[ ] 5.1 Danger Level Calculation
+    [ ] Start with full HP
+    [ ] Gradually take damage (let enemy hit you)
+    [ ] Watch danger score in GUI
+    [ ] Verify danger increases as HP drops
+    [ ] Check danger zones: safe (0-30), elevated (31-60), high (61-70), critical (71+)
+
+[ ] 5.2 Danger Zones
+    [ ] Reduce HP to ~80% (safe zone)
+        [ ] Verify no flee triggered
+        [ ] Check script continues farming
+    [ ] Reduce HP to ~60% (elevated)
+        [ ] Verify heightened awareness (check logs)
+        [ ] Verify still farming but cautious
+    [ ] Reduce HP to ~50% (high)
+        [ ] Verify script more defensive
+        [ ] Check may avoid new engagements
+    [ ] Reduce HP to ~25% (critical)
+        [ ] Verify flee triggered immediately
+
+[ ] 5.3 Flee Mechanics - Minor Flee
+    [ ] Trigger minor flee (61-75 danger)
+    [ ] Verify initiates flee to safe spot
+    [ ] Watch pathfinding to safe location
+    [ ] Check uses appropriate escape method
+    [ ] Verify recovery starts after reaching safety
+
+[ ] 5.4 Flee Mechanics - Major Flee
+    [ ] Trigger major flee (76-89 danger)
+    [ ] Verify faster/more urgent flee
+    [ ] Check uses gate or recall if available
+    [ ] Verify doesn't stop to heal during flee
+    [ ] Check recovery system activates
+
+[ ] 5.5 Flee Mechanics - Critical Flee
+    [ ] Trigger critical flee (90+ danger)
+    [ ] Verify immediate emergency recall/gate
+    [ ] Check prioritizes player safety over all else
+    [ ] Verify flees even if pets in combat
+    [ ] Check critical recovery procedures
+
+[ ] 5.6 Flee Pathfinding
+    [ ] During flee, watch pathfinding
+    [ ] Verify runs toward safe spot
+    [ ] Check stuck detection during flee
+    [ ] Verify avoids running through enemies
+    [ ] Test flee from various positions
+
+[ ] 5.7 Escape Methods
+    [ ] Test direct recall (if configured)
+    [ ] Test gate usage (if available)
+    [ ] Test "run outside" method
+    [ ] Verify emergency recall as fallback
+    [ ] Check escape method selection logic
+
+[ ] 5.8 Recovery System
+    [ ] After flee, verify recovery state
+    [ ] Check heals to full before resuming
+    [ ] Verify pets resurrected if dead
+    [ ] Check temporary caution mode active
+    [ ] Test area rotation (if multiple areas)
+    [ ] Verify statistics updated (flee_count, etc.)
+
+[ ] 5.9 Recovery Timing
+    [ ] Minor flee recovery: ~30-60s
+    [ ] Major flee recovery: ~60-120s
+    [ ] Critical flee recovery: ~2-5 minutes
+    [ ] Verify adaptive recovery timing
+
+PHASE 5 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 6: BANKING TESTING
+================================================================================
+Focus: Bank triggers, travel, deposit, restocking
+
+[ ] 6.1 Banking Trigger
+    [ ] Collect gold to exceed threshold (default ~5000)
+    [ ] Verify banking state triggered
+    [ ] Check banking priority over farming
+    [ ] Verify gold count accurate
+
+[ ] 6.2 Travel to Bank
+    [ ] Verify script recalls to bank location
+    [ ] Check runebook usage (spot selection)
+    [ ] Test emergency recall if out of reagents
+    [ ] Verify arrival at bank confirmed
+
+[ ] 6.3 Bank Navigation
+    [ ] Watch pathfinding to bank NPC/area
+    [ ] Verify reaches bank successfully
+    [ ] Check stuck detection during navigation
+    [ ] Test both pathfind and manual walk methods
+
+[ ] 6.4 Bank Interaction
+    [ ] Verify opens bank gump
+    [ ] Check gold deposit attempted
+    [ ] Verify gold removed from backpack
+    [ ] Check bank confirmation (if available)
+
+[ ] 6.5 Supply Restocking
+    [ ] Start with low bandages (~20)
+    [ ] Trigger banking
+    [ ] Verify restocking attempted
+    [ ] Check bandages restocked to full (500-1000)
+    [ ] Test reagent restocking (if applicable)
+    [ ] Verify vet kit restocking (if configured)
+
+[ ] 6.6 Return to Farming
+    [ ] After banking complete
+    [ ] Verify recalls back to farming area
+    [ ] Check resumes patrol/combat
+    [ ] Verify state transitions correct
+    [ ] Check statistics updated
+
+[ ] 6.7 Banking Optimization
+    [ ] Test "optimize_bank_timing" logic
+    [ ] Verify doesn't bank if supplies still sufficient
+    [ ] Check banks if supplies depleted even if gold low
+    [ ] Verify timing is reasonable (not too frequent)
+
+PHASE 6 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 7: ERROR RECOVERY TESTING
+================================================================================
+Focus: Handling stuck states, resource depletion, unexpected events
+
+[ ] 7.1 Stuck Recovery
+    [ ] Block path completely
+    [ ] Let stuck detection timeout
+    [ ] Verify script attempts recovery
+    [ ] Check tries alternate destinations
+    [ ] Verify eventually recalls or pathfinds out
+
+[ ] 7.2 Pet Lost Recovery
+    [ ] Send pet far away or stable one
+    [ ] Verify script detects missing pet
+    [ ] Check attempts to recall pet
+    [ ] Verify re-scans for pets
+    [ ] Test continues with remaining pets
+
+[ ] 7.3 Bandage Depletion
+    [ ] Remove all bandages from pack
+    [ ] Trigger healing need
+    [ ] Verify detects out of bandages
+    [ ] Check triggers banking for restock
+    [ ] Verify doesn't spam "out of bandages" message
+
+[ ] 7.4 Reagent Depletion
+    [ ] Remove recall reagents
+    [ ] Trigger travel need (recall)
+    [ ] Verify switches to runebook charges
+    [ ] Check emergency recall method
+    [ ] Verify doesn't get stuck trying to cast
+
+[ ] 7.5 Backoff Timing
+    [ ] Cause repeated failures (e.g., can't reach bank)
+    [ ] Verify backoff timing increases
+    [ ] Check doesn't spam attempts immediately
+    [ ] Verify resets backoff after success
+
+[ ] 7.6 Exception Handling
+    [ ] Force an error (if possible, e.g., corrupt data)
+    [ ] Verify try/except catches error
+    [ ] Check error logged to system messages
+    [ ] Verify script doesn't crash
+    [ ] Check cleanup() called on exit
+
+PHASE 7 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 8: LONG-RUN STABILITY
+================================================================================
+Focus: Multi-hour stability, memory, responsiveness
+
+Recommended: 2-4 hour test run in safe dungeon
+
+[ ] 8.1 Start Long Run
+    [ ] Configure for safe dungeon (low danger)
+    [ ] Start script
+    [ ] Note start time: ______________
+    [ ] Note start gold: ______________
+
+[ ] 8.2 Hourly Checks (every 60 minutes)
+    Hour 1:
+    [ ] Check script still running
+    [ ] Verify GUI responsive
+    [ ] Check no error messages
+    [ ] Note gold collected: ______________
+    [ ] Check memory usage (if observable)
+
+    Hour 2:
+    [ ] Check script still running
+    [ ] Verify GUI responsive
+    [ ] Check no error messages
+    [ ] Note gold collected: ______________
+    [ ] Check for any stuck states
+
+    Hour 3 (optional):
+    [ ] Check script still running
+    [ ] Verify GUI responsive
+    [ ] Check no error messages
+    [ ] Note gold collected: ______________
+
+    Hour 4 (optional):
+    [ ] Check script still running
+    [ ] Verify GUI responsive
+    [ ] Check no error messages
+    [ ] Note gold collected: ______________
+
+[ ] 8.3 Statistics Tracking
+    [ ] Verify kill count increments
+    [ ] Check gold tracking accurate
+    [ ] Verify flee count tracked
+    [ ] Check session time displayed
+    [ ] Verify rates calculated correctly (gold/hour, etc.)
+
+[ ] 8.4 Session Logging
+    [ ] After run, check logs/farming_sessions.json exists
+    [ ] Verify session data recorded
+    [ ] Check all statistics present
+    [ ] Verify timestamps correct
+
+[ ] 8.5 GUI Responsiveness
+    [ ] During run, click GUI elements
+    [ ] Test hotkeys periodically
+    [ ] Verify buttons respond
+    [ ] Check no frozen/locked controls
+
+[ ] 8.6 State Machine Stability
+    [ ] Watch state transitions over time
+    [ ] Verify no stuck states
+    [ ] Check states cycle correctly (idle → patrol → combat → idle)
+    [ ] Verify state timeouts working
+
+[ ] 8.7 End of Run Analysis
+    [ ] Stop script cleanly
+    [ ] Verify cleanup() executes
+    [ ] Check final statistics accurate
+    [ ] Calculate actual gold/hour rate: ______________
+    [ ] Note any anomalies: _______________________________
+
+PHASE 8 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+PHASE 9: LIVE DUNGEON TESTING
+================================================================================
+Focus: Real-world performance, danger tuning, optimization
+
+Recommended: Mid-tier dungeon (Shame Level 2, Covetous Level 2, Destard)
+
+WARNING: Stay nearby and monitor closely. This is live testing with real danger.
+
+[ ] 9.1 Pre-Flight Check
+    [ ] Verify all previous phases passed
+    [ ] Configure dungeon area (circle or waypoints)
+    [ ] Record safe spot (accessible, truly safe)
+    [ ] Set appropriate danger thresholds for dungeon
+    [ ] Stock supplies (bandages, reagents, vet kits)
+    [ ] Verify escape methods configured
+
+[ ] 9.2 Initial 15-Minute Run
+    [ ] Start script in dungeon
+    [ ] Monitor danger levels closely
+    [ ] Watch for flee triggers
+    [ ] Note start time: ______________
+    [ ] Stay nearby, ready to intervene
+
+    Observations:
+    [ ] Danger assessment appropriate? Y/N
+    [ ] Flee triggered when needed? Y/N
+    [ ] Flee successful? Y/N
+    [ ] Any deaths? Y/N
+    [ ] Combat effective? Y/N
+
+[ ] 9.3 Danger Threshold Tuning
+    Based on observations, adjust:
+    [ ] Flee threshold (currently: ______, adjust to: ______)
+    [ ] Engagement range (currently: ______, adjust to: ______)
+    [ ] Recovery timing (currently: ______, adjust to: ______)
+    [ ] Pet death policy (currently: ______, adjust to: ______)
+
+[ ] 9.4 Full Hour Run
+    [ ] Apply tuned settings
+    [ ] Start 1-hour live run
+    [ ] Monitor periodically (every 15 min)
+    [ ] Note start time: ______________
+    [ ] Note start gold: ______________
+
+    15-min check:
+    [ ] Still alive? Y/N
+    [ ] Flee count: ______
+    [ ] Deaths: ______
+    [ ] Gold collected: ______
+
+    30-min check:
+    [ ] Still alive? Y/N
+    [ ] Flee count: ______
+    [ ] Deaths: ______
+    [ ] Gold collected: ______
+
+    45-min check:
+    [ ] Still alive? Y/N
+    [ ] Flee count: ______
+    [ ] Deaths: ______
+    [ ] Gold collected: ______
+
+    60-min check (end):
+    [ ] Still alive? Y/N
+    [ ] Total flee count: ______
+    [ ] Total deaths: ______
+    [ ] Total gold collected: ______
+    [ ] Gold per hour rate: ______
+
+[ ] 9.5 Flee Success Rate
+    [ ] Total flee attempts: ______
+    [ ] Successful flees: ______
+    [ ] Failed flees (died): ______
+    [ ] Success rate: ______%
+    [ ] TARGET: >90% success rate
+    [ ] If below 90%, tune flee thresholds higher (more conservative)
+
+[ ] 9.6 Gold Rate Validation
+    [ ] Actual gold/hour: ______
+    [ ] Expected gold/hour: ______ (based on dungeon tier)
+    [ ] Acceptable? Y/N
+    [ ] If low, check: engagement rate, combat efficiency, downtime
+
+[ ] 9.7 Identified Optimizations
+    [ ] Combat strategy adjustments needed? ________________
+    [ ] Patrol pattern improvements? ________________
+    [ ] Banking frequency adjustments? ________________
+    [ ] Supply management tuning? ________________
+    [ ] Area boundary refinement? ________________
+
+PHASE 9 RESULT: [ ] PASS  [ ] FAIL
+Issues found: _______________________________________________________
+___________________________________________________________________
+
+================================================================================
+FINAL VALIDATION & DOCUMENTATION
+================================================================================
+
+[ ] 10.1 Review All Issues
+    [ ] Review logs/testing_issues.txt
+    [ ] Categorize: Critical, High, Medium, Low
+    [ ] Verify all critical issues resolved
+    [ ] Plan fixes for remaining issues
+
+[ ] 10.2 Recommended Default Settings
+    Document recommended defaults based on testing:
+
+    Danger Thresholds:
+    - Safe zone: 0-______
+    - Elevated: ______-______
+    - High: ______-______
+    - Critical flee: ______+
+
+    Engagement:
+    - Max enemy count: ______
+    - Engagement range: ______
+    - Retreat threshold: ______
+
+    Banking:
+    - Gold threshold: ______
+    - Bandage restock count: ______
+    - Banking frequency: ______
+
+    Recovery:
+    - Minor flee recovery: ______ seconds
+    - Major flee recovery: ______ seconds
+    - Critical flee recovery: ______ seconds
+
+    Supply Tracking:
+    - Bandage warning: ______ remaining
+    - Reagent warning: ______ remaining
+    - Auto-restock threshold: ______%
+
+[ ] 10.3 Update CLAUDE.md
+    [ ] Add PetFarmer patterns learned
+    [ ] Document flee system usage
+    [ ] Add area management patterns
+    [ ] Document statistics tracking
+    [ ] Update Known Issues if any
+
+[ ] 10.4 Update Script Header
+    [ ] Add recommended settings
+    [ ] Document tested dungeons
+    [ ] Add performance notes (gold/hour by dungeon)
+    [ ] Include setup quick-start
+
+[ ] 10.5 Final 2-Hour Validation
+    [ ] Run 2-hour test with tuned defaults
+    [ ] Verify stability
+    [ ] Confirm gold rates
+    [ ] Check flee success rate
+    [ ] Validate all systems working together
+
+    Final Run Results:
+    - Duration: ______ hours
+    - Gold collected: ______
+    - Gold/hour rate: ______
+    - Flee count: ______
+    - Flee success rate: ______%
+    - Deaths: ______
+    - Issues encountered: ______________________
+
+[ ] 10.6 Sign-Off
+    [ ] All phases completed
+    [ ] All critical issues resolved
+    [ ] Recommended settings documented
+    [ ] Script ready for production use
+
+    Tester signature: ________________  Date: __________
+
+================================================================================
+END OF TESTING CHECKLIST
+================================================================================
+
+NOTES:
+- Be methodical. Don't skip phases.
+- Document everything. Future you will thank you.
+- If a phase fails, fix issues before proceeding.
+- Safety first. Don't AFK test in dangerous dungeons.
+- Tune conservatively. Better safe than dead.
+
+===============================================================================

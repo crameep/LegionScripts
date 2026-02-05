@@ -1,0 +1,59 @@
+================================================================================
+TAMER PET FARMER - TESTING ISSUES LOG
+================================================================================
+Version: 1.0
+Created: 2026-02-05
+Script: Tamer_PetFarmer.py
+
+PURPOSE:
+Track all issues discovered during testing phases. Categorize by severity,
+document reproduction steps, and track resolution status.
+
+SEVERITY LEVELS:
+- CRITICAL: Crashes, data loss, script unusable, safety issues
+- HIGH: Major functionality broken, significant impact on farming
+- MEDIUM: Partial functionality issues, workarounds available
+- LOW: Minor issues, cosmetic problems, nice-to-have improvements
+
+FORMAT:
+Issue #N - [SEVERITY] Title
+Phase: [Testing phase where discovered]
+Status: [OPEN/IN_PROGRESS/RESOLVED/DEFERRED]
+Description: [What's wrong]
+Reproduction: [How to reproduce]
+Impact: [Effect on farming]
+Resolution: [How it was fixed, if resolved]
+Date Found: [Date]
+Date Resolved: [Date]
+
+================================================================================
+ISSUES
+================================================================================
+
+[No issues logged yet - testing not started]
+
+================================================================================
+RESOLVED ISSUES
+================================================================================
+
+[None yet]
+
+================================================================================
+DEFERRED ISSUES
+================================================================================
+
+[None yet]
+
+================================================================================
+STATISTICS
+================================================================================
+Total Issues: 0
+Critical: 0
+High: 0
+Medium: 0
+Low: 0
+Resolved: 0
+Open: 0
+Deferred: 0
+
+Last Updated: 2026-02-05
