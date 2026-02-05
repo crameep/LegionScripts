@@ -860,6 +860,206 @@ class AreaManager:
         return len(self.areas)
 
 
+# ========== NPC THREAT MAP CLASS ==========
+class NPCThreatMap:
+    """Handles NPC detection and threat zone mapping for avoidance"""
+
+    def __init__(self, avoid_radius=6, scan_radius=12, refresh_interval=2.0):
+        """
+        Initialize NPC threat map.
+
+        Args:
+            avoid_radius: Radius around NPCs to mark as avoid zone (tiles)
+            scan_radius: Radius to scan for NPCs (tiles)
+            refresh_interval: Minimum time between scans to reduce overhead (seconds)
+        """
+        self.avoid_radius = avoid_radius
+        self.scan_radius = scan_radius
+        self.refresh_interval = refresh_interval
+        self.last_scan_time = 0
+        self.npc_positions = []  # List of (x, y) NPC positions
+
+    def scan_npcs(self, force_scan=False):
+        """
+        Scan for nearby NPCs and update threat map.
+
+        Args:
+            force_scan: If True, ignore refresh_interval and scan immediately
+
+        Returns:
+            List of (x, y) NPC positions
+        """
+        try:
+            # Check refresh interval
+            if not force_scan:
+                elapsed = time.time() - self.last_scan_time
+                if elapsed < self.refresh_interval:
+                    return self.npc_positions  # Return cached positions
+
+            # Clear previous threat map
+            self.npc_positions = []
+
+            # Get all mobiles within scan radius
+            all_mobiles = API.Mobiles.GetMobiles()
+
+            player_x = getattr(API.Player, 'X', 0)
+            player_y = getattr(API.Player, 'Y', 0)
+
+            for mob in all_mobiles:
+                if mob is None or mob.IsDead:
+                    continue
+
+                # Filter out pets (Notoriety == 1)
+                if mob.Notoriety == 1:
+                    continue
+
+                # Filter out player
+                if mob.Serial == API.Player.Serial:
+                    continue
+
+                # Check if within scan radius
+                if mob.Distance > self.scan_radius:
+                    continue
+
+                # Store NPC position
+                mob_x = getattr(mob, 'X', player_x)
+                mob_y = getattr(mob, 'Y', player_y)
+                self.npc_positions.append((mob_x, mob_y))
+
+            # Update last scan time
+            self.last_scan_time = time.time()
+
+            return self.npc_positions
+
+        except Exception as e:
+            API.SysMsg("NPCThreatMap.scan_npcs error: " + str(e), 32)
+            return []
+
+    def is_position_safe(self, x, y):
+        """
+        Check if position is safe from NPCs (not in any avoid zone).
+
+        Args:
+            x, y: Position to check
+
+        Returns:
+            True if safe, False if in avoid zone
+        """
+        try:
+            import math
+
+            for npc_x, npc_y in self.npc_positions:
+                # Calculate distance to NPC
+                distance = math.sqrt((x - npc_x) ** 2 + (y - npc_y) ** 2)
+
+                # Check if within avoid radius
+                if distance <= self.avoid_radius:
+                    return False
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("NPCThreatMap.is_position_safe error: " + str(e), 32)
+            return True  # Assume safe on error
+
+    def get_nearest_threat(self, x, y):
+        """
+        Find closest NPC to given position.
+
+        Args:
+            x, y: Position to check from
+
+        Returns:
+            (npc_x, npc_y, distance) or None if no NPCs
+        """
+        try:
+            import math
+
+            if not self.npc_positions:
+                return None
+
+            nearest_npc = None
+            min_distance = float('inf')
+
+            for npc_x, npc_y in self.npc_positions:
+                distance = math.sqrt((x - npc_x) ** 2 + (y - npc_y) ** 2)
+
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_npc = (npc_x, npc_y, distance)
+
+            return nearest_npc
+
+        except Exception as e:
+            API.SysMsg("NPCThreatMap.get_nearest_threat error: " + str(e), 32)
+            return None
+
+    def calculate_safe_direction(self, from_x, from_y):
+        """
+        Calculate safest direction to move from given position.
+        Samples 8 cardinal/diagonal directions and returns the safest one.
+
+        Args:
+            from_x, from_y: Starting position
+
+        Returns:
+            (dx, dy) direction vector for safest path, or None if all blocked
+        """
+        try:
+            import math
+
+            # Define 8 directions (N, NE, E, SE, S, SW, W, NW)
+            directions = [
+                (0, -10),   # North
+                (7, -7),    # NE
+                (10, 0),    # East
+                (7, 7),     # SE
+                (0, 10),    # South
+                (-7, 7),    # SW
+                (-10, 0),   # West
+                (-7, -7)    # NW
+            ]
+
+            best_direction = None
+            max_distance_to_threat = 0
+
+            for dx, dy in directions:
+                # Calculate destination
+                dest_x = from_x + dx
+                dest_y = from_y + dy
+
+                # Check if destination is safe
+                if not self.is_position_safe(dest_x, dest_y):
+                    continue
+
+                # Find distance to nearest threat from this destination
+                nearest = self.get_nearest_threat(dest_x, dest_y)
+                if nearest is None:
+                    # No threats at all, this direction is perfect
+                    return (dx, dy)
+
+                threat_distance = nearest[2]
+
+                # Track direction that gets us furthest from threats
+                if threat_distance > max_distance_to_threat:
+                    max_distance_to_threat = threat_distance
+                    best_direction = (dx, dy)
+
+            return best_direction
+
+        except Exception as e:
+            API.SysMsg("NPCThreatMap.calculate_safe_direction error: " + str(e), 32)
+            return None
+
+    def get_threat_count(self):
+        """Get number of NPCs in current threat map"""
+        return len(self.npc_positions)
+
+    def clear_threats(self):
+        """Clear all tracked threats"""
+        self.npc_positions = []
+
+
 # ========== PATROL SYSTEM CLASS ==========
 class PatrolSystem:
     """Handles patrol movement for circle and waypoint-based areas"""
@@ -869,7 +1069,7 @@ class PatrolSystem:
         Initialize the patrol system.
 
         Args:
-            npc_threat_map: Optional NPCThreatMap instance for avoidance (will be integrated later)
+            npc_threat_map: Optional NPCThreatMap instance for avoidance
         """
         self.npc_threat_map = npc_threat_map
         self.patrol_active = False
@@ -908,9 +1108,8 @@ class PatrolSystem:
         if self.npc_threat_map is None:
             return True  # No threat map available, assume safe
 
-        # This will be integrated when NPCThreatMap is implemented
-        # For now, placeholder returns True
-        return True
+        # Use NPCThreatMap to check if position is safe
+        return self.npc_threat_map.is_position_safe(x, y)
 
     def _pick_circle_destination(self, area, max_attempts=3):
         """
@@ -1884,6 +2083,101 @@ def test_waypoint_patrol():
     except Exception as e:
         API.SysMsg("Test error: " + str(e), 32)
 
+def test_npc_threat_map():
+    """Test function to verify NPCThreatMap works correctly"""
+    API.SysMsg("Testing NPCThreatMap...", 68)
+
+    try:
+        # Initialize NPCThreatMap
+        threat_map = NPCThreatMap(avoid_radius=6, scan_radius=12, refresh_interval=2.0)
+        API.SysMsg("NPCThreatMap initialized", 68)
+        API.SysMsg("Avoid radius: 6 tiles, Scan radius: 12 tiles", 43)
+
+        # Test 1: Scan for NPCs
+        API.SysMsg("Scanning for NPCs...", 68)
+        npc_positions = threat_map.scan_npcs(force_scan=True)
+        API.SysMsg("Found " + str(len(npc_positions)) + " NPCs", 68)
+
+        for i, (npc_x, npc_y) in enumerate(npc_positions[:5]):  # Show first 5
+            API.SysMsg("  NPC " + str(i + 1) + ": (" + str(npc_x) + ", " + str(npc_y) + ")", 43)
+
+        if len(npc_positions) > 5:
+            API.SysMsg("  ... and " + str(len(npc_positions) - 5) + " more", 43)
+
+        # Test 2: Check current position safety
+        player_x = getattr(API.Player, 'X', 0)
+        player_y = getattr(API.Player, 'Y', 0)
+        API.SysMsg("Checking current position safety: (" + str(player_x) + ", " + str(player_y) + ")", 68)
+
+        if threat_map.is_position_safe(player_x, player_y):
+            API.SysMsg("Current position is SAFE", 68)
+        else:
+            API.SysMsg("Current position is in AVOID ZONE", 32)
+
+        # Test 3: Check position next to nearest NPC (if any)
+        if npc_positions:
+            nearest = threat_map.get_nearest_threat(player_x, player_y)
+            if nearest:
+                npc_x, npc_y, distance = nearest
+                API.SysMsg("Nearest threat: (" + str(npc_x) + ", " + str(npc_y) + ") at " + str(int(distance)) + " tiles", 43)
+
+                # Check position right next to NPC (should be unsafe)
+                test_x = npc_x + 3
+                test_y = npc_y + 3
+                API.SysMsg("Checking position near NPC: (" + str(test_x) + ", " + str(test_y) + ")", 68)
+
+                if threat_map.is_position_safe(test_x, test_y):
+                    API.SysMsg("Position is SAFE (unexpected)", 43)
+                else:
+                    API.SysMsg("Position is in AVOID ZONE (correct)", 68)
+
+                # Check position far from NPCs (should be safe)
+                test_x = npc_x + 15
+                test_y = npc_y + 15
+                API.SysMsg("Checking position far from NPC: (" + str(test_x) + ", " + str(test_y) + ")", 68)
+
+                if threat_map.is_position_safe(test_x, test_y):
+                    API.SysMsg("Position is SAFE (correct)", 68)
+                else:
+                    API.SysMsg("Position is in AVOID ZONE (unexpected)", 43)
+
+        # Test 4: Calculate safe direction
+        if npc_positions:
+            API.SysMsg("Calculating safe direction from current position...", 68)
+            safe_dir = threat_map.calculate_safe_direction(player_x, player_y)
+
+            if safe_dir:
+                dx, dy = safe_dir
+                API.SysMsg("Safe direction: (" + str(dx) + ", " + str(dy) + ")", 68)
+                API.SysMsg("Safe destination: (" + str(player_x + dx) + ", " + str(player_y + dy) + ")", 43)
+            else:
+                API.SysMsg("No safe direction found (surrounded!)", 32)
+
+        # Test 5: Test refresh interval
+        API.SysMsg("Testing refresh interval (2 seconds)...", 68)
+        threat_map.scan_npcs()  # Should use cached results
+        API.SysMsg("Scan 1 (should use cache): " + str(threat_map.get_threat_count()) + " NPCs", 43)
+
+        API.Pause(2.5)
+        threat_map.scan_npcs()  # Should scan again after interval
+        API.SysMsg("Scan 2 (after 2.5s delay): " + str(threat_map.get_threat_count()) + " NPCs", 43)
+
+        # Test 6: Force scan
+        API.SysMsg("Testing force scan (ignoring interval)...", 68)
+        npc_positions = threat_map.scan_npcs(force_scan=True)
+        API.SysMsg("Force scan: " + str(len(npc_positions)) + " NPCs", 43)
+
+        # Test 7: Clear threats
+        threat_map.clear_threats()
+        API.SysMsg("Cleared threats. Count: " + str(threat_map.get_threat_count()), 68)
+
+        API.SysMsg("NPCThreatMap test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -1891,5 +2185,6 @@ def test_waypoint_patrol():
 # test_area_recording_gump()
 # test_patrol_system()
 # test_waypoint_patrol()
+# test_npc_threat_map()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + AreaRecordingGump v1.3)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + AreaRecordingGump v1.4)", 68)
