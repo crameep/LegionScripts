@@ -860,6 +860,303 @@ class AreaManager:
         return len(self.areas)
 
 
+# ========== PATROL SYSTEM CLASS ==========
+class PatrolSystem:
+    """Handles patrol movement for circle and waypoint-based areas"""
+
+    def __init__(self, npc_threat_map=None):
+        """
+        Initialize the patrol system.
+
+        Args:
+            npc_threat_map: Optional NPCThreatMap instance for avoidance (will be integrated later)
+        """
+        self.npc_threat_map = npc_threat_map
+        self.patrol_active = False
+        self.STATE = "idle"  # idle, patrolling
+        self.patrol_start_time = 0
+        self.destination_x = 0
+        self.destination_y = 0
+        self.stuck_check_time = 0
+        self.last_position_x = 0
+        self.last_position_y = 0
+        self.stuck_threshold = 3.0  # Seconds
+
+        # Waypoint patrol state
+        self.current_waypoint_index = 0
+        self.patrol_direction = "forward"
+
+    def get_current_position(self):
+        """Get player's current position"""
+        return (getattr(API.Player, 'X', 0), getattr(API.Player, 'Y', 0))
+
+    def calculate_distance(self, x1, y1, x2, y2):
+        """Calculate Euclidean distance between two points"""
+        import math
+        return math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+
+    def _is_position_safe(self, x, y):
+        """
+        Check if position is safe from NPCs (uses NPCThreatMap if available).
+
+        Args:
+            x, y: Position to check
+
+        Returns:
+            True if safe, False if in avoid zone
+        """
+        if self.npc_threat_map is None:
+            return True  # No threat map available, assume safe
+
+        # This will be integrated when NPCThreatMap is implemented
+        # For now, placeholder returns True
+        return True
+
+    def _pick_circle_destination(self, area, max_attempts=3):
+        """
+        Pick a random destination within circle area, avoiding NPCs.
+
+        Args:
+            area: FarmingArea with circle configuration
+            max_attempts: Max tries to find safe destination
+
+        Returns:
+            (dest_x, dest_y) or None if no safe destination found
+        """
+        import random
+        import math
+
+        for attempt in range(max_attempts):
+            # Pick random angle and distance
+            angle = random.random() * 2 * math.pi
+            distance = random.random() * area.radius
+
+            # Calculate destination
+            dest_x = area.center_x + int(math.cos(angle) * distance)
+            dest_y = area.center_y + int(math.sin(angle) * distance)
+
+            # Add random offset for variation (±0-3 tiles)
+            dest_x += random.randint(-3, 3)
+            dest_y += random.randint(-3, 3)
+
+            # Check if safe
+            if self._is_position_safe(dest_x, dest_y):
+                return (dest_x, dest_y)
+
+        # No safe destination found after max attempts
+        return None
+
+    def patrol_circle(self, area):
+        """
+        Execute circle patrol movement.
+
+        Args:
+            area: FarmingArea with circle configuration
+
+        Returns:
+            True if patrol started successfully, False otherwise
+        """
+        try:
+            # Validate area
+            if area is None or area.area_type != "circle":
+                return False
+
+            if area.center_x == 0 and area.center_y == 0:
+                API.SysMsg("Error: Circle area has no center coordinates", 32)
+                return False
+
+            # Pick destination
+            destination = self._pick_circle_destination(area)
+            if destination is None:
+                API.SysMsg("No safe destination found in patrol area", 32)
+                return False
+
+            self.destination_x, self.destination_y = destination
+
+            # Start pathfinding
+            if not API.Pathfind(self.destination_x, self.destination_y):
+                API.SysMsg("Pathfinding failed to destination", 32)
+                return False
+
+            # Update state
+            self.STATE = "patrolling"
+            self.patrol_start_time = time.time()
+            self.patrol_active = True
+
+            # Initialize stuck detection
+            current_x, current_y = self.get_current_position()
+            self.last_position_x = current_x
+            self.last_position_y = current_y
+            self.stuck_check_time = time.time()
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("patrol_circle error: " + str(e), 32)
+            return False
+
+    def check_patrol_progress(self, area=None, scan_for_enemies_callback=None):
+        """
+        Check patrol progress and handle arrival/stuck detection.
+
+        Args:
+            area: Optional FarmingArea - if provided and type is "waypoints", will advance waypoint index on arrival
+            scan_for_enemies_callback: Optional function to call during patrol for enemy scanning
+
+        Returns:
+            "arrived" if reached destination
+            "stuck" if detected stuck
+            "patrolling" if still moving
+            "idle" if not patrolling
+        """
+        if self.STATE != "patrolling":
+            return "idle"
+
+        try:
+            # Get current position
+            current_x, current_y = self.get_current_position()
+
+            # Check if arrived
+            distance = self.calculate_distance(current_x, current_y, self.destination_x, self.destination_y)
+            if distance <= 1:
+                # Arrived at destination
+                self.STATE = "idle"
+                self.patrol_active = False
+
+                # If waypoint patrol, advance to next waypoint
+                if area is not None and area.area_type == "waypoints":
+                    self.current_waypoint_index = (self.current_waypoint_index + 1) % len(area.waypoints)
+
+                # Random pause (1-3 seconds)
+                import random
+                pause_duration = random.uniform(1.0, 3.0)
+                API.Pause(pause_duration)
+
+                return "arrived"
+
+            # Check if still pathfinding
+            if not API.Pathfinding():
+                # Lost pathfinding (player moved manually or interrupted)
+                self.STATE = "idle"
+                self.patrol_active = False
+                return "interrupted"
+
+            # Check for stuck (same position for 3+ seconds)
+            if time.time() - self.stuck_check_time >= self.stuck_threshold:
+                if current_x == self.last_position_x and current_y == self.last_position_y:
+                    # Stuck detected
+                    API.SysMsg("Patrol stuck detected, canceling", 43)
+                    API.CancelPathfinding()
+                    self.STATE = "idle"
+                    self.patrol_active = False
+                    return "stuck"
+
+                # Update stuck detection
+                self.last_position_x = current_x
+                self.last_position_y = current_y
+                self.stuck_check_time = time.time()
+
+            # Call enemy scan callback if provided
+            if scan_for_enemies_callback is not None:
+                scan_for_enemies_callback()
+
+            return "patrolling"
+
+        except Exception as e:
+            API.SysMsg("check_patrol_progress error: " + str(e), 32)
+            self.STATE = "idle"
+            self.patrol_active = False
+            return "error"
+
+    def patrol_waypoints(self, area):
+        """
+        Execute waypoint patrol movement.
+
+        Args:
+            area: FarmingArea with waypoints configuration
+
+        Returns:
+            True if patrol started successfully, False otherwise
+        """
+        try:
+            # Validate area
+            if area is None or area.area_type != "waypoints":
+                return False
+
+            if not area.waypoints or len(area.waypoints) == 0:
+                API.SysMsg("Error: Waypoint area has no waypoints", 32)
+                return False
+
+            # Reset index if at end
+            if self.current_waypoint_index >= len(area.waypoints):
+                self.current_waypoint_index = 0
+
+            # Get target waypoint
+            target_x, target_y = area.waypoints[self.current_waypoint_index]
+
+            # 20% chance: skip to next waypoint OR backtrack to previous
+            import random
+            if random.random() < 0.20:
+                if random.random() < 0.5 and self.current_waypoint_index < len(area.waypoints) - 1:
+                    # Skip forward
+                    self.current_waypoint_index += 1
+                    target_x, target_y = area.waypoints[self.current_waypoint_index]
+                elif self.current_waypoint_index > 0:
+                    # Backtrack
+                    self.current_waypoint_index -= 1
+                    target_x, target_y = area.waypoints[self.current_waypoint_index]
+
+            # Add random offset for variation (±1-3 tiles)
+            offset_x = random.randint(-3, 3)
+            offset_y = random.randint(-3, 3)
+            dest_x = target_x + offset_x
+            dest_y = target_y + offset_y
+
+            # Check if position is safe from NPCs
+            if not self._is_position_safe(dest_x, dest_y):
+                API.SysMsg("Waypoint destination not safe from NPCs", 43)
+                # Try next waypoint instead
+                self.current_waypoint_index = (self.current_waypoint_index + 1) % len(area.waypoints)
+                return False
+
+            self.destination_x = dest_x
+            self.destination_y = dest_y
+
+            # Start pathfinding
+            if not API.Pathfind(self.destination_x, self.destination_y):
+                API.SysMsg("Pathfinding failed to waypoint", 32)
+                return False
+
+            # Update state
+            self.STATE = "patrolling"
+            self.patrol_start_time = time.time()
+            self.patrol_active = True
+
+            # Initialize stuck detection
+            current_x, current_y = self.get_current_position()
+            self.last_position_x = current_x
+            self.last_position_y = current_y
+            self.stuck_check_time = time.time()
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("patrol_waypoints error: " + str(e), 32)
+            return False
+
+    def reset_waypoint_patrol(self):
+        """Reset waypoint patrol to beginning"""
+        self.current_waypoint_index = 0
+        self.patrol_direction = "forward"
+
+    def cancel_patrol(self):
+        """Cancel current patrol"""
+        if API.Pathfinding():
+            API.CancelPathfinding()
+        self.STATE = "idle"
+        self.patrol_active = False
+
+
 # ========== AREA RECORDING GUMP ==========
 class AreaRecordingGump:
     """GUI for recording farming areas in-game"""
@@ -1458,10 +1755,141 @@ def test_area_recording_gump():
     except Exception as e:
         API.SysMsg("Test error: " + str(e), 32)
 
+def test_patrol_system():
+    """Test function to verify PatrolSystem works correctly"""
+    API.SysMsg("Testing PatrolSystem...", 68)
+
+    try:
+        # Initialize PatrolSystem
+        patrol_system = PatrolSystem()
+
+        # Create a test circle area
+        test_area = FarmingArea("Test Circle", "circle")
+        current_x, current_y = patrol_system.get_current_position()
+        test_area.center_x = current_x
+        test_area.center_y = current_y
+        test_area.radius = 10
+
+        API.SysMsg("Test area center: (" + str(test_area.center_x) + ", " + str(test_area.center_y) + ")", 43)
+        API.SysMsg("Radius: " + str(test_area.radius) + " tiles", 43)
+
+        # Test patrol_circle
+        API.SysMsg("Starting circle patrol...", 68)
+        if patrol_system.patrol_circle(test_area):
+            API.SysMsg("Patrol started! Destination: (" + str(patrol_system.destination_x) + ", " + str(patrol_system.destination_y) + ")", 68)
+
+            # Monitor patrol progress
+            max_iterations = 200  # 20 seconds max
+            iteration = 0
+            while iteration < max_iterations:
+                API.ProcessCallbacks()
+
+                result = patrol_system.check_patrol_progress()
+
+                if result == "arrived":
+                    API.SysMsg("Arrived at destination!", 68)
+                    break
+                elif result == "stuck":
+                    API.SysMsg("Patrol stuck detected", 32)
+                    break
+                elif result == "interrupted":
+                    API.SysMsg("Patrol interrupted", 43)
+                    break
+                elif result == "error":
+                    API.SysMsg("Patrol error", 32)
+                    break
+
+                iteration += 1
+                API.Pause(0.1)
+
+            if iteration >= max_iterations:
+                API.SysMsg("Patrol test timeout (still moving)", 43)
+
+        else:
+            API.SysMsg("Failed to start patrol", 32)
+
+        API.SysMsg("PatrolSystem test complete", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+
+def test_waypoint_patrol():
+    """Test function to verify waypoint patrol works correctly"""
+    API.SysMsg("Testing Waypoint Patrol...", 68)
+
+    try:
+        # Initialize PatrolSystem
+        patrol_system = PatrolSystem()
+
+        # Create a test waypoint area with 5 waypoints forming a path
+        test_area = FarmingArea("Test Waypoints", "waypoints")
+        current_x, current_y = patrol_system.get_current_position()
+
+        # Create a square path around current position
+        test_area.waypoints = [
+            (current_x + 5, current_y),
+            (current_x + 5, current_y + 5),
+            (current_x, current_y + 5),
+            (current_x - 5, current_y + 5),
+            (current_x - 5, current_y)
+        ]
+
+        API.SysMsg("Test waypoint path with " + str(len(test_area.waypoints)) + " waypoints", 43)
+
+        # Test multiple waypoint movements
+        for i in range(3):
+            API.SysMsg("Waypoint iteration " + str(i + 1) + ", index: " + str(patrol_system.current_waypoint_index), 68)
+
+            if patrol_system.patrol_waypoints(test_area):
+                API.SysMsg("Patrol started! Destination: (" + str(patrol_system.destination_x) + ", " + str(patrol_system.destination_y) + ")", 68)
+
+                # Monitor patrol progress
+                max_iterations = 200  # 20 seconds max
+                iteration = 0
+                while iteration < max_iterations:
+                    API.ProcessCallbacks()
+
+                    result = patrol_system.check_patrol_progress(area=test_area)
+
+                    if result == "arrived":
+                        API.SysMsg("Arrived at waypoint " + str(patrol_system.current_waypoint_index), 68)
+                        break
+                    elif result == "stuck":
+                        API.SysMsg("Patrol stuck detected", 32)
+                        break
+                    elif result == "interrupted":
+                        API.SysMsg("Patrol interrupted", 43)
+                        break
+                    elif result == "error":
+                        API.SysMsg("Patrol error", 32)
+                        break
+
+                    iteration += 1
+                    API.Pause(0.1)
+
+                if iteration >= max_iterations:
+                    API.SysMsg("Waypoint patrol timeout (still moving)", 43)
+                    break
+
+            else:
+                API.SysMsg("Failed to start waypoint patrol", 32)
+                break
+
+        # Test reset
+        patrol_system.reset_waypoint_patrol()
+        API.SysMsg("Reset waypoint patrol - index now: " + str(patrol_system.current_waypoint_index), 68)
+
+        API.SysMsg("Waypoint patrol test complete", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
 # test_healing_system()
 # test_area_recording_gump()
+# test_patrol_system()
+# test_waypoint_patrol()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + AreaRecordingGump v1.2)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + AreaRecordingGump v1.3)", 68)
