@@ -860,6 +860,421 @@ class AreaManager:
         return len(self.areas)
 
 
+# ========== AREA RECORDING GUMP ==========
+class AreaRecordingGump:
+    """GUI for recording farming areas in-game"""
+
+    def __init__(self, area_manager):
+        """
+        Initialize the area recording gump.
+
+        Args:
+            area_manager: AreaManager instance to save areas to
+        """
+        self.area_manager = area_manager
+        self.gump = None
+        self.controls = {}
+
+        # Recording state
+        self.area_name = ""
+        self.area_type = "circle"  # "circle" or "waypoints"
+        self.center_x = 0
+        self.center_y = 0
+        self.radius = 10
+        self.waypoints = []
+        self.recording_waypoints = False
+        self.difficulty = "medium"
+        self.safe_spot_panel_open = False
+
+        # Safe spot recording state
+        self.safe_spot_x = 0
+        self.safe_spot_y = 0
+        self.safe_spot_escape_method = "direct_recall"
+        self.safe_spot_gump_id = 0
+        self.safe_spot_button_id = 0
+
+        self._build_gump()
+
+    def _build_gump(self):
+        """Build the area recording gump UI"""
+        try:
+            self.gump = API.Gumps.CreateGump()
+            self.gump.SetRect(100, 100, 400, 450)
+
+            y_offset = 10
+
+            # Title
+            title = API.Gumps.CreateGumpTTFLabel("Record Farming Area", 16, "#ffaa00")
+            title.SetPos(10, y_offset)
+            self.gump.AddControl(title)
+            y_offset += 30
+
+            # Area name input
+            name_label = API.Gumps.CreateGumpTTFLabel("Area Name:", 15, "#ffffff")
+            name_label.SetPos(10, y_offset)
+            self.gump.AddControl(name_label)
+
+            name_input = API.Gumps.CreateGumpTextBox("", 250, 22)
+            name_input.SetPos(120, y_offset)
+            self.controls["name_input"] = name_input
+            self.gump.AddControl(name_input)
+            y_offset += 35
+
+            # Area type radio buttons
+            type_label = API.Gumps.CreateGumpTTFLabel("Area Type:", 15, "#ffffff")
+            type_label.SetPos(10, y_offset)
+            self.gump.AddControl(type_label)
+
+            circle_btn = API.Gumps.CreateSimpleButton("[Circle]", 80, 22)
+            circle_btn.SetPos(120, y_offset)
+            circle_btn.SetBackgroundHue(68 if self.area_type == "circle" else 90)
+            self.controls["circle_btn"] = circle_btn
+            self.gump.AddControl(circle_btn)
+            API.Gumps.AddControlOnClick(circle_btn, self._on_circle_mode)
+
+            waypoints_btn = API.Gumps.CreateSimpleButton("[Waypoints]", 95, 22)
+            waypoints_btn.SetPos(210, y_offset)
+            waypoints_btn.SetBackgroundHue(68 if self.area_type == "waypoints" else 90)
+            self.controls["waypoints_btn"] = waypoints_btn
+            self.gump.AddControl(waypoints_btn)
+            API.Gumps.AddControlOnClick(waypoints_btn, self._on_waypoints_mode)
+            y_offset += 35
+
+            # Mode-specific controls container
+            self.controls["mode_container_y"] = y_offset
+            self._rebuild_mode_controls()
+
+            API.Gumps.AddGump(self.gump)
+
+        except Exception as e:
+            API.SysMsg("Error building AreaRecordingGump: " + str(e), 32)
+
+    def _rebuild_mode_controls(self):
+        """Rebuild mode-specific controls based on current area_type"""
+        # Remove old mode controls
+        for key in list(self.controls.keys()):
+            if key.startswith("mode_"):
+                del self.controls[key]
+
+        y_offset = self.controls["mode_container_y"]
+
+        if self.area_type == "circle":
+            y_offset = self._build_circle_controls(y_offset)
+        else:
+            y_offset = self._build_waypoints_controls(y_offset)
+
+        # Difficulty dropdown (common to both modes)
+        y_offset += 10
+        diff_label = API.Gumps.CreateGumpTTFLabel("Difficulty:", 15, "#ffffff")
+        diff_label.SetPos(10, y_offset)
+        self.controls["mode_diff_label"] = diff_label
+        self.gump.AddControl(diff_label)
+
+        low_btn = API.Gumps.CreateSimpleButton("[Low]", 60, 22)
+        low_btn.SetPos(120, y_offset)
+        low_btn.SetBackgroundHue(68 if self.difficulty == "low" else 90)
+        self.controls["mode_diff_low"] = low_btn
+        self.gump.AddControl(low_btn)
+        API.Gumps.AddControlOnClick(low_btn, lambda: self._on_difficulty_change("low"))
+
+        med_btn = API.Gumps.CreateSimpleButton("[Medium]", 75, 22)
+        med_btn.SetPos(190, y_offset)
+        med_btn.SetBackgroundHue(68 if self.difficulty == "medium" else 90)
+        self.controls["mode_diff_med"] = med_btn
+        self.gump.AddControl(med_btn)
+        API.Gumps.AddControlOnClick(med_btn, lambda: self._on_difficulty_change("medium"))
+
+        high_btn = API.Gumps.CreateSimpleButton("[High]", 65, 22)
+        high_btn.SetPos(275, y_offset)
+        high_btn.SetBackgroundHue(68 if self.difficulty == "high" else 90)
+        self.controls["mode_diff_high"] = high_btn
+        self.gump.AddControl(high_btn)
+        API.Gumps.AddControlOnClick(high_btn, lambda: self._on_difficulty_change("high"))
+        y_offset += 35
+
+        # Record Safe Spot button
+        safe_spot_btn = API.Gumps.CreateSimpleButton("[Record Safe Spot]", 150, 22)
+        safe_spot_btn.SetPos(10, y_offset)
+        self.controls["mode_safe_spot_btn"] = safe_spot_btn
+        self.gump.AddControl(safe_spot_btn)
+        API.Gumps.AddControlOnClick(safe_spot_btn, self._on_record_safe_spot)
+        y_offset += 35
+
+        # Save and Cancel buttons
+        save_btn = API.Gumps.CreateSimpleButton("[Save Area]", 150, 22)
+        save_btn.SetPos(10, y_offset)
+        save_btn.SetBackgroundHue(68)
+        self.controls["mode_save_btn"] = save_btn
+        self.gump.AddControl(save_btn)
+        API.Gumps.AddControlOnClick(save_btn, self._on_save_area)
+
+        cancel_btn = API.Gumps.CreateSimpleButton("[Cancel]", 100, 22)
+        cancel_btn.SetPos(170, y_offset)
+        cancel_btn.SetBackgroundHue(32)
+        self.controls["mode_cancel_btn"] = cancel_btn
+        self.gump.AddControl(cancel_btn)
+        API.Gumps.AddControlOnClick(cancel_btn, self._on_cancel)
+
+    def _build_circle_controls(self, y_offset):
+        """Build controls for circle mode"""
+        # Set Center button
+        center_btn = API.Gumps.CreateSimpleButton("[Set Center]", 120, 22)
+        center_btn.SetPos(10, y_offset)
+        self.controls["mode_center_btn"] = center_btn
+        self.gump.AddControl(center_btn)
+        API.Gumps.AddControlOnClick(center_btn, self._on_set_center)
+        y_offset += 30
+
+        # Center coordinates display
+        center_text = "Center: (" + str(self.center_x) + ", " + str(self.center_y) + ")"
+        if self.center_x == 0 and self.center_y == 0:
+            center_text = "Center: (not set)"
+        center_label = API.Gumps.CreateGumpTTFLabel(center_text, 15, "#ffcc00")
+        center_label.SetPos(10, y_offset)
+        self.controls["mode_center_label"] = center_label
+        self.gump.AddControl(center_label)
+        y_offset += 30
+
+        # Radius label
+        radius_label = API.Gumps.CreateGumpTTFLabel("Radius: " + str(self.radius) + " tiles", 15, "#ffffff")
+        radius_label.SetPos(10, y_offset)
+        self.controls["mode_radius_label"] = radius_label
+        self.gump.AddControl(radius_label)
+        y_offset += 25
+
+        # Radius adjustment buttons
+        minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 22)
+        minus_btn.SetPos(10, y_offset)
+        self.controls["mode_radius_minus"] = minus_btn
+        self.gump.AddControl(minus_btn)
+        API.Gumps.AddControlOnClick(minus_btn, self._on_radius_decrease)
+
+        plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 22)
+        plus_btn.SetPos(50, y_offset)
+        self.controls["mode_radius_plus"] = plus_btn
+        self.gump.AddControl(plus_btn)
+        API.Gumps.AddControlOnClick(plus_btn, self._on_radius_increase)
+        y_offset += 30
+
+        return y_offset
+
+    def _build_waypoints_controls(self, y_offset):
+        """Build controls for waypoints mode"""
+        # Recording buttons
+        if not self.recording_waypoints:
+            start_btn = API.Gumps.CreateSimpleButton("[Start Recording]", 150, 22)
+            start_btn.SetPos(10, y_offset)
+            start_btn.SetBackgroundHue(68)
+            self.controls["mode_start_recording"] = start_btn
+            self.gump.AddControl(start_btn)
+            API.Gumps.AddControlOnClick(start_btn, self._on_start_recording)
+        else:
+            add_btn = API.Gumps.CreateSimpleButton("[Add Waypoint] (F5)", 150, 22)
+            add_btn.SetPos(10, y_offset)
+            add_btn.SetBackgroundHue(43)
+            self.controls["mode_add_waypoint"] = add_btn
+            self.gump.AddControl(add_btn)
+            API.Gumps.AddControlOnClick(add_btn, self._on_add_waypoint)
+
+            stop_btn = API.Gumps.CreateSimpleButton("[Stop Recording]", 120, 22)
+            stop_btn.SetPos(170, y_offset)
+            stop_btn.SetBackgroundHue(32)
+            self.controls["mode_stop_recording"] = stop_btn
+            self.gump.AddControl(stop_btn)
+            API.Gumps.AddControlOnClick(stop_btn, self._on_stop_recording)
+
+        y_offset += 30
+
+        # Waypoint count
+        wp_count_text = "Waypoints: " + str(len(self.waypoints))
+        wp_count_label = API.Gumps.CreateGumpTTFLabel(wp_count_text, 15, "#ffcc00")
+        wp_count_label.SetPos(10, y_offset)
+        self.controls["mode_wp_count"] = wp_count_label
+        self.gump.AddControl(wp_count_label)
+        y_offset += 25
+
+        # Waypoint list (show last 5)
+        display_waypoints = self.waypoints[-5:] if len(self.waypoints) > 5 else self.waypoints
+        for i, (wx, wy) in enumerate(display_waypoints):
+            wp_text = "  WP" + str(len(self.waypoints) - len(display_waypoints) + i + 1) + ": (" + str(wx) + ", " + str(wy) + ")"
+            wp_label = API.Gumps.CreateGumpTTFLabel(wp_text, 15, "#aaaaaa")
+            wp_label.SetPos(10, y_offset)
+            self.controls["mode_wp_" + str(i)] = wp_label
+            self.gump.AddControl(wp_label)
+            y_offset += 20
+
+        # Clear waypoints button
+        if len(self.waypoints) > 0:
+            clear_btn = API.Gumps.CreateSimpleButton("[Clear Waypoints]", 140, 22)
+            clear_btn.SetPos(10, y_offset)
+            clear_btn.SetBackgroundHue(32)
+            self.controls["mode_clear_wp"] = clear_btn
+            self.gump.AddControl(clear_btn)
+            API.Gumps.AddControlOnClick(clear_btn, self._on_clear_waypoints)
+            y_offset += 30
+
+        return y_offset
+
+    # ========== EVENT HANDLERS ==========
+    def _on_circle_mode(self):
+        """Switch to circle mode"""
+        if self.area_type != "circle":
+            self.area_type = "circle"
+            self.controls["circle_btn"].SetBackgroundHue(68)
+            self.controls["waypoints_btn"].SetBackgroundHue(90)
+            self._rebuild_mode_controls()
+
+    def _on_waypoints_mode(self):
+        """Switch to waypoints mode"""
+        if self.area_type != "waypoints":
+            self.area_type = "waypoints"
+            self.controls["circle_btn"].SetBackgroundHue(90)
+            self.controls["waypoints_btn"].SetBackgroundHue(68)
+            self._rebuild_mode_controls()
+
+    def _on_set_center(self):
+        """Record current position as circle center"""
+        self.center_x = getattr(API.Player, 'X', 0)
+        self.center_y = getattr(API.Player, 'Y', 0)
+        API.SysMsg("Center set to (" + str(self.center_x) + ", " + str(self.center_y) + ")", 68)
+        self._rebuild_mode_controls()
+
+    def _on_radius_increase(self):
+        """Increase radius"""
+        if self.radius < 20:
+            self.radius += 1
+            self._rebuild_mode_controls()
+
+    def _on_radius_decrease(self):
+        """Decrease radius"""
+        if self.radius > 5:
+            self.radius -= 1
+            self._rebuild_mode_controls()
+
+    def _on_start_recording(self):
+        """Start waypoint recording"""
+        self.recording_waypoints = True
+        self.waypoints = []
+        API.SysMsg("Waypoint recording started! Press F5 to add waypoints", 68)
+        API.OnHotKey("F5", self._on_add_waypoint_hotkey)
+        self._rebuild_mode_controls()
+
+    def _on_stop_recording(self):
+        """Stop waypoint recording"""
+        self.recording_waypoints = False
+        try:
+            API.UnregisterHotkey("F5")
+        except:
+            pass
+        API.SysMsg("Waypoint recording stopped. " + str(len(self.waypoints)) + " waypoints recorded", 68)
+        self._rebuild_mode_controls()
+
+    def _on_add_waypoint(self):
+        """Add current position as waypoint (button click)"""
+        wx = getattr(API.Player, 'X', 0)
+        wy = getattr(API.Player, 'Y', 0)
+        self.waypoints.append((wx, wy))
+        API.SysMsg("Waypoint " + str(len(self.waypoints)) + " added: (" + str(wx) + ", " + str(wy) + ")", 68)
+        self._rebuild_mode_controls()
+
+    def _on_add_waypoint_hotkey(self):
+        """Add waypoint via F5 hotkey"""
+        if self.recording_waypoints:
+            self._on_add_waypoint()
+
+    def _on_clear_waypoints(self):
+        """Clear all waypoints"""
+        self.waypoints = []
+        API.SysMsg("Waypoints cleared", 43)
+        self._rebuild_mode_controls()
+
+    def _on_difficulty_change(self, difficulty):
+        """Change difficulty setting"""
+        self.difficulty = difficulty
+        API.SysMsg("Difficulty set to: " + difficulty, 68)
+        self._rebuild_mode_controls()
+
+    def _on_record_safe_spot(self):
+        """Open safe spot recording sub-panel"""
+        # For now, record current position as safe spot with direct recall
+        # Full sub-panel will be implemented in next iteration
+        self.safe_spot_x = getattr(API.Player, 'X', 0)
+        self.safe_spot_y = getattr(API.Player, 'Y', 0)
+        self.safe_spot_escape_method = "direct_recall"
+        API.SysMsg("Safe spot recorded: (" + str(self.safe_spot_x) + ", " + str(self.safe_spot_y) + ")", 68)
+
+    def _on_save_area(self):
+        """Save the configured area"""
+        try:
+            # Get area name from text input
+            self.area_name = self.controls["name_input"].GetText().strip()
+
+            # Validation
+            if not self.area_name:
+                API.SysMsg("Error: Area name is required", 32)
+                return
+
+            if self.area_type == "circle":
+                if self.center_x == 0 and self.center_y == 0:
+                    API.SysMsg("Error: Please set center coordinates", 32)
+                    return
+            elif self.area_type == "waypoints":
+                if len(self.waypoints) < 2:
+                    API.SysMsg("Error: At least 2 waypoints required", 32)
+                    return
+
+            # Create FarmingArea object
+            area = FarmingArea(self.area_name, self.area_type)
+
+            if self.area_type == "circle":
+                area.center_x = self.center_x
+                area.center_y = self.center_y
+                area.radius = self.radius
+            else:
+                area.waypoints = self.waypoints[:]
+
+            area.difficulty = self.difficulty
+
+            # Add safe spot if recorded
+            if self.safe_spot_x != 0 or self.safe_spot_y != 0:
+                safe_spot = SafeSpot(
+                    x=self.safe_spot_x,
+                    y=self.safe_spot_y,
+                    escape_method=self.safe_spot_escape_method,
+                    gump_id=self.safe_spot_gump_id,
+                    button_id=self.safe_spot_button_id,
+                    is_primary=True
+                )
+                area.safe_spots.append(safe_spot)
+
+            # Save to AreaManager
+            if self.area_manager.add_area(area):
+                API.SysMsg("Area '" + self.area_name + "' saved successfully!", 68)
+                self.close()
+            else:
+                API.SysMsg("Error: Failed to save area", 32)
+
+        except Exception as e:
+            API.SysMsg("Error saving area: " + str(e), 32)
+
+    def _on_cancel(self):
+        """Cancel and close gump"""
+        API.SysMsg("Area recording cancelled", 43)
+        self.close()
+
+    def close(self):
+        """Close the gump"""
+        try:
+            if self.recording_waypoints:
+                API.UnregisterHotkey("F5")
+        except:
+            pass
+
+        if self.gump:
+            self.gump.Dispose()
+            self.gump = None
+
+
 # ========== MAIN SCRIPT ==========
 # NOTE: This is a foundational implementation for the core classes.
 # The full dungeon farming script will be built up in subsequent tasks.
@@ -1020,9 +1435,33 @@ def test_healing_system():
 
     API.SysMsg("HealingSystem test complete", 68)
 
+def test_area_recording_gump():
+    """Test function to open the area recording UI"""
+    API.SysMsg("Opening Area Recording UI...", 68)
+
+    try:
+        # Initialize AreaManager
+        area_manager = AreaManager()
+
+        # Create and open the recording gump
+        recording_gump = AreaRecordingGump(area_manager)
+
+        API.SysMsg("Area Recording UI opened!", 68)
+        API.SysMsg("Instructions:", 43)
+        API.SysMsg("1. Enter area name", 43)
+        API.SysMsg("2. Select Circle or Waypoints mode", 43)
+        API.SysMsg("3. Configure area (set center/record waypoints)", 43)
+        API.SysMsg("4. Set difficulty level", 43)
+        API.SysMsg("5. Record safe spot (optional)", 43)
+        API.SysMsg("6. Click Save Area to persist", 43)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
 # test_healing_system()
+# test_area_recording_gump()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem v1.1)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + AreaRecordingGump v1.2)", 68)
