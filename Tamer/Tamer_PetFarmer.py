@@ -2061,6 +2061,260 @@ class RecoverySystem:
             API.SysMsg(f"Get pet status error: {str(e)}", 32)
             return {'tank_hp_percent': 100, 'any_pet_deaths': False, 'pet_count': 0}
 
+# ============ BANKING TRIGGER SYSTEM ============
+
+class BankingTriggers:
+    """
+    Multi-condition banking trigger system.
+    Monitors weight, time, gold, and supply thresholds to determine when banking is needed.
+    """
+
+    def __init__(self, key_prefix):
+        """
+        Args:
+            key_prefix: Persistence key prefix
+        """
+        self.key_prefix = key_prefix
+        self.check_interval = 10.0  # Check every 10 seconds
+        self.last_check_time = 0
+        self.last_bank_time = 0
+
+        # Default trigger configurations
+        self.weight_trigger = {
+            'enabled': True,
+            'threshold_pct': 80.0  # Percent of max weight
+        }
+        self.time_trigger = {
+            'enabled': True,
+            'interval_minutes': 60  # Bank every 60 minutes
+        }
+        self.gold_trigger = {
+            'enabled': True,
+            'gold_amount': 10000  # Bank when carrying this much gold
+        }
+        self.supply_trigger = {
+            'enabled': True,
+            'bandage_threshold': 50  # Bank when bandages drop below this
+        }
+
+        # Load configuration from persistence
+        self._load_config()
+
+    def _load_config(self):
+        """Load trigger configuration from persistence"""
+        try:
+            # Load each trigger configuration
+            config_str = API.GetPersistentVar(
+                self.key_prefix + "BankTriggers",
+                "",
+                API.PersistentVar.Char
+            )
+
+            if config_str:
+                # Parse config: weight_en:weight_pct|time_en:time_min|gold_en:gold_amt|supply_en:supply_thresh
+                parts = config_str.split("|")
+                if len(parts) >= 4:
+                    # Weight trigger
+                    weight_parts = parts[0].split(":")
+                    if len(weight_parts) == 2:
+                        self.weight_trigger['enabled'] = weight_parts[0] == "True"
+                        self.weight_trigger['threshold_pct'] = float(weight_parts[1])
+
+                    # Time trigger
+                    time_parts = parts[1].split(":")
+                    if len(time_parts) == 2:
+                        self.time_trigger['enabled'] = time_parts[0] == "True"
+                        self.time_trigger['interval_minutes'] = int(time_parts[1])
+
+                    # Gold trigger
+                    gold_parts = parts[2].split(":")
+                    if len(gold_parts) == 2:
+                        self.gold_trigger['enabled'] = gold_parts[0] == "True"
+                        self.gold_trigger['gold_amount'] = int(gold_parts[1])
+
+                    # Supply trigger
+                    supply_parts = parts[3].split(":")
+                    if len(supply_parts) == 2:
+                        self.supply_trigger['enabled'] = supply_parts[0] == "True"
+                        self.supply_trigger['bandage_threshold'] = int(supply_parts[1])
+
+            # Load last bank time
+            last_bank_str = API.GetPersistentVar(
+                self.key_prefix + "LastBankTime",
+                "0",
+                API.PersistentVar.Char
+            )
+            self.last_bank_time = float(last_bank_str)
+
+        except Exception as e:
+            API.SysMsg(f"Load banking config error: {str(e)}", 32)
+
+    def _save_config(self):
+        """Save trigger configuration to persistence"""
+        try:
+            # Build config string
+            config_str = f"{self.weight_trigger['enabled']}:{self.weight_trigger['threshold_pct']}|"
+            config_str += f"{self.time_trigger['enabled']}:{self.time_trigger['interval_minutes']}|"
+            config_str += f"{self.gold_trigger['enabled']}:{self.gold_trigger['gold_amount']}|"
+            config_str += f"{self.supply_trigger['enabled']}:{self.supply_trigger['bandage_threshold']}"
+
+            API.SavePersistentVar(
+                self.key_prefix + "BankTriggers",
+                config_str,
+                API.PersistentVar.Char
+            )
+        except Exception as e:
+            API.SysMsg(f"Save banking config error: {str(e)}", 32)
+
+    def should_bank(self):
+        """
+        Check if any banking trigger condition is met.
+
+        Returns:
+            tuple: (should_bank: bool, reason: str or None)
+        """
+        current_time = time.time()
+
+        # Only check at specified intervals to avoid overhead
+        if current_time - self.last_check_time < self.check_interval:
+            return (False, None)
+
+        self.last_check_time = current_time
+
+        try:
+            # Check weight trigger
+            if self.weight_trigger['enabled']:
+                player_weight = getattr(API.Player, 'Weight', 0)
+                max_weight = getattr(API.Player, 'MaxWeight', 1)
+                weight_pct = (player_weight / max_weight * 100) if max_weight > 0 else 0
+
+                if weight_pct >= self.weight_trigger['threshold_pct']:
+                    return (True, "weight")
+
+            # Check time trigger
+            if self.time_trigger['enabled']:
+                if self.last_bank_time > 0:  # Only check if we've banked before
+                    time_since_bank = (current_time - self.last_bank_time) / 60  # Convert to minutes
+                    if time_since_bank >= self.time_trigger['interval_minutes']:
+                        return (True, "time")
+
+            # Check gold trigger
+            if self.gold_trigger['enabled']:
+                gold_count = self._count_gold_in_backpack()
+                if gold_count >= self.gold_trigger['gold_amount']:
+                    return (True, "gold")
+
+            # Check supply trigger
+            if self.supply_trigger['enabled']:
+                bandage_count = self._count_bandages()
+                if bandage_count < self.supply_trigger['bandage_threshold']:
+                    return (True, "supplies")
+
+        except Exception as e:
+            API.SysMsg(f"Banking trigger check error: {str(e)}", 32)
+
+        return (False, None)
+
+    def track_last_bank(self):
+        """Record timestamp of last banking run"""
+        self.last_bank_time = time.time()
+        try:
+            API.SavePersistentVar(
+                self.key_prefix + "LastBankTime",
+                str(self.last_bank_time),
+                API.PersistentVar.Char
+            )
+        except Exception as e:
+            API.SysMsg(f"Track bank time error: {str(e)}", 32)
+
+    def get_time_until_next_bank(self):
+        """
+        Get time remaining until next time-based banking run.
+
+        Returns:
+            float: Minutes remaining (0 if time trigger disabled or no previous bank)
+        """
+        if not self.time_trigger['enabled'] or self.last_bank_time == 0:
+            return 0
+
+        current_time = time.time()
+        time_since_bank = (current_time - self.last_bank_time) / 60  # Minutes
+        time_remaining = self.time_trigger['interval_minutes'] - time_since_bank
+
+        return max(0, time_remaining)
+
+    def configure_triggers(self, config_dict):
+        """
+        Update trigger settings from configuration dictionary.
+
+        Args:
+            config_dict: Dictionary with keys like 'weight_enabled', 'weight_threshold_pct', etc.
+        """
+        try:
+            # Update weight trigger
+            if 'weight_enabled' in config_dict:
+                self.weight_trigger['enabled'] = config_dict['weight_enabled']
+            if 'weight_threshold_pct' in config_dict:
+                self.weight_trigger['threshold_pct'] = float(config_dict['weight_threshold_pct'])
+
+            # Update time trigger
+            if 'time_enabled' in config_dict:
+                self.time_trigger['enabled'] = config_dict['time_enabled']
+            if 'time_interval_minutes' in config_dict:
+                self.time_trigger['interval_minutes'] = int(config_dict['time_interval_minutes'])
+
+            # Update gold trigger
+            if 'gold_enabled' in config_dict:
+                self.gold_trigger['enabled'] = config_dict['gold_enabled']
+            if 'gold_amount' in config_dict:
+                self.gold_trigger['gold_amount'] = int(config_dict['gold_amount'])
+
+            # Update supply trigger
+            if 'supply_enabled' in config_dict:
+                self.supply_trigger['enabled'] = config_dict['supply_enabled']
+            if 'supply_bandage_threshold' in config_dict:
+                self.supply_trigger['bandage_threshold'] = int(config_dict['supply_bandage_threshold'])
+
+            # Save updated configuration
+            self._save_config()
+
+        except Exception as e:
+            API.SysMsg(f"Configure banking triggers error: {str(e)}", 32)
+
+    def _count_gold_in_backpack(self):
+        """Count total gold in player's backpack"""
+        try:
+            gold_count = 0
+            backpack = API.Player.Backpack
+            if backpack:
+                # Gold graphic: 0x0EED
+                gold_items = API.FindType(0x0EED, backpack.Serial)
+                if gold_items:
+                    for item in gold_items:
+                        if item and hasattr(item, 'Amount'):
+                            gold_count += item.Amount
+            return gold_count
+        except Exception as e:
+            API.SysMsg(f"Count gold error: {str(e)}", 32)
+            return 0
+
+    def _count_bandages(self):
+        """Count bandages in player's backpack"""
+        try:
+            bandage_count = 0
+            backpack = API.Player.Backpack
+            if backpack:
+                # Bandage graphic: 0x0E21
+                bandage_items = API.FindType(0x0E21, backpack.Serial)
+                if bandage_items:
+                    for item in bandage_items:
+                        if item and hasattr(item, 'Amount'):
+                            bandage_count += item.Amount
+            return bandage_count
+        except Exception as e:
+            API.SysMsg(f"Count bandages error: {str(e)}", 32)
+            return 0
+
 # ============ GUI FUNCTIONS ============
 
 def build_main_gump():
