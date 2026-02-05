@@ -124,10 +124,25 @@ danger_at_flee = 0        # Danger score when flee was initiated
 # Supply tracking
 supply_tracker = None     # SupplyTracker instance
 
+# Healing system
+healing_system = None     # HealingSystem instance
+
 # Healing tracking
 last_heal_time = 0
 last_vet_kit_time = 0
 priority_heal_pet = None  # Serial of pet flagged for priority heal
+
+# Healing configuration
+player_heal_threshold = 85  # Heal player at this HP%
+tank_heal_threshold = 70    # Heal tank pet at this HP%
+pet_heal_threshold = 50     # Heal other pets at this HP%
+vetkit_graphic = 0          # Vet kit item graphic (0 = not set)
+vetkit_hp_threshold = 90    # Use vet kit when pets below this HP%
+vetkit_min_pets = 2         # Min number of pets hurt to trigger vet kit
+vetkit_cooldown = 5.0       # Cooldown between vet kit uses
+vetkit_critical_hp = 50     # Emergency vet kit bypass threshold
+use_magery_healing = False  # Use magery for healing
+auto_cure_poison = True     # Auto-cure poison
 
 # Banking tracking
 last_bank_time = 0
@@ -160,6 +175,7 @@ main_controls = {}
 config_controls = {}
 main_pos_tracker = None
 config_pos_tracker = None
+current_config_tab = "healing"  # Current tab in config window
 
 # Error tracking
 last_error_time = 0
@@ -201,6 +217,18 @@ def save_settings():
         API.SavePersistentVar(KEY_PREFIX + "LootGoldOnly", str(loot_gold_only), API.PersistentVar.Char)
         API.SavePersistentVar(KEY_PREFIX + "LootThreshold", str(loot_threshold_value), API.PersistentVar.Char)
 
+        # Healing configuration
+        API.SavePersistentVar(KEY_PREFIX + "PlayerHealThreshold", str(player_heal_threshold), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "TankHealThreshold", str(tank_heal_threshold), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "PetHealThreshold", str(pet_heal_threshold), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "VetkitGraphic", str(vetkit_graphic), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "VetkitHPThreshold", str(vetkit_hp_threshold), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "VetkitMinPets", str(vetkit_min_pets), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "VetkitCooldown", str(vetkit_cooldown), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "VetkitCriticalHP", str(vetkit_critical_hp), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "UseMageryHealing", str(use_magery_healing), API.PersistentVar.Char)
+        API.SavePersistentVar(KEY_PREFIX + "AutoCurePoison", str(auto_cure_poison), API.PersistentVar.Char)
+
     except Exception as e:
         API.SysMsg(f"Save error: {str(e)}", 32)
 
@@ -209,7 +237,9 @@ def load_settings():
     global script_enabled, pets, area_type, area_center_x, area_center_y, area_radius
     global area_waypoints, banking_enabled, bank_runebook_serial, bank_spot_index
     global return_runebook_serial, return_spot_index, loot_corpses, loot_gold_only
-    global loot_threshold_value
+    global loot_threshold_value, player_heal_threshold, tank_heal_threshold, pet_heal_threshold
+    global vetkit_graphic, vetkit_hp_threshold, vetkit_min_pets, vetkit_cooldown
+    global vetkit_critical_hp, use_magery_healing, auto_cure_poison
 
     try:
         # Script state
@@ -255,6 +285,18 @@ def load_settings():
         loot_corpses = API.GetPersistentVar(KEY_PREFIX + "LootCorpses", "True", API.PersistentVar.Char) == "True"
         loot_gold_only = API.GetPersistentVar(KEY_PREFIX + "LootGoldOnly", "False", API.PersistentVar.Char) == "True"
         loot_threshold_value = int(API.GetPersistentVar(KEY_PREFIX + "LootThreshold", "100", API.PersistentVar.Char))
+
+        # Healing configuration
+        player_heal_threshold = int(API.GetPersistentVar(KEY_PREFIX + "PlayerHealThreshold", "85", API.PersistentVar.Char))
+        tank_heal_threshold = int(API.GetPersistentVar(KEY_PREFIX + "TankHealThreshold", "70", API.PersistentVar.Char))
+        pet_heal_threshold = int(API.GetPersistentVar(KEY_PREFIX + "PetHealThreshold", "50", API.PersistentVar.Char))
+        vetkit_graphic = int(API.GetPersistentVar(KEY_PREFIX + "VetkitGraphic", "0", API.PersistentVar.Char))
+        vetkit_hp_threshold = int(API.GetPersistentVar(KEY_PREFIX + "VetkitHPThreshold", "90", API.PersistentVar.Char))
+        vetkit_min_pets = int(API.GetPersistentVar(KEY_PREFIX + "VetkitMinPets", "2", API.PersistentVar.Char))
+        vetkit_cooldown = float(API.GetPersistentVar(KEY_PREFIX + "VetkitCooldown", "5.0", API.PersistentVar.Char))
+        vetkit_critical_hp = int(API.GetPersistentVar(KEY_PREFIX + "VetkitCriticalHP", "50", API.PersistentVar.Char))
+        use_magery_healing = API.GetPersistentVar(KEY_PREFIX + "UseMageryHealing", "False", API.PersistentVar.Char) == "True"
+        auto_cure_poison = API.GetPersistentVar(KEY_PREFIX + "AutoCurePoison", "True", API.PersistentVar.Char) == "True"
 
     except Exception as e:
         API.SysMsg(f"Load error: {str(e)}", 32)
@@ -886,6 +928,115 @@ class NPCThreatMap:
             return None
         except:
             return None
+
+
+# ============ HEALING SYSTEM ============
+
+class HealingSystem:
+    """
+    Manages healing configuration and provides interface for config GUI.
+    Holds healing thresholds, vet kit settings, and healing options.
+    """
+
+    def __init__(self):
+        """Initialize healing system with default values"""
+        self.player_heal_threshold = 85
+        self.tank_heal_threshold = 70
+        self.pet_heal_threshold = 50
+        self.vetkit_graphic = 0
+        self.vetkit_hp_threshold = 90
+        self.vetkit_min_pets = 2
+        self.vetkit_cooldown = 5.0
+        self.vetkit_critical_hp = 50
+        self.use_magery_healing = False
+        self.auto_cure_poison = True
+
+    def configure_thresholds(self, player_threshold=None, tank_threshold=None, pet_threshold=None):
+        """
+        Configure healing thresholds.
+
+        Args:
+            player_threshold: Player heal threshold (50-95)
+            tank_threshold: Tank pet heal threshold (40-90)
+            pet_threshold: Other pets heal threshold (30-80)
+        """
+        if player_threshold is not None:
+            self.player_heal_threshold = max(50, min(95, int(player_threshold)))
+        if tank_threshold is not None:
+            self.tank_heal_threshold = max(40, min(90, int(tank_threshold)))
+        if pet_threshold is not None:
+            self.pet_heal_threshold = max(30, min(80, int(pet_threshold)))
+
+    def configure_vetkit(self, hp_threshold=None, min_pets=None, cooldown=None, critical_hp=None):
+        """
+        Configure vet kit settings.
+
+        Args:
+            hp_threshold: HP% threshold to use vet kit (70-95)
+            min_pets: Min number of pets hurt to trigger (1-5)
+            cooldown: Cooldown between uses in seconds (3-10)
+            critical_hp: Emergency bypass threshold (30-70)
+        """
+        if hp_threshold is not None:
+            self.vetkit_hp_threshold = max(70, min(95, int(hp_threshold)))
+        if min_pets is not None:
+            self.vetkit_min_pets = max(1, min(5, int(min_pets)))
+        if cooldown is not None:
+            self.vetkit_cooldown = max(3.0, min(10.0, float(cooldown)))
+        if critical_hp is not None:
+            self.vetkit_critical_hp = max(30, min(70, int(critical_hp)))
+
+    def set_vetkit_graphic(self, graphic):
+        """
+        Set vet kit graphic ID.
+
+        Args:
+            graphic: Item graphic ID (0 = not set)
+        """
+        self.vetkit_graphic = int(graphic) if graphic else 0
+
+    def configure_options(self, use_magery=None, auto_cure=None):
+        """
+        Configure healing options.
+
+        Args:
+            use_magery: Enable magery healing
+            auto_cure: Enable auto poison cure
+        """
+        if use_magery is not None:
+            self.use_magery_healing = bool(use_magery)
+        if auto_cure is not None:
+            self.auto_cure_poison = bool(auto_cure)
+
+    def sync_to_globals(self):
+        """Sync healing system settings to global variables"""
+        global player_heal_threshold, tank_heal_threshold, pet_heal_threshold
+        global vetkit_graphic, vetkit_hp_threshold, vetkit_min_pets
+        global vetkit_cooldown, vetkit_critical_hp, use_magery_healing, auto_cure_poison
+
+        player_heal_threshold = self.player_heal_threshold
+        tank_heal_threshold = self.tank_heal_threshold
+        pet_heal_threshold = self.pet_heal_threshold
+        vetkit_graphic = self.vetkit_graphic
+        vetkit_hp_threshold = self.vetkit_hp_threshold
+        vetkit_min_pets = self.vetkit_min_pets
+        vetkit_cooldown = self.vetkit_cooldown
+        vetkit_critical_hp = self.vetkit_critical_hp
+        use_magery_healing = self.use_magery_healing
+        auto_cure_poison = self.auto_cure_poison
+
+    def sync_from_globals(self):
+        """Sync global variables to healing system settings"""
+        self.player_heal_threshold = player_heal_threshold
+        self.tank_heal_threshold = tank_heal_threshold
+        self.pet_heal_threshold = pet_heal_threshold
+        self.vetkit_graphic = vetkit_graphic
+        self.vetkit_hp_threshold = vetkit_hp_threshold
+        self.vetkit_min_pets = vetkit_min_pets
+        self.vetkit_cooldown = vetkit_cooldown
+        self.vetkit_critical_hp = vetkit_critical_hp
+        self.use_magery_healing = use_magery_healing
+        self.auto_cure_poison = auto_cure_poison
 
 
 # ============ FLEE SYSTEM ============
@@ -3179,11 +3330,493 @@ def build_main_gump():
     API.SysMsg("Main GUI not yet implemented", 43)
 
 def build_config_gump():
-    """Build configuration window"""
-    global config_gump, config_controls, config_pos_tracker
+    """Build configuration window with tabbed interface"""
+    global config_gump, config_controls, config_pos_tracker, current_config_tab, healing_system
 
-    # TODO: Implement config GUI in later tasks
-    API.SysMsg("Config GUI not yet implemented", 43)
+    # Dispose old gump if exists
+    if config_gump:
+        config_gump.Dispose()
+        config_gump = None
+
+    # Create new gump
+    config_gump = API.Gumps.CreateGump()
+    config_controls = {}
+
+    # Load position or use default
+    last_x = int(API.GetPersistentVar(KEY_PREFIX + "ConfigX", "150", API.PersistentVar.Char))
+    last_y = int(API.GetPersistentVar(KEY_PREFIX + "ConfigY", "150", API.PersistentVar.Char))
+    config_gump.SetRect(last_x, last_y, CONFIG_WIDTH, CONFIG_HEIGHT)
+
+    # Create position tracker
+    config_pos_tracker = WindowPositionTracker(config_gump, KEY_PREFIX + "Config", last_x, last_y)
+
+    # --- Title ---
+    title = API.Gumps.CreateGumpTTFLabel("Pet Farmer Configuration", 16, "#ffaa00")
+    title.SetPos(10, 10)
+    config_gump.AddControl(title)
+
+    # --- Tab Buttons ---
+    tab_y = 35
+    tab_buttons = [
+        ("healing", "Healing", 10),
+        ("looting", "Looting", 90),
+        ("banking", "Banking", 170),
+        ("advanced", "Advanced", 250)
+    ]
+
+    for tab_id, tab_label, tab_x in tab_buttons:
+        btn = API.Gumps.CreateSimpleButton(tab_label, 70, 22)
+        btn.SetPos(tab_x, tab_y)
+
+        # Highlight active tab
+        if tab_id == current_config_tab:
+            btn.SetBackgroundHue(68)  # Green for active
+        else:
+            btn.SetBackgroundHue(90)  # Gray for inactive
+
+        config_gump.AddControl(btn)
+        config_controls[f"tab_{tab_id}"] = btn
+        API.Gumps.AddControlOnClick(btn, lambda tid=tab_id: switch_config_tab(tid))
+
+    # --- Tab Content Area (y=70 to y=440) ---
+    if current_config_tab == "healing":
+        build_healing_tab()
+    elif current_config_tab == "looting":
+        build_looting_tab()
+    elif current_config_tab == "banking":
+        build_banking_tab()
+    elif current_config_tab == "advanced":
+        build_advanced_tab()
+
+    # --- Close Button ---
+    close_btn = API.Gumps.CreateSimpleButton("Close", 100, 22)
+    close_btn.SetPos(CONFIG_WIDTH - 110, CONFIG_HEIGHT - 30)
+    config_gump.AddControl(close_btn)
+    API.Gumps.AddControlOnClick(close_btn, close_config_gump)
+
+    # Add gump to screen
+    API.Gumps.AddGump(config_gump)
+
+def switch_config_tab(tab_id):
+    """Switch to a different config tab"""
+    global current_config_tab
+    current_config_tab = tab_id
+    build_config_gump()
+
+def close_config_gump():
+    """Close config window and save position"""
+    global config_gump, config_pos_tracker
+
+    if config_pos_tracker:
+        config_pos_tracker.save()
+
+    if config_gump:
+        config_gump.Dispose()
+        config_gump = None
+
+def build_healing_tab():
+    """Build the Healing tab content"""
+    global config_gump, config_controls, healing_system
+
+    if not healing_system:
+        return
+
+    # Sync from globals to ensure we have current values
+    healing_system.sync_from_globals()
+
+    y_offset = 70
+
+    # --- Healing Thresholds Section ---
+    section_label = API.Gumps.CreateGumpTTFLabel("Healing Thresholds", 16, "#ffcc00")
+    section_label.SetPos(10, y_offset)
+    config_gump.AddControl(section_label)
+    y_offset += 30
+
+    # Player Bandage Threshold
+    player_label = API.Gumps.CreateGumpTTFLabel(f"Player Bandage: {healing_system.player_heal_threshold}%", 15, "#ffffff")
+    player_label.SetPos(20, y_offset)
+    config_gump.AddControl(player_label)
+    config_controls["player_heal_label"] = player_label
+
+    # Slider placeholder (text input for now, sliders are complex)
+    player_input = API.Gumps.CreateGumpTextBox(str(healing_system.player_heal_threshold), 60, 22)
+    player_input.SetPos(200, y_offset)
+    config_gump.AddControl(player_input)
+    config_controls["player_heal_input"] = player_input
+
+    player_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    player_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(player_set_btn)
+    API.Gumps.AddControlOnClick(player_set_btn, lambda: update_player_heal_threshold())
+    y_offset += 30
+
+    # Tank Pet Heal Threshold
+    tank_label = API.Gumps.CreateGumpTTFLabel(f"Tank Pet Heal: {healing_system.tank_heal_threshold}%", 15, "#ffffff")
+    tank_label.SetPos(20, y_offset)
+    config_gump.AddControl(tank_label)
+    config_controls["tank_heal_label"] = tank_label
+
+    tank_input = API.Gumps.CreateGumpTextBox(str(healing_system.tank_heal_threshold), 60, 22)
+    tank_input.SetPos(200, y_offset)
+    config_gump.AddControl(tank_input)
+    config_controls["tank_heal_input"] = tank_input
+
+    tank_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    tank_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(tank_set_btn)
+    API.Gumps.AddControlOnClick(tank_set_btn, lambda: update_tank_heal_threshold())
+    y_offset += 30
+
+    # Other Pets Heal Threshold
+    pet_label = API.Gumps.CreateGumpTTFLabel(f"Other Pets Heal: {healing_system.pet_heal_threshold}%", 15, "#ffffff")
+    pet_label.SetPos(20, y_offset)
+    config_gump.AddControl(pet_label)
+    config_controls["pet_heal_label"] = pet_label
+
+    pet_input = API.Gumps.CreateGumpTextBox(str(healing_system.pet_heal_threshold), 60, 22)
+    pet_input.SetPos(200, y_offset)
+    config_gump.AddControl(pet_input)
+    config_controls["pet_heal_input"] = pet_input
+
+    pet_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    pet_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(pet_set_btn)
+    API.Gumps.AddControlOnClick(pet_set_btn, lambda: update_pet_heal_threshold())
+    y_offset += 40
+
+    # --- Vet Kit Settings Section ---
+    vetkit_section_label = API.Gumps.CreateGumpTTFLabel("Vet Kit Settings", 16, "#ffcc00")
+    vetkit_section_label.SetPos(10, y_offset)
+    config_gump.AddControl(vetkit_section_label)
+    y_offset += 30
+
+    # Vet Kit Graphic Display
+    vetkit_graphic_text = f"Vet Kit Graphic: 0x{healing_system.vetkit_graphic:04X}" if healing_system.vetkit_graphic else "Vet Kit Graphic: Not Set"
+    vetkit_graphic_label = API.Gumps.CreateGumpTTFLabel(vetkit_graphic_text, 15, "#ffffff")
+    vetkit_graphic_label.SetPos(20, y_offset)
+    config_gump.AddControl(vetkit_graphic_label)
+    config_controls["vetkit_graphic_label"] = vetkit_graphic_label
+    y_offset += 30
+
+    # Set Vet Kit and Clear buttons
+    set_vetkit_btn = API.Gumps.CreateSimpleButton("Set Vet Kit", 100, 22)
+    set_vetkit_btn.SetPos(20, y_offset)
+    config_gump.AddControl(set_vetkit_btn)
+    API.Gumps.AddControlOnClick(set_vetkit_btn, target_vetkit)
+
+    clear_vetkit_btn = API.Gumps.CreateSimpleButton("Clear", 60, 22)
+    clear_vetkit_btn.SetPos(130, y_offset)
+    config_gump.AddControl(clear_vetkit_btn)
+    API.Gumps.AddControlOnClick(clear_vetkit_btn, clear_vetkit)
+    y_offset += 30
+
+    # HP Threshold
+    vetkit_hp_label = API.Gumps.CreateGumpTTFLabel(f"HP Threshold: {healing_system.vetkit_hp_threshold}%", 15, "#ffffff")
+    vetkit_hp_label.SetPos(20, y_offset)
+    config_gump.AddControl(vetkit_hp_label)
+    config_controls["vetkit_hp_label"] = vetkit_hp_label
+
+    vetkit_hp_input = API.Gumps.CreateGumpTextBox(str(healing_system.vetkit_hp_threshold), 60, 22)
+    vetkit_hp_input.SetPos(200, y_offset)
+    config_gump.AddControl(vetkit_hp_input)
+    config_controls["vetkit_hp_input"] = vetkit_hp_input
+
+    vetkit_hp_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    vetkit_hp_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(vetkit_hp_set_btn)
+    API.Gumps.AddControlOnClick(vetkit_hp_set_btn, lambda: update_vetkit_hp_threshold())
+    y_offset += 30
+
+    # Min Pets Hurt
+    vetkit_min_label = API.Gumps.CreateGumpTTFLabel(f"Min Pets Hurt: {healing_system.vetkit_min_pets}", 15, "#ffffff")
+    vetkit_min_label.SetPos(20, y_offset)
+    config_gump.AddControl(vetkit_min_label)
+    config_controls["vetkit_min_label"] = vetkit_min_label
+
+    vetkit_min_input = API.Gumps.CreateGumpTextBox(str(healing_system.vetkit_min_pets), 60, 22)
+    vetkit_min_input.SetPos(200, y_offset)
+    config_gump.AddControl(vetkit_min_input)
+    config_controls["vetkit_min_input"] = vetkit_min_input
+
+    vetkit_min_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    vetkit_min_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(vetkit_min_set_btn)
+    API.Gumps.AddControlOnClick(vetkit_min_set_btn, lambda: update_vetkit_min_pets())
+    y_offset += 30
+
+    # Cooldown
+    vetkit_cooldown_label = API.Gumps.CreateGumpTTFLabel(f"Cooldown: {healing_system.vetkit_cooldown:.1f}s", 15, "#ffffff")
+    vetkit_cooldown_label.SetPos(20, y_offset)
+    config_gump.AddControl(vetkit_cooldown_label)
+    config_controls["vetkit_cooldown_label"] = vetkit_cooldown_label
+
+    vetkit_cooldown_input = API.Gumps.CreateGumpTextBox(str(healing_system.vetkit_cooldown), 60, 22)
+    vetkit_cooldown_input.SetPos(200, y_offset)
+    config_gump.AddControl(vetkit_cooldown_input)
+    config_controls["vetkit_cooldown_input"] = vetkit_cooldown_input
+
+    vetkit_cooldown_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    vetkit_cooldown_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(vetkit_cooldown_set_btn)
+    API.Gumps.AddControlOnClick(vetkit_cooldown_set_btn, lambda: update_vetkit_cooldown())
+    y_offset += 30
+
+    # Critical HP
+    vetkit_critical_label = API.Gumps.CreateGumpTTFLabel(f"Critical HP: {healing_system.vetkit_critical_hp}%", 15, "#ffffff")
+    vetkit_critical_label.SetPos(20, y_offset)
+    config_gump.AddControl(vetkit_critical_label)
+    config_controls["vetkit_critical_label"] = vetkit_critical_label
+
+    vetkit_critical_input = API.Gumps.CreateGumpTextBox(str(healing_system.vetkit_critical_hp), 60, 22)
+    vetkit_critical_input.SetPos(200, y_offset)
+    config_gump.AddControl(vetkit_critical_input)
+    config_controls["vetkit_critical_input"] = vetkit_critical_input
+
+    vetkit_critical_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    vetkit_critical_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(vetkit_critical_set_btn)
+    API.Gumps.AddControlOnClick(vetkit_critical_set_btn, lambda: update_vetkit_critical_hp())
+    y_offset += 40
+
+    # --- Options Section ---
+    options_section_label = API.Gumps.CreateGumpTTFLabel("Options", 16, "#ffcc00")
+    options_section_label.SetPos(10, y_offset)
+    config_gump.AddControl(options_section_label)
+    y_offset += 30
+
+    # Use Magery Checkbox
+    magery_text = "[X] Use Magery for Healing" if healing_system.use_magery_healing else "[ ] Use Magery for Healing"
+    magery_btn = API.Gumps.CreateSimpleButton(magery_text, 200, 22)
+    magery_btn.SetPos(20, y_offset)
+    if healing_system.use_magery_healing:
+        magery_btn.SetBackgroundHue(68)
+    config_gump.AddControl(magery_btn)
+    config_controls["magery_btn"] = magery_btn
+    API.Gumps.AddControlOnClick(magery_btn, toggle_magery_healing)
+    y_offset += 30
+
+    # Auto-Cure Poison Checkbox
+    cure_text = "[X] Auto-Cure Poison" if healing_system.auto_cure_poison else "[ ] Auto-Cure Poison"
+    cure_btn = API.Gumps.CreateSimpleButton(cure_text, 200, 22)
+    cure_btn.SetPos(20, y_offset)
+    if healing_system.auto_cure_poison:
+        cure_btn.SetBackgroundHue(68)
+    config_gump.AddControl(cure_btn)
+    config_controls["cure_btn"] = cure_btn
+    API.Gumps.AddControlOnClick(cure_btn, toggle_auto_cure)
+
+def build_looting_tab():
+    """Build the Looting tab content (stub)"""
+    global config_gump
+
+    stub_label = API.Gumps.CreateGumpTTFLabel("Looting tab not yet implemented", 15, "#888888")
+    stub_label.SetPos(10, 80)
+    config_gump.AddControl(stub_label)
+
+def build_banking_tab():
+    """Build the Banking tab content (stub)"""
+    global config_gump
+
+    stub_label = API.Gumps.CreateGumpTTFLabel("Banking tab not yet implemented", 15, "#888888")
+    stub_label.SetPos(10, 80)
+    config_gump.AddControl(stub_label)
+
+def build_advanced_tab():
+    """Build the Advanced tab content (stub)"""
+    global config_gump
+
+    stub_label = API.Gumps.CreateGumpTTFLabel("Advanced tab not yet implemented", 15, "#888888")
+    stub_label.SetPos(10, 80)
+    config_gump.AddControl(stub_label)
+
+# ============ HEALING TAB CALLBACKS ============
+
+def update_player_heal_threshold():
+    """Update player heal threshold from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "player_heal_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["player_heal_input"].GetText())
+        healing_system.configure_thresholds(player_threshold=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Player heal threshold set to {healing_system.player_heal_threshold}%", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_tank_heal_threshold():
+    """Update tank heal threshold from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "tank_heal_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["tank_heal_input"].GetText())
+        healing_system.configure_thresholds(tank_threshold=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Tank heal threshold set to {healing_system.tank_heal_threshold}%", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_pet_heal_threshold():
+    """Update pet heal threshold from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "pet_heal_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["pet_heal_input"].GetText())
+        healing_system.configure_thresholds(pet_threshold=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Pet heal threshold set to {healing_system.pet_heal_threshold}%", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def target_vetkit():
+    """Callback to target vet kit item"""
+    global healing_system
+
+    if not healing_system:
+        return
+
+    try:
+        API.SysMsg("Target your vet kit...", 68)
+        target = API.RequestTarget(timeout=10)
+
+        if target:
+            item = API.FindItem(target)
+            if item:
+                graphic = getattr(item, 'Graphic', 0)
+                healing_system.set_vetkit_graphic(graphic)
+                healing_system.sync_to_globals()
+                save_settings()
+                build_config_gump()  # Refresh display
+                API.SysMsg(f"Vet kit graphic set to 0x{graphic:04X}", 68)
+            else:
+                API.SysMsg("Invalid target - item not found", 32)
+        else:
+            API.SysMsg("Targeting cancelled", 43)
+    except Exception as e:
+        API.SysMsg(f"Error targeting vet kit: {str(e)}", 32)
+
+def clear_vetkit():
+    """Clear vet kit graphic"""
+    global healing_system
+
+    if not healing_system:
+        return
+
+    healing_system.set_vetkit_graphic(0)
+    healing_system.sync_to_globals()
+    save_settings()
+    build_config_gump()  # Refresh display
+    API.SysMsg("Vet kit graphic cleared", 43)
+
+def update_vetkit_hp_threshold():
+    """Update vet kit HP threshold from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "vetkit_hp_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["vetkit_hp_input"].GetText())
+        healing_system.configure_vetkit(hp_threshold=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Vet kit HP threshold set to {healing_system.vetkit_hp_threshold}%", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_vetkit_min_pets():
+    """Update vet kit min pets from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "vetkit_min_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["vetkit_min_input"].GetText())
+        healing_system.configure_vetkit(min_pets=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Vet kit min pets set to {healing_system.vetkit_min_pets}", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_vetkit_cooldown():
+    """Update vet kit cooldown from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "vetkit_cooldown_input" not in config_controls:
+        return
+
+    try:
+        value = float(config_controls["vetkit_cooldown_input"].GetText())
+        healing_system.configure_vetkit(cooldown=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Vet kit cooldown set to {healing_system.vetkit_cooldown:.1f}s", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def update_vetkit_critical_hp():
+    """Update vet kit critical HP from input"""
+    global healing_system, config_controls
+
+    if not healing_system or "vetkit_critical_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["vetkit_critical_input"].GetText())
+        healing_system.configure_vetkit(critical_hp=value)
+        healing_system.sync_to_globals()
+        save_settings()
+        build_config_gump()  # Refresh display
+        API.SysMsg(f"Vet kit critical HP set to {healing_system.vetkit_critical_hp}%", 68)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def toggle_magery_healing():
+    """Toggle magery healing option"""
+    global healing_system
+
+    if not healing_system:
+        return
+
+    healing_system.configure_options(use_magery=not healing_system.use_magery_healing)
+    healing_system.sync_to_globals()
+    save_settings()
+    build_config_gump()  # Refresh display
+    status = "enabled" if healing_system.use_magery_healing else "disabled"
+    API.SysMsg(f"Magery healing {status}", 68)
+
+def toggle_auto_cure():
+    """Toggle auto-cure poison option"""
+    global healing_system
+
+    if not healing_system:
+        return
+
+    healing_system.configure_options(auto_cure=not healing_system.auto_cure_poison)
+    healing_system.sync_to_globals()
+    save_settings()
+    build_config_gump()  # Refresh display
+    status = "enabled" if healing_system.auto_cure_poison else "disabled"
+    API.SysMsg(f"Auto-cure poison {status}", 68)
 
 # ============ HOTKEY CALLBACKS ============
 
@@ -3305,15 +3938,19 @@ try:
     flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
     recovery_system = RecoverySystem(pet_manager, area_manager, KEY_PREFIX)
     supply_tracker = SupplyTracker(KEY_PREFIX)
+    healing_system = HealingSystem()
+    healing_system.sync_from_globals()  # Load current settings
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
 
     # Register hotkeys
     API.OnHotKey("PAUSE", toggle_pause)
+    API.OnHotKey("F12", build_config_gump)
 
-    # TODO: Build GUI in later tasks
-    # build_main_gump()
+    # Open config window on startup
+    build_config_gump()
+    API.SysMsg("Press F12 to open config window", 68)
 
 except Exception as e:
     API.SysMsg(f"Init error: {str(e)}", 32)
