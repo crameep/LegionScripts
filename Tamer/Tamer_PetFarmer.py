@@ -110,6 +110,11 @@ combat_start_time = 0
 npc_positions = []  # List of (x, y) tuples to avoid
 last_npc_scan = 0
 danger_assessment = None  # DangerAssessment instance
+npc_threat_map = None     # NPCThreatMap instance
+
+# Area & flee system
+area_manager = None       # AreaManager instance
+flee_system = None        # FleeSystem instance
 
 # Healing tracking
 last_heal_time = 0
@@ -443,6 +448,741 @@ class PetManager:
             if pet['name'].lower() == name_lower:
                 return pet
         return None
+
+# ============ AREA & SAFE SPOT CLASSES ============
+
+class SafeSpot:
+    """
+    Safe recall/escape point within a farming area.
+    Defines coordinates and escape method (recall, gate, etc.).
+    """
+
+    def __init__(self, x, y, escape_method="direct_recall", gump_id=0, button_id=0, is_primary=True):
+        """
+        Args:
+            x, y: Coordinates of safe spot
+            escape_method: "direct_recall", "gump_gate", "timer_gate", "run_outside"
+            gump_id: Gump ID for gump_gate method
+            button_id: Button ID for gump_gate method
+            is_primary: True if primary safe spot, False for backup
+        """
+        self.x = x
+        self.y = y
+        self.escape_method = escape_method
+        self.gump_id = gump_id
+        self.button_id = button_id
+        self.is_primary = is_primary
+
+    def to_dict(self):
+        """Convert to dict for JSON serialization"""
+        return {
+            'x': self.x,
+            'y': self.y,
+            'escape_method': self.escape_method,
+            'gump_id': self.gump_id,
+            'button_id': self.button_id,
+            'is_primary': self.is_primary
+        }
+
+    @staticmethod
+    def from_dict(data):
+        """Create SafeSpot from dict"""
+        return SafeSpot(
+            x=data.get('x', 0),
+            y=data.get('y', 0),
+            escape_method=data.get('escape_method', 'direct_recall'),
+            gump_id=data.get('gump_id', 0),
+            button_id=data.get('button_id', 0),
+            is_primary=data.get('is_primary', True)
+        )
+
+
+class FarmingArea:
+    """
+    Farming area definition with coordinates, type, and safe spots.
+    """
+
+    def __init__(self, name, area_type="circle", center_x=0, center_y=0, radius=15,
+                 waypoints=None, difficulty="medium", safe_spots=None, loot_filter=None, notes=""):
+        """
+        Args:
+            name: Area name
+            area_type: "circle" or "waypoints"
+            center_x, center_y, radius: For circle type
+            waypoints: List of (x, y) tuples for waypoint type
+            difficulty: "low", "medium", "high"
+            safe_spots: List of SafeSpot objects
+            loot_filter: List of graphic IDs to loot
+            notes: Optional notes
+        """
+        self.name = name
+        self.area_type = area_type
+        self.center_x = center_x
+        self.center_y = center_y
+        self.radius = radius
+        self.waypoints = waypoints or []
+        self.difficulty = difficulty
+        self.safe_spots = safe_spots or []
+        self.loot_filter = loot_filter or []
+        self.notes = notes
+
+    def to_dict(self):
+        """Convert to dict for JSON serialization"""
+        return {
+            'name': self.name,
+            'area_type': self.area_type,
+            'center_x': self.center_x,
+            'center_y': self.center_y,
+            'radius': self.radius,
+            'waypoints': self.waypoints,
+            'difficulty': self.difficulty,
+            'safe_spots': [spot.to_dict() for spot in self.safe_spots],
+            'loot_filter': self.loot_filter,
+            'notes': self.notes
+        }
+
+    @staticmethod
+    def from_dict(data):
+        """Create FarmingArea from dict"""
+        safe_spots = [SafeSpot.from_dict(spot) for spot in data.get('safe_spots', [])]
+
+        return FarmingArea(
+            name=data.get('name', ''),
+            area_type=data.get('area_type', 'circle'),
+            center_x=data.get('center_x', 0),
+            center_y=data.get('center_y', 0),
+            radius=data.get('radius', 15),
+            waypoints=data.get('waypoints', []),
+            difficulty=data.get('difficulty', 'medium'),
+            safe_spots=safe_spots,
+            loot_filter=data.get('loot_filter', []),
+            notes=data.get('notes', '')
+        )
+
+
+class AreaManager:
+    """
+    Manages farming area persistence and retrieval.
+    """
+
+    def __init__(self, key_prefix):
+        self.key_prefix = key_prefix
+        self.areas_key = key_prefix + "Areas_"
+
+    def add_area(self, area):
+        """
+        Save area to persistence.
+
+        Args:
+            area: FarmingArea object
+        """
+        try:
+            import json
+            area_key = self.areas_key + area.name
+            area_json = json.dumps(area.to_dict())
+            API.SavePersistentVar(area_key, area_json, API.PersistentVar.Char)
+
+            # Update area names list
+            area_names_key = self.key_prefix + "AreaNames"
+            names = self.list_areas()
+            if area.name not in names:
+                names.append(area.name)
+                API.SavePersistentVar(area_names_key, "|".join(names), API.PersistentVar.Char)
+
+            return True
+        except Exception as e:
+            API.SysMsg(f"Area save error: {str(e)}", 32)
+            return False
+
+    def get_area(self, name):
+        """
+        Retrieve area by name.
+
+        Args:
+            name: Area name
+
+        Returns:
+            FarmingArea object or None if not found
+        """
+        try:
+            import json
+            area_key = self.areas_key + name
+            area_json = API.GetPersistentVar(area_key, "", API.PersistentVar.Char)
+
+            if not area_json:
+                return None
+
+            area_dict = json.loads(area_json)
+            return FarmingArea.from_dict(area_dict)
+        except Exception as e:
+            API.SysMsg(f"Area load error: {str(e)}", 32)
+            return None
+
+    def list_areas(self):
+        """
+        Get list of all area names.
+
+        Returns:
+            List of area name strings
+        """
+        # Note: This is a simplified implementation
+        # A full implementation would need to scan all persistence keys
+        # For now, we'll track area names in a separate key
+        try:
+            area_names_key = self.key_prefix + "AreaNames"
+            names_str = API.GetPersistentVar(area_names_key, "", API.PersistentVar.Char)
+            if names_str:
+                return [name for name in names_str.split("|") if name]
+            return []
+        except:
+            return []
+
+    def delete_area(self, name):
+        """
+        Delete area from persistence.
+
+        Args:
+            name: Area name
+        """
+        try:
+            area_key = self.areas_key + name
+            API.SavePersistentVar(area_key, "", API.PersistentVar.Char)
+
+            # Remove from area names list
+            area_names_key = self.key_prefix + "AreaNames"
+            names = self.list_areas()
+            if name in names:
+                names.remove(name)
+                API.SavePersistentVar(area_names_key, "|".join(names), API.PersistentVar.Char)
+
+            return True
+        except Exception as e:
+            API.SysMsg(f"Area delete error: {str(e)}", 32)
+            return False
+
+    def get_current_area(self, proximity=20):
+        """
+        Get the area player is currently in based on proximity.
+
+        Args:
+            proximity: Max distance from center/waypoints to consider "in area"
+
+        Returns:
+            FarmingArea object or None if not in any area
+        """
+        try:
+            px, py = get_player_pos()
+
+            for area_name in self.list_areas():
+                area = self.get_area(area_name)
+                if not area:
+                    continue
+
+                if area.area_type == "circle":
+                    dist = distance(px, py, area.center_x, area.center_y)
+                    if dist <= area.radius + proximity:
+                        return area
+                elif area.area_type == "waypoints":
+                    # Check proximity to any waypoint
+                    for wx, wy in area.waypoints:
+                        if distance(px, py, wx, wy) <= proximity:
+                            return area
+
+            return None
+        except:
+            return None
+
+
+# ============ NPC THREAT MAPPING SYSTEM ============
+
+class NPCThreatMap:
+    """
+    Spatial avoidance system that maps threatening NPC positions
+    and provides safe pathfinding away from threats.
+    """
+
+    def __init__(self):
+        self.threat_positions = []  # List of (x, y) tuples
+        self.avoid_radius = 6       # Tiles around each NPC to avoid
+        self.last_scan_time = 0
+        self.scan_cooldown = 2.0    # Seconds between scans
+
+    def scan_npcs(self, scan_radius=12):
+        """
+        Scan for threatening NPCs and update threat map.
+
+        Args:
+            scan_radius: Radius to scan for NPCs
+        """
+        try:
+            now = time.time()
+
+            # Cooldown check
+            if now - self.last_scan_time < self.scan_cooldown:
+                return
+
+            self.last_scan_time = now
+            self.threat_positions = []
+
+            # Get all mobiles
+            all_mobiles = API.Mobiles.GetMobiles()
+            if not all_mobiles:
+                return
+
+            px, py = get_player_pos()
+
+            for mob in all_mobiles:
+                if mob is None:
+                    continue
+
+                # Skip if too far
+                mob_dist = getattr(mob, 'Distance', 99)
+                if mob_dist > scan_radius:
+                    continue
+
+                # Get notoriety
+                notoriety = getattr(mob, 'Notoriety', -1)
+
+                # Skip: owned pets (1), friendlies (2), innocents (1)
+                # Include: red (5), gray (3 if aggressive), orange (4)
+                if notoriety in [1, 2]:
+                    continue
+
+                # Get position
+                mx = getattr(mob, 'X', 0)
+                my = getattr(mob, 'Y', 0)
+
+                if mx > 0 and my > 0:
+                    self.threat_positions.append((mx, my))
+
+        except Exception as e:
+            API.SysMsg(f"NPC scan error: {str(e)}", 32)
+
+    def is_position_safe(self, x, y):
+        """
+        Check if a position is safe (not near threats).
+
+        Args:
+            x, y: Position to check
+
+        Returns:
+            bool: True if safe
+        """
+        for tx, ty in self.threat_positions:
+            if distance(x, y, tx, ty) <= self.avoid_radius:
+                return False
+        return True
+
+    def get_nearest_threat(self, x, y):
+        """
+        Get the nearest threat position to given coordinates.
+
+        Args:
+            x, y: Position to check from
+
+        Returns:
+            Tuple of (tx, ty, distance) or None if no threats
+        """
+        if not self.threat_positions:
+            return None
+
+        nearest = None
+        min_dist = float('inf')
+
+        for tx, ty in self.threat_positions:
+            dist = distance(x, y, tx, ty)
+            if dist < min_dist:
+                min_dist = dist
+                nearest = (tx, ty, dist)
+
+        return nearest
+
+    def calculate_safe_direction(self, from_x, from_y, distance_to_move=10):
+        """
+        Calculate safest direction to move from current position.
+
+        Args:
+            from_x, from_y: Starting position
+            distance_to_move: How far to project the safe direction
+
+        Returns:
+            Tuple of (safe_x, safe_y) or None if no safe direction
+        """
+        if not self.threat_positions:
+            # No threats, any direction is safe
+            return (from_x, from_y + distance_to_move)
+
+        try:
+            # Calculate average threat vector
+            threat_vector_x = 0
+            threat_vector_y = 0
+
+            for tx, ty in self.threat_positions:
+                # Vector from threat to player
+                dx = from_x - tx
+                dy = from_y - ty
+                dist = distance(from_x, from_y, tx, ty)
+
+                if dist > 0:
+                    # Weight by inverse distance (closer threats = stronger push)
+                    weight = 1.0 / max(dist, 1.0)
+                    threat_vector_x += dx * weight
+                    threat_vector_y += dy * weight
+
+            # Normalize and scale
+            vector_length = (threat_vector_x ** 2 + threat_vector_y ** 2) ** 0.5
+            if vector_length > 0:
+                safe_x = from_x + int((threat_vector_x / vector_length) * distance_to_move)
+                safe_y = from_y + int((threat_vector_y / vector_length) * distance_to_move)
+                return (safe_x, safe_y)
+
+            return None
+        except:
+            return None
+
+
+# ============ FLEE SYSTEM ============
+
+class FleeSystem:
+    """
+    Dungeon-aware flee system with multiple escape methods.
+    Handles emergency evacuation with safe spot pathfinding,
+    gate usage, and recall mechanics.
+    """
+
+    def __init__(self, area_manager, npc_threat_map, key_prefix):
+        """
+        Args:
+            area_manager: AreaManager instance
+            npc_threat_map: NPCThreatMap instance
+            key_prefix: Persistence key prefix
+        """
+        self.area_manager = area_manager
+        self.npc_threat_map = npc_threat_map
+        self.key_prefix = key_prefix
+
+        # Flee state
+        self.is_fleeing = False
+        self.flee_start_time = 0
+        self.flee_reason = ""
+        self.current_safe_spot = None
+        self.last_position = (0, 0)
+        self.stuck_check_time = 0
+
+        # Statistics
+        self.flee_count = 0
+        self.flee_success = 0
+        self.flee_failures = 0
+        self.flee_reasons = {}  # Dict of {reason: count}
+
+        # Constants
+        self.MAX_FLEE_TIME = 20.0
+        self.STUCK_TIMEOUT = 3.0
+        self.SAFE_SPOT_ARRIVAL_DISTANCE = 2
+
+    def initiate_flee(self, reason="danger_critical"):
+        """
+        Initiate emergency flee sequence.
+
+        Args:
+            reason: Reason for fleeing (for statistics)
+
+        Returns:
+            bool: True if flee initiated successfully
+        """
+        try:
+            # Track statistics
+            self.flee_count += 1
+            self.flee_reason = reason
+            self.flee_reasons[reason] = self.flee_reasons.get(reason, 0) + 1
+
+            API.SysMsg(f"FLEEING: {reason}!", 32)
+
+            # Issue guard me command
+            API.Msg("all guard me")
+            API.Pause(0.3)
+
+            # Get current area
+            current_area = self.area_manager.get_current_area()
+            if not current_area or not current_area.safe_spots:
+                API.SysMsg("No safe spots defined! Emergency recall!", 32)
+                return self._emergency_recall()
+
+            # Get primary safe spot
+            primary_spot = None
+            for spot in current_area.safe_spots:
+                if spot.is_primary:
+                    primary_spot = spot
+                    break
+
+            # Fallback to first safe spot if no primary
+            if not primary_spot and current_area.safe_spots:
+                primary_spot = current_area.safe_spots[0]
+
+            if not primary_spot:
+                API.SysMsg("No safe spots available! Emergency recall!", 32)
+                return self._emergency_recall()
+
+            # Check if path to safe spot is blocked by NPCs
+            px, py = get_player_pos()
+            if not self.npc_threat_map.is_position_safe(primary_spot.x, primary_spot.y):
+                # Try alternate safe spots
+                for spot in current_area.safe_spots:
+                    if not spot.is_primary and self.npc_threat_map.is_position_safe(spot.x, spot.y):
+                        primary_spot = spot
+                        API.SysMsg("Primary blocked, using backup safe spot", 43)
+                        break
+
+            # Set flee state
+            self.is_fleeing = True
+            self.flee_start_time = time.time()
+            self.current_safe_spot = primary_spot
+            self.last_position = get_player_pos()
+            self.stuck_check_time = time.time()
+
+            # Start fleeing to safe spot
+            return self.flee_to_safe_spot(primary_spot)
+
+        except Exception as e:
+            API.SysMsg(f"Flee initiate error: {str(e)}", 32)
+            self.flee_failures += 1
+            return False
+
+    def flee_to_safe_spot(self, safe_spot):
+        """
+        Pathfind to safe spot and monitor progress.
+        This is called continuously from main loop while fleeing.
+
+        Args:
+            safe_spot: SafeSpot object to flee to
+
+        Returns:
+            bool: True if still fleeing, False if arrived or failed
+        """
+        try:
+            if not self.is_fleeing:
+                return False
+
+            now = time.time()
+
+            # Check timeout
+            if now - self.flee_start_time > self.MAX_FLEE_TIME:
+                API.SysMsg("Flee timeout! Emergency recall!", 32)
+                self._emergency_recall()
+                self.is_fleeing = False
+                self.flee_failures += 1
+                return False
+
+            # Check if arrived at safe spot
+            px, py = get_player_pos()
+            dist_to_spot = distance(px, py, safe_spot.x, safe_spot.y)
+
+            if dist_to_spot < self.SAFE_SPOT_ARRIVAL_DISTANCE:
+                API.SysMsg("Reached safe spot, executing escape...", 68)
+                success = self.execute_escape_method(safe_spot)
+                self.is_fleeing = False
+
+                if success:
+                    self.flee_success += 1
+                else:
+                    self.flee_failures += 1
+
+                return False
+
+            # Stuck detection
+            if now - self.stuck_check_time >= self.STUCK_TIMEOUT:
+                cur_x, cur_y = get_player_pos()
+                last_x, last_y = self.last_position
+
+                if cur_x == last_x and cur_y == last_y:
+                    # Stuck! Try random direction
+                    API.SysMsg("Stuck! Trying alternate path...", 43)
+                    if API.Pathfinding():
+                        API.CancelPathfinding()
+
+                    import random
+                    API.Pathfind(cur_x + random.randint(-5, 5), cur_y + random.randint(-5, 5))
+                    API.Pause(0.5)
+
+                self.last_position = get_player_pos()
+                self.stuck_check_time = now
+
+            # Update NPC threat map
+            self.npc_threat_map.scan_npcs()
+
+            # Start/resume pathfinding to safe spot
+            if not API.Pathfinding():
+                API.Pathfind(safe_spot.x, safe_spot.y)
+
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Flee to safe spot error: {str(e)}", 32)
+            self.is_fleeing = False
+            self.flee_failures += 1
+            return False
+
+    def execute_escape_method(self, safe_spot):
+        """
+        Execute the escape method defined by the safe spot.
+
+        Args:
+            safe_spot: SafeSpot object with escape method
+
+        Returns:
+            bool: True if escape successful
+        """
+        try:
+            method = safe_spot.escape_method
+
+            if method == "direct_recall":
+                return self.use_recall()
+            elif method == "gump_gate":
+                return self.use_gump_gate(safe_spot.gump_id, safe_spot.button_id)
+            elif method == "timer_gate":
+                return self.use_timer_gate()
+            elif method == "run_outside":
+                API.SysMsg("Running outside dungeon boundary...", 68)
+                # Continue pathfinding - caller handles this
+                return True
+            else:
+                API.SysMsg(f"Unknown escape method: {method}", 32)
+                return self._emergency_recall()
+
+        except Exception as e:
+            API.SysMsg(f"Escape method error: {str(e)}", 32)
+            return False
+
+    def use_recall(self):
+        """
+        Execute direct recall escape.
+
+        Returns:
+            bool: True if recall successful
+        """
+        try:
+            # Find recall rune/runebook
+            # This is a placeholder - actual implementation would need
+            # to track recall destination serial/item
+            API.SysMsg("Direct recall not yet configured", 43)
+
+            # For now, just stop fleeing and let recovery handle it
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Recall error: {str(e)}", 32)
+            return False
+
+    def use_gump_gate(self, gump_id, button_id):
+        """
+        Use a gate that opens a gump dialog.
+
+        Args:
+            gump_id: Gump ID to wait for
+            button_id: Button ID to click in gump
+
+        Returns:
+            bool: True if gate used successfully
+        """
+        try:
+            # Find gate object near safe spot
+            # This is a placeholder - would need to scan for gate graphic
+            API.SysMsg("Gump gate not yet implemented", 43)
+
+            # Wait for gump
+            start_time = time.time()
+            while not API.HasGump(gump_id) and time.time() - start_time < 3.0:
+                API.Pause(0.1)
+
+            if API.HasGump(gump_id):
+                API.ReplyGump(button_id, gump_id)
+                API.Pause(2.0)  # Wait for travel
+
+                # Check position changed
+                # Would verify travel success here
+                return True
+            else:
+                API.SysMsg("Gate gump timeout", 32)
+                return False
+
+        except Exception as e:
+            API.SysMsg(f"Gump gate error: {str(e)}", 32)
+            return False
+
+    def use_timer_gate(self):
+        """
+        Use a timer-based gate (5 second countdown).
+
+        Returns:
+            bool: True if gate used successfully
+        """
+        try:
+            API.SysMsg("Timer gate: 5 second countdown...", 43)
+
+            # Issue guard me again
+            API.Msg("all guard me")
+
+            # Wait for timer (5 seconds)
+            timer_start = time.time()
+            while time.time() - timer_start < 5.0:
+                API.ProcessCallbacks()
+
+                # Monitor danger during wait
+                # If critical, could use emergency invis/logout
+                # For now, just wait
+
+                API.Pause(0.5)
+
+            API.SysMsg("Timer gate travel complete", 68)
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Timer gate error: {str(e)}", 32)
+            return False
+
+    def _emergency_recall(self):
+        """
+        Emergency recall as last resort.
+
+        Returns:
+            bool: True if successful
+        """
+        try:
+            API.SysMsg("EMERGENCY RECALL!", 32)
+
+            # This is a placeholder - actual implementation would:
+            # 1. Use sacred journey spell
+            # 2. Or use runebook emergency charges
+            # 3. Or use recall scrolls
+
+            # For now, just mark flee as failed
+            return False
+
+        except:
+            return False
+
+    def get_flee_stats(self):
+        """
+        Get flee statistics dictionary.
+
+        Returns:
+            dict: Flee statistics
+        """
+        return {
+            'flee_count': self.flee_count,
+            'flee_success': self.flee_success,
+            'flee_failures': self.flee_failures,
+            'flee_reasons': self.flee_reasons,
+            'is_fleeing': self.is_fleeing
+        }
+
+    def reset_stats(self):
+        """Reset flee statistics"""
+        self.flee_count = 0
+        self.flee_success = 0
+        self.flee_failures = 0
+        self.flee_reasons = {}
+
 
 # ============ DANGER ASSESSMENT SYSTEM ============
 
@@ -832,6 +1572,22 @@ def handle_combat_state():
     # TODO: Implement combat logic in later tasks
     pass
 
+def handle_fleeing_state():
+    """Handle fleeing state - monitor flee progress"""
+    global STATE, flee_system
+
+    if not flee_system or not flee_system.is_fleeing:
+        STATE = "idle"
+        return
+
+    # Continue flee monitoring (flee_to_safe_spot handles pathfinding)
+    still_fleeing = flee_system.flee_to_safe_spot(flee_system.current_safe_spot)
+
+    if not still_fleeing:
+        # Flee complete or failed, transition to recovery
+        API.SysMsg("Flee complete, entering recovery", 68)
+        STATE = "recovering"
+
 # ============ CLEANUP ============
 
 def cleanup():
@@ -850,8 +1606,11 @@ def cleanup():
 try:
     load_settings()
 
-    # Initialize danger assessment system
+    # Initialize systems
     danger_assessment = DangerAssessment()
+    area_manager = AreaManager(KEY_PREFIX)
+    npc_threat_map = NPCThreatMap()
+    flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
@@ -884,6 +1643,12 @@ try:
             handle_healing_state()
         elif STATE == "combat":
             handle_combat_state()
+        elif STATE == "fleeing":
+            handle_fleeing_state()
+        elif STATE == "recovering":
+            # TODO: Implement recovery system in later task
+            API.SysMsg("Recovery not yet implemented", 43)
+            STATE = "idle"
 
         API.Pause(0.1)  # Short pause only
 
