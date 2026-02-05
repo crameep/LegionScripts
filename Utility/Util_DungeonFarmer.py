@@ -2049,6 +2049,295 @@ class PatrolSystem:
         self.patrol_active = False
 
 
+# ========== LOOTING SYSTEM CLASS ==========
+class LootingSystem:
+    """Handles corpse looting with selective filtering and safety checks"""
+
+    def __init__(self, weight_threshold=80):
+        """
+        Initialize the looting system.
+
+        Args:
+            weight_threshold: Percentage of max weight before stopping looting (60-95)
+        """
+        self.item_filter = []  # List of graphic IDs to loot
+        self.weight_threshold = weight_threshold  # Percentage
+
+        # Statistics
+        self.gold_collected = 0
+        self.items_collected = 0
+        self.corpses_looted = 0
+        self.looting_failures = 0
+
+        # Constants
+        self.GOLD_GRAPHIC = 0x0EED
+        self.LOOT_RANGE = 2  # Tiles
+        self.DANGER_THRESHOLD = 30  # Abort looting if danger spikes above this
+
+    def configure_loot_filter(self, graphics_list):
+        """
+        Set the loot filter to specific item graphics.
+
+        Args:
+            graphics_list: List of item graphic IDs (integers or hex strings)
+        """
+        self.item_filter = []
+        for graphic in graphics_list:
+            if isinstance(graphic, str):
+                # Handle hex strings like "0x1234"
+                if graphic.startswith("0x"):
+                    self.item_filter.append(int(graphic, 16))
+                else:
+                    self.item_filter.append(int(graphic))
+            else:
+                self.item_filter.append(int(graphic))
+
+    def configure_weight_threshold(self, threshold):
+        """
+        Set weight threshold percentage (60-95).
+
+        Args:
+            threshold: Percentage of max weight
+        """
+        self.weight_threshold = max(60, min(95, threshold))
+
+    def _check_weight_limit(self):
+        """
+        Check if we're at or above weight threshold.
+
+        Returns:
+            True if can continue looting, False if at weight limit
+        """
+        try:
+            current_weight = getattr(API.Player, 'Weight', 0)
+            max_weight = getattr(API.Player, 'MaxWeight', 1)
+
+            if max_weight == 0:
+                return True  # Avoid division by zero
+
+            weight_pct = (current_weight / max_weight) * 100
+            return weight_pct < self.weight_threshold
+
+        except Exception as e:
+            API.SysMsg("Weight check error: " + str(e), 32)
+            return True  # Default to allow looting on error
+
+    def _pathfind_to_corpse(self, corpse_x, corpse_y, timeout=5.0):
+        """
+        Pathfind to corpse if out of range.
+
+        Args:
+            corpse_x, corpse_y: Corpse coordinates
+            timeout: Max seconds to wait for pathfinding
+
+        Returns:
+            True if reached corpse or already in range, False if failed
+        """
+        try:
+            player_x = getattr(API.Player, 'X', 0)
+            player_y = getattr(API.Player, 'Y', 0)
+
+            # Calculate distance
+            import math
+            distance = math.sqrt((player_x - corpse_x) ** 2 + (player_y - corpse_y) ** 2)
+
+            if distance <= self.LOOT_RANGE:
+                return True  # Already in range
+
+            # Start pathfinding
+            if not API.Pathfind(corpse_x, corpse_y):
+                return False
+
+            # Wait for arrival
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                API.ProcessCallbacks()
+
+                # Check if arrived
+                player_x = getattr(API.Player, 'X', 0)
+                player_y = getattr(API.Player, 'Y', 0)
+                distance = math.sqrt((player_x - corpse_x) ** 2 + (player_y - corpse_y) ** 2)
+
+                if distance <= self.LOOT_RANGE:
+                    if API.Pathfinding():
+                        API.CancelPathfinding()
+                    return True
+
+                # Check if pathfinding canceled (blocked)
+                if not API.Pathfinding():
+                    return False
+
+                API.Pause(0.1)
+
+            # Timeout
+            if API.Pathfinding():
+                API.CancelPathfinding()
+            return False
+
+        except Exception as e:
+            API.SysMsg("Pathfind to corpse error: " + str(e), 32)
+            return False
+
+    def _collect_gold(self, corpse_serial):
+        """
+        Collect all gold from corpse.
+
+        Args:
+            corpse_serial: Serial of corpse container
+
+        Returns:
+            Amount of gold collected
+        """
+        try:
+            # Note: This is a simplified version - actual implementation would need
+            # to enumerate container items and drag gold piles
+            # For now, we'll use a pattern that assumes gold auto-loots or track manually
+
+            # In UO, opening a corpse and clicking gold typically auto-loots it
+            # We'd need container enumeration API which may not be exposed
+            # This is a placeholder for the actual implementation
+
+            return 0  # Placeholder
+
+        except Exception as e:
+            API.SysMsg("Collect gold error: " + str(e), 32)
+            return 0
+
+    def _collect_items(self, corpse_serial):
+        """
+        Collect filtered items from corpse.
+
+        Args:
+            corpse_serial: Serial of corpse container
+
+        Returns:
+            Number of items collected
+        """
+        try:
+            # Note: This is a simplified version - actual implementation would need
+            # container enumeration API to scan corpse contents
+            # This is a placeholder for the actual implementation
+
+            return 0  # Placeholder
+
+        except Exception as e:
+            API.SysMsg("Collect items error: " + str(e), 32)
+            return 0
+
+    def loot_corpse(self, corpse_serial, danger_check_callback=None):
+        """
+        Loot a corpse with safety checks and selective filtering.
+
+        Args:
+            corpse_serial: Serial of the corpse to loot
+            danger_check_callback: Optional function() -> danger_level for safety checks
+
+        Returns:
+            True if looting completed successfully, False if aborted/failed
+        """
+        try:
+            # Safety check: danger level before starting
+            if danger_check_callback is not None:
+                danger = danger_check_callback()
+                if danger >= self.DANGER_THRESHOLD:
+                    API.SysMsg("Danger too high, skipping loot", 43)
+                    return False
+
+            # Get corpse item
+            corpse = API.FindItem(corpse_serial)
+            if corpse is None:
+                self.looting_failures += 1
+                return False
+
+            # Get corpse position
+            corpse_x = getattr(corpse, 'X', 0)
+            corpse_y = getattr(corpse, 'Y', 0)
+
+            # Pathfind to corpse if needed
+            if not self._pathfind_to_corpse(corpse_x, corpse_y):
+                API.SysMsg("Can't reach corpse", 43)
+                self.looting_failures += 1
+                return False
+
+            # Safety check: danger level after movement
+            if danger_check_callback is not None:
+                danger = danger_check_callback()
+                if danger >= self.DANGER_THRESHOLD:
+                    API.SysMsg("Danger spiked during approach, aborting loot", 43)
+                    return False
+
+            # Check for nearby enemies (within 8 tiles)
+            try:
+                all_mobiles = API.Mobiles.GetMobiles()
+                for mob in all_mobiles:
+                    if mob and not mob.IsDead and mob.Notoriety in [3, 4, 5, 6]:  # Hostile
+                        if mob.Distance <= 8:
+                            API.SysMsg("Enemy nearby, aborting loot", 43)
+                            return False
+            except Exception:
+                pass  # Continue if enemy check fails
+
+            # Check weight limit
+            if not self._check_weight_limit():
+                API.SysMsg("Weight limit reached, skipping loot", 43)
+                return False
+
+            # Open corpse
+            API.UseObject(corpse_serial, False)
+
+            # Wait for container gump to open (up to 1 second)
+            wait_start = time.time()
+            while time.time() - wait_start < 1.0:
+                API.ProcessCallbacks()
+                API.Pause(0.05)
+                # Note: We'd check for container gump here if API exposed it
+                # For now, assume gump opens after short delay
+
+            # Collect gold (always)
+            gold_amount = self._collect_gold(corpse_serial)
+            if gold_amount > 0:
+                self.gold_collected += gold_amount
+
+            # Collect filtered items
+            items_count = self._collect_items(corpse_serial)
+            if items_count > 0:
+                self.items_collected += items_count
+
+            # Close corpse (if needed - may auto-close)
+            # API doesn't have explicit close container method
+
+            # Success
+            self.corpses_looted += 1
+
+            return True
+
+        except Exception as e:
+            API.SysMsg("loot_corpse error: " + str(e), 32)
+            self.looting_failures += 1
+            return False
+
+    def get_stats(self):
+        """
+        Get looting statistics.
+
+        Returns:
+            Dict with gold_collected, items_collected, corpses_looted, looting_failures
+        """
+        return {
+            "gold_collected": self.gold_collected,
+            "items_collected": self.items_collected,
+            "corpses_looted": self.corpses_looted,
+            "looting_failures": self.looting_failures
+        }
+
+    def reset_stats(self):
+        """Reset all statistics to zero"""
+        self.gold_collected = 0
+        self.items_collected = 0
+        self.corpses_looted = 0
+        self.looting_failures = 0
+
+
 # ========== AREA RECORDING GUMP ==========
 class AreaRecordingGump:
     """GUI for recording farming areas in-game"""
