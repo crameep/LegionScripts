@@ -115,6 +115,9 @@ npc_threat_map = None     # NPCThreatMap instance
 # Area & flee system
 area_manager = None       # AreaManager instance
 flee_system = None        # FleeSystem instance
+recovery_system = None    # RecoverySystem instance
+pet_manager = None        # PetManager instance
+danger_at_flee = 0        # Danger score when flee was initiated
 
 # Healing tracking
 last_heal_time = 0
@@ -692,6 +695,45 @@ class AreaManager:
         except:
             return None
 
+    def rotate_to_next_area(self):
+        """
+        Rotate to the next farming area in the list.
+        Useful after a major flee event to avoid the dangerous area.
+
+        Returns:
+            FarmingArea: The new area, or None if no areas available
+        """
+        try:
+            area_names = self.list_areas()
+            if not area_names:
+                API.SysMsg("No areas configured for rotation", 43)
+                return None
+
+            # Get current area
+            current_area = self.get_current_area()
+            current_name = current_area.name if current_area else None
+
+            # Find next area
+            if current_name and current_name in area_names:
+                current_index = area_names.index(current_name)
+                next_index = (current_index + 1) % len(area_names)
+                next_name = area_names[next_index]
+            else:
+                # Not in any area or area not found, use first area
+                next_name = area_names[0]
+
+            next_area = self.get_area(next_name)
+            if next_area:
+                API.SysMsg(f"Rotated to area: {next_name}", 68)
+                return next_area
+            else:
+                API.SysMsg(f"Failed to load area: {next_name}", 32)
+                return None
+
+        except Exception as e:
+            API.SysMsg(f"Area rotation error: {str(e)}", 32)
+            return None
+
 
 # ============ NPC THREAT MAPPING SYSTEM ============
 
@@ -865,6 +907,7 @@ class FleeSystem:
         self.is_fleeing = False
         self.flee_start_time = 0
         self.flee_reason = ""
+        self.danger_at_flee = 0
         self.current_safe_spot = None
         self.last_position = (0, 0)
         self.stuck_check_time = 0
@@ -880,12 +923,13 @@ class FleeSystem:
         self.STUCK_TIMEOUT = 3.0
         self.SAFE_SPOT_ARRIVAL_DISTANCE = 2
 
-    def initiate_flee(self, reason="danger_critical"):
+    def initiate_flee(self, reason="danger_critical", danger_score=0):
         """
         Initiate emergency flee sequence.
 
         Args:
             reason: Reason for fleeing (for statistics)
+            danger_score: Current danger score (0-100) when flee initiated
 
         Returns:
             bool: True if flee initiated successfully
@@ -894,9 +938,10 @@ class FleeSystem:
             # Track statistics
             self.flee_count += 1
             self.flee_reason = reason
+            self.danger_at_flee = danger_score
             self.flee_reasons[reason] = self.flee_reasons.get(reason, 0) + 1
 
-            API.SysMsg(f"FLEEING: {reason}!", 32)
+            API.SysMsg(f"FLEEING: {reason} (danger: {danger_score})!", 32)
 
             # Issue guard me command
             API.Msg("all guard me")
@@ -1523,6 +1568,499 @@ class DangerAssessment:
         """Reset damage tracking samples"""
         self.damage_samples = []
 
+class RecoverySystem:
+    """
+    Post-flee recovery system with adaptive behavior based on flee severity.
+    Handles healing to full, cooldown periods, area rotation, and pet resurrection.
+    """
+
+    def __init__(self, pet_manager, area_manager, key_prefix):
+        """
+        Args:
+            pet_manager: PetManager instance
+            area_manager: AreaManager instance
+            key_prefix: Persistence key prefix
+        """
+        self.pet_manager = pet_manager
+        self.area_manager = area_manager
+        self.key_prefix = key_prefix
+
+        # Recovery state
+        self.is_recovering = False
+        self.recovery_start_time = 0
+        self.recovery_severity = "minor"
+        self.recovery_wait_time = 0
+        self.danger_at_flee = 0
+        self.flee_reason = ""
+
+        # Temporary caution mode
+        self.caution_mode_active = False
+        self.caution_mode_start = 0
+        self.caution_mode_duration = 3600  # 1 hour in seconds
+        self.caution_danger_reduction = 10
+
+        # Pet death policy
+        self.pet_death_policy = "auto_rez_continue"  # "stop_on_death", "rez_and_cooldown", "auto_rez_continue"
+
+        # Statistics
+        self.total_recoveries = 0
+        self.minor_count = 0
+        self.major_count = 0
+        self.critical_count = 0
+
+        # Load pet death policy from persistence
+        self._load_config()
+
+    def _load_config(self):
+        """Load configuration from persistence"""
+        try:
+            policy = API.GetPersistentVar(
+                self.key_prefix + "PetDeathPolicy",
+                "auto_rez_continue",
+                API.PersistentVar.Char
+            )
+            if policy in ["stop_on_death", "rez_and_cooldown", "auto_rez_continue"]:
+                self.pet_death_policy = policy
+        except Exception as e:
+            API.SysMsg(f"Recovery config load error: {str(e)}", 32)
+
+    def _save_config(self):
+        """Save configuration to persistence"""
+        try:
+            API.SavePersistentVar(
+                self.key_prefix + "PetDeathPolicy",
+                self.pet_death_policy,
+                API.PersistentVar.Char
+            )
+        except Exception as e:
+            API.SysMsg(f"Recovery config save error: {str(e)}", 32)
+
+    def set_pet_death_policy(self, policy):
+        """
+        Set pet death policy.
+
+        Args:
+            policy: One of "stop_on_death", "rez_and_cooldown", "auto_rez_continue"
+        """
+        if policy in ["stop_on_death", "rez_and_cooldown", "auto_rez_continue"]:
+            self.pet_death_policy = policy
+            self._save_config()
+
+    def assess_flee_severity(self, danger_at_flee, pet_status):
+        """
+        Assess the severity of the flee event.
+
+        Args:
+            danger_at_flee: Danger score when flee was initiated (0-100)
+            pet_status: Dict with pet health info:
+                - tank_hp_percent: Tank pet HP % (0-100)
+                - any_pet_deaths: Bool indicating if any pet died
+                - pet_count: Number of pets
+
+        Returns:
+            str: "minor", "major", or "critical"
+        """
+        try:
+            any_pet_deaths = pet_status.get('any_pet_deaths', False)
+            tank_hp_percent = pet_status.get('tank_hp_percent', 100)
+
+            # Critical: danger 91+ OR any pet death
+            if danger_at_flee >= 91 or any_pet_deaths:
+                return "critical"
+
+            # Major: danger 81-90 OR tank pet < 30% HP
+            if danger_at_flee >= 81 or tank_hp_percent < 30:
+                return "major"
+
+            # Minor: danger 71-80 AND no pet deaths
+            if danger_at_flee >= 71:
+                return "minor"
+
+            # Default to minor for lower danger scores (shouldn't happen normally)
+            return "minor"
+
+        except Exception as e:
+            API.SysMsg(f"Flee severity assessment error: {str(e)}", 32)
+            return "major"  # Default to major on error
+
+    def heal_to_full(self):
+        """
+        Heal player and all pets to 100% HP.
+        Uses simple bandage healing with delays.
+
+        Returns:
+            bool: True if healing completed successfully
+        """
+        try:
+            API.SysMsg("Healing to full...", 68)
+            max_heal_time = 120  # 2 minutes max
+            heal_start = time.time()
+
+            while time.time() - heal_start < max_heal_time:
+                API.ProcessCallbacks()
+
+                # Check if player needs healing
+                player = API.Player
+                if player:
+                    current_hp = getattr(player, 'Hits', 0)
+                    max_hp = getattr(player, 'HitsMax', 1)
+                    hp_percent = (current_hp / max_hp * 100) if max_hp > 0 else 100
+
+                    if hp_percent < 100:
+                        # Heal self
+                        bandages = API.FindType(BANDAGE)
+                        if bandages:
+                            API.UseObject(bandages, False)
+                            API.Pause(BANDAGE_DELAY)
+                            continue
+
+                # Check if any pet needs healing
+                needs_healing = False
+                for pet_info in self.pet_manager.pets:
+                    pet_serial = pet_info.get('serial', 0)
+                    pet = API.Mobiles.FindMobile(pet_serial)
+
+                    if pet and not getattr(pet, 'IsDead', True):
+                        pet_hp = getattr(pet, 'Hits', 0)
+                        pet_max_hp = getattr(pet, 'HitsMax', 1)
+                        pet_hp_percent = (pet_hp / pet_max_hp * 100) if pet_max_hp > 0 else 100
+
+                        if pet_hp_percent < 100:
+                            needs_healing = True
+                            # Heal pet with bandage
+                            bandages = API.FindType(BANDAGE)
+                            if bandages:
+                                API.CancelTarget()
+                                API.CancelPreTarget()
+                                API.PreTarget(pet_serial, "beneficial")
+                                API.Pause(0.1)
+                                API.UseObject(bandages, False)
+                                API.Pause(VET_DELAY)
+                                API.CancelPreTarget()
+                                break
+
+                # If no one needs healing, we're done
+                if not needs_healing:
+                    API.SysMsg("All healed to full!", 68)
+                    return True
+
+                API.Pause(0.5)
+
+            API.SysMsg("Heal timeout reached", 43)
+            return True  # Continue anyway after timeout
+
+        except Exception as e:
+            API.SysMsg(f"Heal to full error: {str(e)}", 32)
+            return True  # Continue despite error
+
+    def resurrect_pet(self, pet_name):
+        """
+        Resurrect a dead pet using veterinary skill.
+
+        Args:
+            pet_name: Name of the pet to resurrect
+
+        Returns:
+            bool: True if resurrection successful
+        """
+        try:
+            API.SysMsg(f"Attempting to resurrect {pet_name}...", 68)
+
+            # Find dead pet by name
+            all_mobiles = API.Mobiles.GetMobiles()
+            dead_pet = None
+
+            for mob in all_mobiles:
+                if mob is None:
+                    continue
+
+                mob_name = getattr(mob, 'Name', '')
+                is_dead = getattr(mob, 'IsDead', False)
+
+                if mob_name == pet_name and is_dead:
+                    dead_pet = mob
+                    break
+
+            if not dead_pet:
+                API.SysMsg(f"Could not find dead pet: {pet_name}", 32)
+                return False
+
+            pet_serial = getattr(dead_pet, 'Serial', 0)
+
+            # Use veterinary bandage on dead pet
+            bandages = API.FindType(BANDAGE)
+            if not bandages:
+                API.SysMsg("No bandages for resurrection!", 32)
+                return False
+
+            API.CancelTarget()
+            API.CancelPreTarget()
+            API.PreTarget(pet_serial, "beneficial")
+            API.Pause(0.1)
+            API.UseObject(bandages, False)
+            API.Pause(REZ_DELAY)
+            API.CancelPreTarget()
+
+            # Re-scan pets to update list
+            self.pet_manager.scan_pets()
+
+            API.SysMsg(f"{pet_name} resurrected!", 68)
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Resurrect error: {str(e)}", 32)
+            return False
+
+    def execute_recovery(self, severity, flee_reason, danger_at_flee):
+        """
+        Execute recovery procedure based on severity.
+
+        Args:
+            severity: "minor", "major", or "critical"
+            flee_reason: Reason for flee (for logging)
+            danger_at_flee: Danger score when flee initiated
+
+        Returns:
+            str: Next state to transition to ("idle", "stopped")
+        """
+        try:
+            import random
+
+            self.total_recoveries += 1
+            self.recovery_severity = severity
+            self.flee_reason = flee_reason
+            self.danger_at_flee = danger_at_flee
+
+            if severity == "minor":
+                self.minor_count += 1
+            elif severity == "major":
+                self.major_count += 1
+            elif severity == "critical":
+                self.critical_count += 1
+
+            # Always heal to full first
+            self.heal_to_full()
+
+            # Handle based on severity
+            if severity == "minor":
+                # Wait 30-60 seconds, return to same area
+                wait_time = random.randint(30, 60)
+                API.SysMsg(f"Minor flee - cooling down for {wait_time}s...", 68)
+                self.recovery_wait_time = wait_time
+                self.recovery_start_time = time.time()
+                self.is_recovering = True
+                # Will return to same area when recovery completes
+                return "idle"
+
+            elif severity == "major":
+                # Wait 2-5 minutes, rotate area, enable caution mode
+                wait_time = random.randint(120, 300)
+                API.SysMsg(f"Major flee - extended cooldown {wait_time//60}m...", 43)
+                self.recovery_wait_time = wait_time
+                self.recovery_start_time = time.time()
+                self.is_recovering = True
+
+                # Rotate to different farming area
+                self.area_manager.rotate_to_next_area()
+
+                # Enable temporary caution mode (reduce danger thresholds)
+                self.caution_mode_active = True
+                self.caution_mode_start = time.time()
+                API.SysMsg("Caution mode activated (1 hour)", 43)
+
+                return "idle"
+
+            elif severity == "critical":
+                # Check pet death policy
+                API.SysMsg(f"CRITICAL flee - checking pet death policy...", 32)
+
+                # Check if any pets died
+                any_pet_deaths = self._check_for_dead_pets()
+
+                if any_pet_deaths:
+                    if self.pet_death_policy == "stop_on_death":
+                        API.SysMsg("PET DEATH DETECTED - STOPPING SCRIPT!", 32)
+                        API.SysMsg("Policy: stop_on_death", 32)
+                        return "stopped"
+
+                    elif self.pet_death_policy == "rez_and_cooldown":
+                        # Resurrect all dead pets
+                        self._resurrect_all_dead_pets()
+
+                        # Long cooldown, then stop
+                        wait_time = random.randint(1200, 1800)  # 20-30 min
+                        API.SysMsg(f"Critical recovery - {wait_time//60}m cooldown, then stopping...", 32)
+                        self.recovery_wait_time = wait_time
+                        self.recovery_start_time = time.time()
+                        self.is_recovering = True
+
+                        # Rotate area
+                        self.area_manager.rotate_to_next_area()
+
+                        # Enable caution mode
+                        self.caution_mode_active = True
+                        self.caution_mode_start = time.time()
+
+                        return "stopped"  # Will stop after cooldown
+
+                    elif self.pet_death_policy == "auto_rez_continue":
+                        # Resurrect all dead pets
+                        self._resurrect_all_dead_pets()
+
+                        # Wait 10-15 minutes, rotate area, continue
+                        wait_time = random.randint(600, 900)
+                        API.SysMsg(f"Auto-rezzing and continuing after {wait_time//60}m...", 43)
+                        self.recovery_wait_time = wait_time
+                        self.recovery_start_time = time.time()
+                        self.is_recovering = True
+
+                        # Rotate area
+                        self.area_manager.rotate_to_next_area()
+
+                        # Enable caution mode
+                        self.caution_mode_active = True
+                        self.caution_mode_start = time.time()
+
+                        return "idle"
+                else:
+                    # No pet deaths, treat as major flee
+                    wait_time = random.randint(120, 300)
+                    API.SysMsg(f"Critical flee (no deaths) - cooldown {wait_time//60}m...", 43)
+                    self.recovery_wait_time = wait_time
+                    self.recovery_start_time = time.time()
+                    self.is_recovering = True
+
+                    self.area_manager.rotate_to_next_area()
+
+                    self.caution_mode_active = True
+                    self.caution_mode_start = time.time()
+
+                    return "idle"
+
+            return "idle"
+
+        except Exception as e:
+            API.SysMsg(f"Execute recovery error: {str(e)}", 32)
+            return "idle"
+
+    def _check_for_dead_pets(self):
+        """Check if any pets are dead. Returns True if any dead pets found."""
+        try:
+            for pet_info in self.pet_manager.pets:
+                pet_serial = pet_info.get('serial', 0)
+                pet = API.Mobiles.FindMobile(pet_serial)
+
+                if pet and getattr(pet, 'IsDead', False):
+                    return True
+
+            return False
+        except Exception as e:
+            API.SysMsg(f"Dead pet check error: {str(e)}", 32)
+            return False
+
+    def _resurrect_all_dead_pets(self):
+        """Resurrect all dead pets."""
+        try:
+            for pet_info in self.pet_manager.pets:
+                pet_serial = pet_info.get('serial', 0)
+                pet_name = pet_info.get('name', 'Unknown')
+                pet = API.Mobiles.FindMobile(pet_serial)
+
+                if pet and getattr(pet, 'IsDead', False):
+                    self.resurrect_pet(pet_name)
+                    API.Pause(2.0)  # Wait between resurrections
+
+        except Exception as e:
+            API.SysMsg(f"Resurrect all error: {str(e)}", 32)
+
+    def update(self):
+        """
+        Update recovery system - call from main loop during recovery state.
+
+        Returns:
+            bool: True if still recovering, False if recovery complete
+        """
+        try:
+            if not self.is_recovering:
+                return False
+
+            # Check if recovery wait time is complete
+            elapsed = time.time() - self.recovery_start_time
+            if elapsed >= self.recovery_wait_time:
+                API.SysMsg("Recovery complete!", 68)
+                self.is_recovering = False
+                return False
+
+            # Still recovering
+            remaining = int(self.recovery_wait_time - elapsed)
+            if remaining % 30 == 0 and remaining > 0:  # Update every 30 seconds
+                API.SysMsg(f"Recovering... {remaining}s remaining", 90)
+
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Recovery update error: {str(e)}", 32)
+            self.is_recovering = False
+            return False
+
+    def is_caution_mode_active(self):
+        """Check if caution mode is still active."""
+        if not self.caution_mode_active:
+            return False
+
+        # Check if expired (1 hour)
+        elapsed = time.time() - self.caution_mode_start
+        if elapsed >= self.caution_mode_duration:
+            self.caution_mode_active = False
+            API.SysMsg("Caution mode expired", 90)
+            return False
+
+        return True
+
+    def get_caution_danger_adjustment(self):
+        """
+        Get danger threshold adjustment for caution mode.
+
+        Returns:
+            int: Amount to reduce danger thresholds (0 if not in caution mode)
+        """
+        if self.is_caution_mode_active():
+            return self.caution_danger_reduction
+        return 0
+
+    def get_pet_status(self):
+        """
+        Get current pet status for severity assessment.
+
+        Returns:
+            dict: Pet status info
+        """
+        try:
+            status = {
+                'tank_hp_percent': 100,
+                'any_pet_deaths': False,
+                'pet_count': len(self.pet_manager.pets)
+            }
+
+            # Check for tank pet HP
+            tank_pet = self.pet_manager.get_tank_pet()
+            if tank_pet:
+                tank_serial = tank_pet.get('serial', 0)
+                tank_mob = API.Mobiles.FindMobile(tank_serial)
+                if tank_mob and not getattr(tank_mob, 'IsDead', False):
+                    tank_hp = getattr(tank_mob, 'Hits', 0)
+                    tank_max_hp = getattr(tank_mob, 'HitsMax', 1)
+                    status['tank_hp_percent'] = (tank_hp / tank_max_hp * 100) if tank_max_hp > 0 else 100
+
+            # Check for any pet deaths
+            status['any_pet_deaths'] = self._check_for_dead_pets()
+
+            return status
+
+        except Exception as e:
+            API.SysMsg(f"Get pet status error: {str(e)}", 32)
+            return {'tank_hp_percent': 100, 'any_pet_deaths': False, 'pet_count': 0}
+
 # ============ GUI FUNCTIONS ============
 
 def build_main_gump():
@@ -1574,7 +2112,7 @@ def handle_combat_state():
 
 def handle_fleeing_state():
     """Handle fleeing state - monitor flee progress"""
-    global STATE, flee_system
+    global STATE, flee_system, recovery_system, pet_manager, script_enabled
 
     if not flee_system or not flee_system.is_fleeing:
         STATE = "idle"
@@ -1586,7 +2124,52 @@ def handle_fleeing_state():
     if not still_fleeing:
         # Flee complete or failed, transition to recovery
         API.SysMsg("Flee complete, entering recovery", 68)
-        STATE = "recovering"
+
+        # Assess flee severity and execute recovery
+        if recovery_system and pet_manager:
+            # Get pet status for severity assessment
+            pet_status = recovery_system.get_pet_status()
+
+            # Assess severity
+            severity = recovery_system.assess_flee_severity(
+                flee_system.danger_at_flee,
+                pet_status
+            )
+
+            API.SysMsg(f"Flee severity: {severity}", 43)
+
+            # Execute recovery (this handles healing, cooldowns, etc.)
+            next_state = recovery_system.execute_recovery(
+                severity,
+                flee_system.flee_reason,
+                flee_system.danger_at_flee
+            )
+
+            # Transition based on recovery result
+            if next_state == "stopped":
+                API.SysMsg("Script stopped by recovery policy", 32)
+                STATE = "idle"
+                script_enabled = False
+            else:
+                STATE = "recovering"
+        else:
+            # Fallback if recovery system not initialized
+            STATE = "idle"
+
+def handle_recovering_state():
+    """Handle recovering state - wait for recovery to complete"""
+    global STATE, recovery_system
+
+    if not recovery_system:
+        STATE = "idle"
+        return
+
+    # Update recovery system (returns False when complete)
+    still_recovering = recovery_system.update()
+
+    if not still_recovering:
+        API.SysMsg("Recovery complete, resuming farming", 68)
+        STATE = "idle"
 
 # ============ CLEANUP ============
 
@@ -1608,9 +2191,11 @@ try:
 
     # Initialize systems
     danger_assessment = DangerAssessment()
+    pet_manager = PetManager(KEY_PREFIX)
     area_manager = AreaManager(KEY_PREFIX)
     npc_threat_map = NPCThreatMap()
     flee_system = FleeSystem(area_manager, npc_threat_map, KEY_PREFIX)
+    recovery_system = RecoverySystem(pet_manager, area_manager, KEY_PREFIX)
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
@@ -1646,9 +2231,7 @@ try:
         elif STATE == "fleeing":
             handle_fleeing_state()
         elif STATE == "recovering":
-            # TODO: Implement recovery system in later task
-            API.SysMsg("Recovery not yet implemented", 43)
-            STATE = "idle"
+            handle_recovering_state()
 
         API.Pause(0.1)  # Short pause only
 
