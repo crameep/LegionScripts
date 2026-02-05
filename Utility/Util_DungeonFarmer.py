@@ -1312,7 +1312,7 @@ class DangerAssessment:
 class CombatManager:
     """Handles enemy detection, engagement decisions, and combat monitoring"""
 
-    def __init__(self, danger_assessment, npc_threat_map, pet_manager):
+    def __init__(self, danger_assessment, npc_threat_map, pet_manager, healing_system=None):
         """
         Initialize combat manager.
 
@@ -1320,10 +1320,12 @@ class CombatManager:
             danger_assessment: DangerAssessment instance
             npc_threat_map: NPCThreatMap instance
             pet_manager: PetManager instance
+            healing_system: Optional HealingSystem instance for mid-combat heals
         """
         self.danger_assessment = danger_assessment
         self.npc_threat_map = npc_threat_map
         self.pet_manager = pet_manager
+        self.healing_system = healing_system
 
         # Configurable engagement settings
         self.enemy_scan_range = 10
@@ -1333,13 +1335,24 @@ class CombatManager:
         self.max_npcs_near_target = 2
         self.min_tank_hp_to_engage = 60  # Percentage
 
+        # Danger thresholds for combat monitoring
+        self.flee_threshold = 71         # Initiate emergency flee
+        self.high_threshold = 51         # Issue "all guard me", stop engaging new targets
+
         # Engagement state
         self.engaged_enemy_serial = 0
         self.combat_start_time = 0
+        self.corpse_serial = 0           # Corpse of defeated enemy for looting
 
         # Settings for enemy types to engage
         self.attack_reds = True      # Notoriety 5
         self.attack_grays = False    # Notoriety 6
+
+        # Combat statistics tracking
+        self.kills = 0
+        self.damage_dealt = 0
+        self.damage_taken = 0
+        self.total_combat_duration = 0
 
     def configure_engagement(self, scan_range=None, max_danger=None, max_hostiles=None,
                            proximity_radius=None, max_npcs=None, min_tank_hp=None):
@@ -1561,6 +1574,183 @@ class CombatManager:
         if self.combat_start_time == 0:
             return 0
         return time.time() - self.combat_start_time
+
+    def monitor_combat(self):
+        """
+        Monitor ongoing combat and handle dynamic responses.
+        Should be called every 0.3s in main loop when STATE == "engaging".
+
+        Returns:
+            Dict with keys:
+            - "status": "continuing", "enemy_dead", "enemy_lost", "flee_now", or "high_danger"
+            - "enemy_serial": Engaged enemy serial (0 if none)
+            - "corpse_serial": Corpse serial if enemy died (0 otherwise)
+        """
+        try:
+            result = {
+                "status": "continuing",
+                "enemy_serial": self.engaged_enemy_serial,
+                "corpse_serial": 0
+            }
+
+            # No active engagement
+            if self.engaged_enemy_serial == 0:
+                result["status"] = "no_engagement"
+                return result
+
+            # Check 1: Enemy status (dead or lost)
+            enemy = API.Mobiles.FindMobile(self.engaged_enemy_serial)
+
+            if enemy is None or enemy.IsDead:
+                # Enemy defeated
+                if enemy and enemy.IsDead:
+                    result["status"] = "enemy_dead"
+                    result["corpse_serial"] = self.on_enemy_death(enemy)
+                else:
+                    # Enemy lost (no longer in range or despawned)
+                    result["status"] = "enemy_lost"
+                    self.clear_engagement()
+                return result
+
+            if enemy.Distance > 15:
+                # Lost enemy (too far)
+                result["status"] = "enemy_lost"
+                self.clear_engagement()
+                return result
+
+            # Check 2: Danger level assessment
+            current_danger = self.danger_assessment.calculate_danger()
+
+            if current_danger >= self.flee_threshold:
+                # CRITICAL: Initiate emergency flee
+                result["status"] = "flee_now"
+                API.HeadMsg("FLEE!", API.Player.Serial, 32)
+                return result
+
+            if current_danger >= self.high_threshold:
+                # HIGH DANGER: Issue "all guard me", stop engaging new targets
+                result["status"] = "high_danger"
+                API.Msg("all guard me")
+                API.Pause(0.3)
+                return result
+
+            # Check 3: Healing needs (if healing_system available and not in healing state)
+            if self.healing_system and self.healing_system.STATE == "idle":
+                heal_action = self.healing_system.get_next_heal_action()
+
+                if heal_action:
+                    target_serial, action_type, is_self = heal_action
+                    target_mob = API.Mobiles.FindMobile(target_serial) if not is_self else API.Player
+
+                    if target_mob:
+                        hp_pct = (target_mob.Hits / target_mob.HitsMax * 100) if target_mob.HitsMax > 0 else 100
+
+                        # Critical heal needed (player < 50% or tank < 40%)
+                        is_critical = False
+                        if is_self and hp_pct < 50:
+                            is_critical = True
+                        elif not is_self:
+                            tank_pet = self.pet_manager.get_tank_pet()
+                            if tank_pet and target_serial == tank_pet["serial"] and hp_pct < 40:
+                                is_critical = True
+
+                        if is_critical:
+                            result["status"] = "critical_heal_needed"
+                            # Note: Caller should execute heal and pause combat briefly
+
+            # Check 4: Tank pet positioning
+            tank_pet = self.pet_manager.get_tank_pet()
+            if tank_pet:
+                tank_mob = API.Mobiles.FindMobile(tank_pet["serial"])
+                if tank_mob and not tank_mob.IsDead:
+                    if tank_mob.Distance > 10:
+                        # Tank too far - call back
+                        API.Msg("all come")
+                        API.Pause(0.3)
+                        result["status"] = "recalling_tank"
+
+            return result
+
+        except Exception as e:
+            API.SysMsg("CombatManager.monitor_combat error: " + str(e), 32)
+            return {
+                "status": "error",
+                "enemy_serial": self.engaged_enemy_serial,
+                "corpse_serial": 0
+            }
+
+    def on_enemy_death(self, enemy_mob):
+        """
+        Handle enemy death: track corpse, update stats, clear engagement.
+
+        Args:
+            enemy_mob: The dead enemy mobile
+
+        Returns:
+            Corpse serial for looting (0 if not found)
+        """
+        try:
+            # Get corpse serial (the mobile serial becomes the corpse serial)
+            corpse_serial = enemy_mob.Serial if enemy_mob else 0
+
+            # Store for looting
+            self.corpse_serial = corpse_serial
+
+            # Update statistics
+            self.kills += 1
+            if self.combat_start_time > 0:
+                combat_duration = time.time() - self.combat_start_time
+                self.total_combat_duration += combat_duration
+
+            # Clear engagement
+            self.clear_engagement()
+
+            # Success message
+            API.HeadMsg("Kill!", API.Player.Serial, 68)
+
+            return corpse_serial
+
+        except Exception as e:
+            API.SysMsg("CombatManager.on_enemy_death error: " + str(e), 32)
+            return 0
+
+    def get_corpse_serial(self):
+        """Get the corpse serial of last defeated enemy"""
+        return self.corpse_serial
+
+    def clear_corpse(self):
+        """Clear the stored corpse serial"""
+        self.corpse_serial = 0
+
+    def get_combat_statistics(self):
+        """
+        Get combat statistics.
+
+        Returns:
+            Dict with keys: kills, damage_dealt, damage_taken, total_combat_duration, avg_combat_duration
+        """
+        avg_duration = (self.total_combat_duration / self.kills) if self.kills > 0 else 0
+        return {
+            "kills": self.kills,
+            "damage_dealt": self.damage_dealt,
+            "damage_taken": self.damage_taken,
+            "total_combat_duration": self.total_combat_duration,
+            "avg_combat_duration": avg_duration
+        }
+
+    def reset_statistics(self):
+        """Reset combat statistics"""
+        self.kills = 0
+        self.damage_dealt = 0
+        self.damage_taken = 0
+        self.total_combat_duration = 0
+
+    def configure_danger_thresholds(self, flee_threshold=None, high_threshold=None):
+        """Update danger thresholds for combat monitoring"""
+        if flee_threshold is not None:
+            self.flee_threshold = flee_threshold
+        if high_threshold is not None:
+            self.high_threshold = high_threshold
 
 
 # ========== PATROL SYSTEM CLASS ==========
@@ -2746,10 +2936,11 @@ def test_combat_manager():
         # Initialize systems
         pet_manager = PetManager()
         pet_manager.scan_pets()
+        healing_system = HealingSystem(pet_manager)
         danger_assessment = DangerAssessment(pet_manager)
         npc_threat_map = NPCThreatMap()
         npc_threat_map.scan_npcs(force_scan=True)
-        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager)
+        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager, healing_system)
 
         API.SysMsg("CombatManager initialized", 68)
         API.SysMsg("Settings: Scan range=" + str(combat_manager.enemy_scan_range) +
@@ -2829,6 +3020,91 @@ def test_combat_manager():
         import traceback
         API.SysMsg(str(traceback.format_exc()), 32)
 
+def test_monitor_combat():
+    """Test function to verify monitor_combat() works correctly"""
+    API.SysMsg("Testing CombatManager.monitor_combat()...", 68)
+
+    try:
+        # Initialize systems
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+        healing_system = HealingSystem(pet_manager)
+        danger_assessment = DangerAssessment(pet_manager)
+        npc_threat_map = NPCThreatMap()
+        npc_threat_map.scan_npcs(force_scan=True)
+        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager, healing_system)
+
+        API.SysMsg("CombatManager initialized with HealingSystem", 68)
+
+        # Test 1: Monitor combat with no engagement
+        API.SysMsg("Test 1: Monitor with no engagement...", 68)
+        result = combat_manager.monitor_combat()
+        API.SysMsg("  Status: " + result["status"] + " (expected: no_engagement)", 43)
+
+        # Test 2: Engage an enemy and monitor
+        enemies = combat_manager.scan_for_enemies()
+        if enemies:
+            first_enemy = enemies[0]
+            API.SysMsg("Test 2: Engaging enemy and monitoring...", 68)
+
+            # Engage enemy
+            if combat_manager.engage_enemy(first_enemy):
+                API.SysMsg("  Engaged enemy serial: " + str(combat_manager.engaged_enemy_serial), 68)
+
+                # Monitor combat for a few cycles
+                for i in range(5):
+                    API.Pause(0.3)
+                    result = combat_manager.monitor_combat()
+                    API.SysMsg("  Cycle " + str(i + 1) + " - Status: " + result["status"], 43)
+
+                    if result["status"] == "enemy_dead":
+                        API.SysMsg("    Enemy defeated! Corpse serial: " + str(result["corpse_serial"]), 68)
+                        break
+                    elif result["status"] == "enemy_lost":
+                        API.SysMsg("    Enemy lost", 43)
+                        break
+                    elif result["status"] == "flee_now":
+                        API.SysMsg("    FLEE TRIGGERED!", 32)
+                        break
+                    elif result["status"] == "high_danger":
+                        API.SysMsg("    High danger - all guard me issued", 43)
+                    elif result["status"] == "critical_heal_needed":
+                        API.SysMsg("    Critical heal needed", 43)
+                    elif result["status"] == "recalling_tank":
+                        API.SysMsg("    Recalling tank pet", 43)
+
+                # Clear engagement
+                combat_manager.clear_engagement()
+                API.SysMsg("  Engagement cleared", 43)
+        else:
+            API.SysMsg("Test 2: No enemies found to test monitoring", 43)
+
+        # Test 3: Test statistics
+        API.SysMsg("Test 3: Combat statistics...", 68)
+        stats = combat_manager.get_combat_statistics()
+        API.SysMsg("  Kills: " + str(stats["kills"]), 43)
+        API.SysMsg("  Total combat duration: " + str(int(stats["total_combat_duration"])) + "s", 43)
+        API.SysMsg("  Avg combat duration: " + str(int(stats["avg_combat_duration"])) + "s", 43)
+
+        # Test 4: Test danger threshold configuration
+        API.SysMsg("Test 4: Configure danger thresholds...", 68)
+        combat_manager.configure_danger_thresholds(flee_threshold=80, high_threshold=60)
+        API.SysMsg("  New flee threshold: " + str(combat_manager.flee_threshold), 43)
+        API.SysMsg("  New high threshold: " + str(combat_manager.high_threshold), 43)
+
+        # Test 5: Test corpse tracking
+        API.SysMsg("Test 5: Corpse tracking...", 68)
+        API.SysMsg("  Current corpse serial: " + str(combat_manager.get_corpse_serial()), 43)
+        combat_manager.clear_corpse()
+        API.SysMsg("  After clear: " + str(combat_manager.get_corpse_serial()) + " (expected: 0)", 43)
+
+        API.SysMsg("CombatManager.monitor_combat() test complete!", 68)
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -2839,5 +3115,6 @@ def test_combat_manager():
 # test_npc_threat_map()
 # test_danger_assessment()
 # test_combat_manager()
+# test_monitor_combat()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager v1.5)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager v1.6)", 68)
