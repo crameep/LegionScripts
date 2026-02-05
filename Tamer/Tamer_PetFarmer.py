@@ -24,7 +24,9 @@
 # ============================================================
 import API
 import time
+import random
 from LegionUtils import WindowPositionTracker, ResourceRateTracker
+from GatherFramework import TravelSystem
 
 __version__ = "1.0"
 
@@ -2314,6 +2316,273 @@ class BankingTriggers:
         except Exception as e:
             API.SysMsg(f"Count bandages error: {str(e)}", 32)
             return 0
+
+# ============ BANKING SYSTEM ============
+
+class BankingSystem:
+    """
+    Realistic banking behavior: travel to bank, navigate to banker, interact naturally.
+    Adds human-like variation with random pauses, mixed pathfinding/walking.
+    """
+
+    def __init__(self, travel_system, key_prefix):
+        """
+        Args:
+            travel_system: TravelSystem instance for recalls
+            key_prefix: Persistence key prefix
+        """
+        self.travel_system = travel_system
+        self.key_prefix = key_prefix
+
+        # Banking configuration
+        self.bank_runebook_slot = 1  # Default slot for bank location
+        self.bank_x = 0
+        self.bank_y = 0
+        self.banking_speed = "medium"  # "fast", "medium", "realistic"
+
+        # Load configuration
+        self._load_config()
+
+    def _load_config(self):
+        """Load banking configuration from persistence"""
+        try:
+            # Load bank location
+            bank_xy_str = API.GetPersistentVar(
+                self.key_prefix + "BankXY",
+                "0,0",
+                API.PersistentVar.Char
+            )
+            if bank_xy_str and ',' in bank_xy_str:
+                parts = bank_xy_str.split(',')
+                self.bank_x = int(parts[0])
+                self.bank_y = int(parts[1])
+
+            # Load bank runebook slot
+            self.bank_runebook_slot = int(API.GetPersistentVar(
+                self.key_prefix + "BankRunebookSlot",
+                "1",
+                API.PersistentVar.Char
+            ))
+
+            # Load banking speed
+            self.banking_speed = API.GetPersistentVar(
+                self.key_prefix + "BankingSpeed",
+                "medium",
+                API.PersistentVar.Char
+            )
+
+        except Exception as e:
+            API.SysMsg(f"Load banking config error: {str(e)}", 32)
+
+    def _save_config(self):
+        """Save banking configuration to persistence"""
+        try:
+            API.SavePersistentVar(
+                self.key_prefix + "BankXY",
+                f"{self.bank_x},{self.bank_y}",
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "BankRunebookSlot",
+                str(self.bank_runebook_slot),
+                API.PersistentVar.Char
+            )
+            API.SavePersistentVar(
+                self.key_prefix + "BankingSpeed",
+                self.banking_speed,
+                API.PersistentVar.Char
+            )
+        except Exception as e:
+            API.SysMsg(f"Save banking config error: {str(e)}", 32)
+
+    def configure(self, bank_x=None, bank_y=None, runebook_slot=None, speed=None):
+        """
+        Configure banking parameters.
+
+        Args:
+            bank_x: X coordinate of bank location
+            bank_y: Y coordinate of bank location
+            runebook_slot: Runebook slot number for bank recall
+            speed: Banking speed mode ("fast", "medium", "realistic")
+        """
+        if bank_x is not None:
+            self.bank_x = bank_x
+        if bank_y is not None:
+            self.bank_y = bank_y
+        if runebook_slot is not None:
+            self.bank_runebook_slot = runebook_slot
+        if speed is not None and speed in ["fast", "medium", "realistic"]:
+            self.banking_speed = speed
+
+        self._save_config()
+
+    def get_pause_duration(self, pause_type):
+        """
+        Get pause duration based on banking speed mode.
+
+        Args:
+            pause_type: Type of pause ("arrival", "before_action", "between_actions")
+
+        Returns:
+            float: Pause duration in seconds
+        """
+        if self.banking_speed == "fast":
+            durations = {
+                "arrival": (0.5, 1.0),
+                "before_action": (0.3, 0.5),
+                "between_actions": (0.2, 0.4)
+            }
+        elif self.banking_speed == "realistic":
+            durations = {
+                "arrival": (3.0, 5.0),
+                "before_action": (1.5, 3.0),
+                "between_actions": (1.0, 2.0)
+            }
+        else:  # medium
+            durations = {
+                "arrival": (2.0, 3.0),
+                "before_action": (1.0, 2.0),
+                "between_actions": (0.5, 1.0)
+            }
+
+        min_pause, max_pause = durations.get(pause_type, (1.0, 2.0))
+        return random.uniform(min_pause, max_pause)
+
+    def travel_to_bank(self):
+        """
+        Recall to bank location with realistic pauses.
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Save position before recall
+            pos_before = (getattr(API.Player, 'X', 0), getattr(API.Player, 'Y', 0))
+
+            # Attempt recall to bank
+            API.SysMsg(f"Recalling to bank (slot {self.bank_runebook_slot})...", 43)
+            success = self.travel_system.recall_to_slot(self.bank_runebook_slot)
+
+            if not success:
+                API.SysMsg("Failed to recall to bank!", 32)
+                return False
+
+            # Verify position changed
+            pos_after = (getattr(API.Player, 'X', 0), getattr(API.Player, 'Y', 0))
+            if pos_before == pos_after:
+                API.SysMsg("Recall position didn't change!", 32)
+                return False
+
+            # Random "looking around" pause after arrival
+            pause_duration = self.get_pause_duration("arrival")
+            API.SysMsg(f"Arrived at bank (pausing {pause_duration:.1f}s)...", 68)
+            API.Pause(pause_duration)
+
+            return True
+
+        except Exception as e:
+            API.SysMsg(f"Travel to bank error: {str(e)}", 32)
+            return False
+
+    def navigate_to_bank(self, bank_x=None, bank_y=None):
+        """
+        Navigate to bank location with human-like behavior.
+        Mix of pathfinding and manual walking with pauses.
+
+        Args:
+            bank_x: X coordinate (uses self.bank_x if None)
+            bank_y: Y coordinate (uses self.bank_y if None)
+
+        Returns:
+            bool: True when arrived, False if failed
+        """
+        try:
+            if bank_x is None:
+                bank_x = self.bank_x
+            if bank_y is None:
+                bank_y = self.bank_y
+
+            if bank_x == 0 or bank_y == 0:
+                API.SysMsg("Bank location not configured!", 32)
+                return False
+
+            # Decide movement method based on banking speed
+            use_pathfinding = True
+            if self.banking_speed == "medium":
+                use_pathfinding = random.random() < 0.6  # 60% pathfind
+            elif self.banking_speed == "realistic":
+                use_pathfinding = random.random() < 0.4  # 40% pathfind
+
+            API.SysMsg(f"Navigating to bank ({bank_x}, {bank_y})...", 43)
+
+            # Wait for arrival
+            nav_start = time.time()
+            max_nav_time = 30.0 if self.banking_speed == "fast" else 60.0 if self.banking_speed == "medium" else 90.0
+
+            while time.time() < nav_start + max_nav_time:
+                API.ProcessCallbacks()
+
+                # Check distance to bank
+                player_x = getattr(API.Player, 'X', 0)
+                player_y = getattr(API.Player, 'Y', 0)
+                distance = abs(player_x - bank_x) + abs(player_y - bank_y)  # Manhattan distance
+
+                if distance <= 2:
+                    API.SysMsg("Arrived at bank location!", 68)
+                    return True
+
+                # Start pathfinding if not active and using pathfinding method
+                if use_pathfinding and not API.Pathfinding():
+                    API.Pathfind(bank_x, bank_y)
+
+                # For manual walking mode, periodically update pathfinding target
+                if not use_pathfinding and not API.Pathfinding():
+                    # Walk toward bank with some randomness
+                    target_x = bank_x + random.randint(-1, 1)
+                    target_y = bank_y + random.randint(-1, 1)
+                    API.Pathfind(target_x, target_y)
+
+                    # Random pause during walking
+                    if self.banking_speed != "fast":
+                        pause = self.get_pause_duration("between_actions")
+                        API.Pause(pause)
+
+                API.Pause(0.1)
+
+            # Timeout
+            API.SysMsg("Navigation timeout - may not be at bank!", 43)
+            return False
+
+        except Exception as e:
+            API.SysMsg(f"Navigate to bank error: {str(e)}", 32)
+            return False
+
+    def get_distance_to_bank(self):
+        """
+        Calculate distance to configured bank location.
+
+        Returns:
+            int: Manhattan distance to bank, or -1 if bank not configured
+        """
+        if self.bank_x == 0 or self.bank_y == 0:
+            return -1
+
+        player_x = getattr(API.Player, 'X', 0)
+        player_y = getattr(API.Player, 'Y', 0)
+        return abs(player_x - self.bank_x) + abs(player_y - self.bank_y)
+
+    def is_at_bank(self, tolerance=2):
+        """
+        Check if player is at bank location.
+
+        Args:
+            tolerance: Distance tolerance in tiles
+
+        Returns:
+            bool: True if within tolerance of bank location
+        """
+        distance = self.get_distance_to_bank()
+        return distance != -1 and distance <= tolerance
 
 # ============ GUI FUNCTIONS ============
 
