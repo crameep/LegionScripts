@@ -2773,14 +2773,18 @@ class AreaRecordingGump:
 class ConfigGump:
     """Configuration window with tabs for Setup, Combat, Healing, Looting, Banking, and Advanced settings"""
 
-    def __init__(self, area_manager):
+    def __init__(self, area_manager, danger_assessment=None, combat_manager=None):
         """
         Initialize the configuration window.
 
         Args:
             area_manager: AreaManager instance for farming area management
+            danger_assessment: Optional DangerAssessment instance for combat configuration
+            combat_manager: Optional CombatManager instance for combat configuration
         """
         self.area_manager = area_manager
+        self.danger_assessment = danger_assessment
+        self.combat_manager = combat_manager
         self.gump = None
         self.controls = {}
         self.pos_tracker = None
@@ -3065,12 +3069,161 @@ class ConfigGump:
         API.Gumps.AddControlOnClick(safe_spots_btn, self._record_safe_spots)
 
     def _build_combat_tab(self):
-        """Build Combat tab content (placeholder)"""
+        """Build Combat tab content: danger weights, thresholds, and engagement rules"""
+        if not self.danger_assessment or not self.combat_manager:
+            y = 80
+            warning = API.Gumps.CreateGumpTTFLabel("Combat settings require DangerAssessment and CombatManager instances", 15, "#ff0000")
+            warning.SetPos(10, y)
+            self.controls["content_warning"] = warning
+            self.gump.AddControl(warning)
+            return
+
         y = 80
-        placeholder = API.Gumps.CreateGumpTTFLabel("Combat settings - Not yet implemented", 15, "#888888")
-        placeholder.SetPos(10, y)
-        self.controls["content_placeholder"] = placeholder
-        self.gump.AddControl(placeholder)
+
+        # ========== DANGER WEIGHTS SECTION ==========
+        weights_header = API.Gumps.CreateGumpTTFLabel("Danger Weights", 16, "#ffaa00")
+        weights_header.SetPos(10, y)
+        self.controls["content_weights_header"] = weights_header
+        self.gump.AddControl(weights_header)
+        y += 30
+
+        # Weight sliders (label + value + +/- buttons)
+        weight_settings = [
+            ("player_hp", "Player HP:", 0, 50, self.danger_assessment.weights["player_hp"]),
+            ("tank_pet_hp", "Tank Pet HP:", 0, 50, self.danger_assessment.weights["tank_pet_hp"]),
+            ("enemy_count", "Enemy Count:", 5, 30, self.danger_assessment.weights["enemy_count"]),
+            ("nearby_npcs", "Nearby NPCs:", 0, 20, self.danger_assessment.weights["nearby_npcs"]),
+            ("damage_rate", "Damage Rate:", 0, 30, self.danger_assessment.weights["damage_rate"])
+        ]
+
+        for weight_id, label_text, min_val, max_val, current_val in weight_settings:
+            # Label
+            label = API.Gumps.CreateGumpTTFLabel(label_text, 15, "#ffffff")
+            label.SetPos(10, y)
+            self.controls["content_weight_" + weight_id + "_label"] = label
+            self.gump.AddControl(label)
+
+            # [-] button
+            minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 22)
+            minus_btn.SetPos(140, y)
+            self.controls["content_weight_" + weight_id + "_minus"] = minus_btn
+            self.gump.AddControl(minus_btn)
+            API.Gumps.AddControlOnClick(minus_btn, lambda wid=weight_id, minv=min_val: self._adjust_weight(wid, -1, minv, None))
+
+            # Value display
+            value_label = API.Gumps.CreateGumpTTFLabel(str(int(current_val)), 15, "#ffcc00")
+            value_label.SetPos(180, y)
+            self.controls["content_weight_" + weight_id + "_value"] = value_label
+            self.gump.AddControl(value_label)
+
+            # [+] button
+            plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 22)
+            plus_btn.SetPos(220, y)
+            self.controls["content_weight_" + weight_id + "_plus"] = plus_btn
+            self.gump.AddControl(plus_btn)
+            API.Gumps.AddControlOnClick(plus_btn, lambda wid=weight_id, maxv=max_val: self._adjust_weight(wid, 1, None, maxv))
+
+            y += 28
+
+        y += 10
+
+        # ========== DANGER THRESHOLDS SECTION ==========
+        thresholds_header = API.Gumps.CreateGumpTTFLabel("Danger Zones", 16, "#ffaa00")
+        thresholds_header.SetPos(10, y)
+        self.controls["content_thresholds_header"] = thresholds_header
+        self.gump.AddControl(thresholds_header)
+        y += 30
+
+        # Threshold inputs
+        threshold_settings = [
+            ("safe", "Safe: 0 - ", self.danger_assessment.thresholds["safe"]),
+            ("elevated", "Elevated: " + str(self.danger_assessment.thresholds["safe"] + 1) + " - ", self.danger_assessment.thresholds["elevated"]),
+            ("high", "High: " + str(self.danger_assessment.thresholds["elevated"] + 1) + " - ", self.danger_assessment.thresholds["high"]),
+            ("critical", "Critical/Flee: ", self.danger_assessment.thresholds["high"] + 1)
+        ]
+
+        for thresh_id, label_text, current_val in threshold_settings:
+            # Label
+            label = API.Gumps.CreateGumpTTFLabel(label_text, 15, "#ffffff")
+            label.SetPos(10, y)
+            self.controls["content_thresh_" + thresh_id + "_label"] = label
+            self.gump.AddControl(label)
+
+            if thresh_id != "critical":  # Critical is just a display, not editable
+                # [-] button
+                minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 22)
+                minus_btn.SetPos(180, y)
+                self.controls["content_thresh_" + thresh_id + "_minus"] = minus_btn
+                self.gump.AddControl(minus_btn)
+                API.Gumps.AddControlOnClick(minus_btn, lambda tid=thresh_id: self._adjust_threshold(tid, -1))
+
+                # Value display
+                value_label = API.Gumps.CreateGumpTTFLabel(str(int(current_val)), 15, "#ffcc00")
+                value_label.SetPos(220, y)
+                self.controls["content_thresh_" + thresh_id + "_value"] = value_label
+                self.gump.AddControl(value_label)
+
+                # [+] button
+                plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 22)
+                plus_btn.SetPos(260, y)
+                self.controls["content_thresh_" + thresh_id + "_plus"] = plus_btn
+                self.gump.AddControl(plus_btn)
+                API.Gumps.AddControlOnClick(plus_btn, lambda tid=thresh_id: self._adjust_threshold(tid, 1))
+            else:
+                # Critical is just a display
+                value_label = API.Gumps.CreateGumpTTFLabel(str(int(current_val)) + "+", 15, "#ff0000")
+                value_label.SetPos(180, y)
+                self.controls["content_thresh_" + thresh_id + "_value"] = value_label
+                self.gump.AddControl(value_label)
+
+            y += 28
+
+        y += 10
+
+        # ========== ENGAGEMENT RULES SECTION ==========
+        engagement_header = API.Gumps.CreateGumpTTFLabel("Engagement Rules", 16, "#ffaa00")
+        engagement_header.SetPos(310, 80)
+        self.controls["content_engagement_header"] = engagement_header
+        self.gump.AddControl(engagement_header)
+        engage_y = 110
+
+        # Engagement sliders
+        engagement_settings = [
+            ("scan_range", "Enemy Scan Range:", 5, 15, self.combat_manager.enemy_scan_range, " tiles"),
+            ("max_danger", "Max Danger to Engage:", 0, 70, self.combat_manager.max_danger_to_engage, ""),
+            ("max_hostiles", "Max Nearby Hostiles:", 1, 5, self.combat_manager.max_nearby_hostiles, ""),
+            ("npc_proximity", "NPC Proximity Radius:", 3, 10, self.combat_manager.npc_proximity_radius, " tiles"),
+            ("min_tank_hp", "Min Tank HP to Engage:", 40, 90, self.combat_manager.min_tank_hp_to_engage, "%")
+        ]
+
+        for engage_id, label_text, min_val, max_val, current_val, suffix in engagement_settings:
+            # Label
+            label = API.Gumps.CreateGumpTTFLabel(label_text, 15, "#ffffff")
+            label.SetPos(310, engage_y)
+            self.controls["content_engage_" + engage_id + "_label"] = label
+            self.gump.AddControl(label)
+
+            # [-] button
+            minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 22)
+            minus_btn.SetPos(310, engage_y + 25)
+            self.controls["content_engage_" + engage_id + "_minus"] = minus_btn
+            self.gump.AddControl(minus_btn)
+            API.Gumps.AddControlOnClick(minus_btn, lambda eid=engage_id, minv=min_val: self._adjust_engagement(eid, -1, minv, None))
+
+            # Value display
+            value_label = API.Gumps.CreateGumpTTFLabel(str(int(current_val)) + suffix, 15, "#ffcc00")
+            value_label.SetPos(350, engage_y + 25)
+            self.controls["content_engage_" + engage_id + "_value"] = value_label
+            self.gump.AddControl(value_label)
+
+            # [+] button
+            plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 22)
+            plus_btn.SetPos(420, engage_y + 25)
+            self.controls["content_engage_" + engage_id + "_plus"] = plus_btn
+            self.gump.AddControl(plus_btn)
+            API.Gumps.AddControlOnClick(plus_btn, lambda eid=engage_id, maxv=max_val: self._adjust_engagement(eid, 1, None, maxv))
+
+            engage_y += 55
 
     def _build_healing_tab(self):
         """Build Healing tab content (placeholder)"""
@@ -3184,6 +3337,112 @@ class ConfigGump:
         API.SysMsg("Opening Safe Spot Recording...", 68)
         # TODO: Implement safe spot recording sub-panel
         API.SysMsg("Safe spot recording - TODO", 43)
+
+    def _adjust_weight(self, weight_id, delta, min_val, max_val):
+        """Adjust danger weight value and update DangerAssessment"""
+        if not self.danger_assessment:
+            return
+
+        # Get current value
+        current = self.danger_assessment.weights.get(weight_id, 0)
+
+        # Apply delta with bounds
+        if min_val is not None:
+            new_val = max(min_val, current + delta)
+        else:
+            new_val = current + delta
+
+        if max_val is not None:
+            new_val = min(max_val, new_val)
+
+        # Update DangerAssessment
+        kwargs = {weight_id: new_val}
+        self.danger_assessment.configure_weights(**kwargs)
+
+        # Rebuild UI to show new value
+        self.rebuild()
+
+    def _adjust_threshold(self, threshold_id, delta):
+        """Adjust danger threshold value and update DangerAssessment"""
+        if not self.danger_assessment:
+            return
+
+        # Get current value
+        current = self.danger_assessment.thresholds.get(threshold_id, 0)
+
+        # Apply delta with reasonable bounds (0-100)
+        new_val = max(0, min(100, current + delta))
+
+        # Ensure thresholds stay ordered (safe < elevated < high)
+        if threshold_id == "safe":
+            if new_val >= self.danger_assessment.thresholds["elevated"]:
+                new_val = self.danger_assessment.thresholds["elevated"] - 1
+        elif threshold_id == "elevated":
+            if new_val <= self.danger_assessment.thresholds["safe"]:
+                new_val = self.danger_assessment.thresholds["safe"] + 1
+            elif new_val >= self.danger_assessment.thresholds["high"]:
+                new_val = self.danger_assessment.thresholds["high"] - 1
+        elif threshold_id == "high":
+            if new_val <= self.danger_assessment.thresholds["elevated"]:
+                new_val = self.danger_assessment.thresholds["elevated"] + 1
+
+        # Update DangerAssessment
+        kwargs = {threshold_id: new_val}
+        self.danger_assessment.configure_thresholds(**kwargs)
+
+        # Rebuild UI to show new value
+        self.rebuild()
+
+    def _adjust_engagement(self, engage_id, delta, min_val, max_val):
+        """Adjust engagement rule value and update CombatManager"""
+        if not self.combat_manager:
+            return
+
+        # Map engage_id to CombatManager attribute
+        attr_map = {
+            "scan_range": "enemy_scan_range",
+            "max_danger": "max_danger_to_engage",
+            "max_hostiles": "max_nearby_hostiles",
+            "npc_proximity": "npc_proximity_radius",
+            "min_tank_hp": "min_tank_hp_to_engage"
+        }
+
+        attr_name = attr_map.get(engage_id)
+        if not attr_name:
+            return
+
+        # Get current value
+        current = getattr(self.combat_manager, attr_name, 0)
+
+        # Apply delta with bounds
+        if min_val is not None:
+            new_val = max(min_val, current + delta)
+        else:
+            new_val = current + delta
+
+        if max_val is not None:
+            new_val = min(max_val, new_val)
+
+        # Update CombatManager
+        kwargs = {engage_id.replace("_", ""): new_val}  # Remove underscores for method param names
+
+        # Map to correct parameter names for configure_engagement()
+        param_map = {
+            "scanrange": "scan_range",
+            "maxdanger": "max_danger",
+            "maxhostiles": "max_hostiles",
+            "npcproximity": "proximity_radius",
+            "mintankhp": "min_tank_hp"
+        }
+
+        corrected_kwargs = {}
+        for k, v in kwargs.items():
+            corrected_kwargs[param_map.get(k, k)] = v
+
+        self.combat_manager.configure_engagement(**corrected_kwargs)
+
+        # Rebuild UI to show new value
+        self.rebuild()
 
     def rebuild(self):
         """Rebuild the entire gump (for tab switching and updates)"""
@@ -4364,12 +4623,18 @@ def test_config_gump():
     try:
         # Initialize required systems
         area_manager = AreaManager()
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+        danger_assessment = DangerAssessment(pet_manager)
+        npc_threat_map = NPCThreatMap()
+        healing_system = HealingSystem(pet_manager)
+        combat_manager = CombatManager(danger_assessment, npc_threat_map, pet_manager, healing_system)
 
-        API.SysMsg("Initializing ConfigGump...", 68)
-        config_gump = ConfigGump(area_manager)
+        API.SysMsg("Initializing ConfigGump with combat systems...", 68)
+        config_gump = ConfigGump(area_manager, danger_assessment, combat_manager)
 
         API.SysMsg("ConfigGump created - verify window displays at saved position", 43)
-        API.SysMsg("Test tab switching, runebook targeting, and area management", 43)
+        API.SysMsg("Test tab switching, runebook targeting, area management, and combat settings", 43)
         API.Pause(2)
 
         # Test 1: Switch tabs
@@ -4396,6 +4661,14 @@ def test_config_gump():
             API.SysMsg("  No areas configured yet", 43)
         API.Pause(5)
 
+        # Test 5: Test Combat tab
+        API.SysMsg("Test 5: Testing Combat tab...", 68)
+        API.SysMsg("  Click [Combat] tab and adjust danger weights, thresholds, and engagement rules", 43)
+        API.SysMsg("  Current danger weights: Player=" + str(danger_assessment.weights["player_hp"]) +
+                   ", Tank=" + str(danger_assessment.weights["tank_pet_hp"]) +
+                   ", Enemy=" + str(danger_assessment.weights["enemy_count"]), 43)
+        API.Pause(5)
+
         API.SysMsg("ConfigGump test complete! Close window manually when ready.", 68)
 
         # Leave window open for manual inspection
@@ -4420,4 +4693,4 @@ def test_config_gump():
 # test_main_gui()
 # test_config_gump()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.8)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.9 - Combat Tab)", 68)
