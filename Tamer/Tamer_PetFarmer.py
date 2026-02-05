@@ -256,6 +256,194 @@ def distance(x1, y1, x2, y2):
     """Calculate distance between two points"""
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
+# ============ PET MANAGEMENT SYSTEM ============
+
+class PetManager:
+    """
+    Pet detection, tracking, and management system.
+    Handles pet scanning, tank designation, validation, and resurrection targeting.
+    """
+
+    def __init__(self, key_prefix):
+        self.key_prefix = key_prefix
+        self.pets = []  # List of dicts: [{"serial": int, "name": str, "is_tank": bool}, ...]
+        self._tank_serial = self._load_tank_serial()
+
+    def _load_tank_serial(self):
+        """Load persisted tank pet serial"""
+        serial_str = API.GetPersistentVar(self.key_prefix + "TankSerial", "0", API.PersistentVar.Char)
+        return int(serial_str) if serial_str.isdigit() else 0
+
+    def _save_tank_serial(self):
+        """Save tank pet serial to persistence"""
+        API.SavePersistentVar(self.key_prefix + "TankSerial", str(self._tank_serial), API.PersistentVar.Char)
+
+    def scan_pets(self):
+        """
+        Scan for owned pets (Notoriety == 1) and populate pets list.
+        Automatically designates tank pet (highest HP or previously set).
+        """
+        try:
+            # Get all mobiles with Notoriety == 1 (owned pets)
+            all_mobiles = API.Mobiles.GetMobiles()
+            if not all_mobiles:
+                self.pets = []
+                return
+
+            found_pets = []
+            for mob in all_mobiles:
+                if mob is None:
+                    continue
+
+                # Check for owned pet (Notoriety == 1)
+                notoriety = getattr(mob, 'Notoriety', -1)
+                if notoriety != 1:
+                    continue
+
+                serial = getattr(mob, 'Serial', 0)
+                name = getattr(mob, 'Name', 'Unknown')
+                max_hp = getattr(mob, 'HitsMax', 0)
+
+                if serial > 0 and name and name != 'Unknown':
+                    found_pets.append({
+                        'serial': serial,
+                        'name': name,
+                        'max_hp': max_hp,
+                        'is_tank': False
+                    })
+
+            # Sort by max HP (highest first)
+            found_pets.sort(key=lambda p: p['max_hp'], reverse=True)
+
+            # Designate tank pet
+            if found_pets:
+                if self._tank_serial > 0:
+                    # Use previously designated tank if found
+                    for pet in found_pets:
+                        if pet['serial'] == self._tank_serial:
+                            pet['is_tank'] = True
+                            break
+                    else:
+                        # Tank not found, use highest HP
+                        found_pets[0]['is_tank'] = True
+                        self._tank_serial = found_pets[0]['serial']
+                        self._save_tank_serial()
+                else:
+                    # No tank set, use highest HP
+                    found_pets[0]['is_tank'] = True
+                    self._tank_serial = found_pets[0]['serial']
+                    self._save_tank_serial()
+
+            # Remove max_hp from final list (not needed in storage)
+            for pet in found_pets:
+                del pet['max_hp']
+
+            self.pets = found_pets
+
+        except Exception as e:
+            API.SysMsg(f"Pet scan error: {str(e)}", 32)
+            self.pets = []
+
+    def get_pet_info(self, serial):
+        """
+        Get pet information by serial.
+        Returns pet dict or None if not found.
+        """
+        for pet in self.pets:
+            if pet['serial'] == serial:
+                return pet
+        return None
+
+    def get_tank_pet(self):
+        """
+        Get the designated tank pet.
+        Returns pet dict or None if no tank designated.
+        """
+        for pet in self.pets:
+            if pet.get('is_tank', False):
+                return pet
+        return None
+
+    def set_tank_pet(self, serial):
+        """
+        Change tank pet designation to the specified serial.
+        Returns True if successful, False if pet not found.
+        """
+        # Validate that pet exists
+        pet_found = False
+        for pet in self.pets:
+            if pet['serial'] == serial:
+                pet_found = True
+                break
+
+        if not pet_found:
+            return False
+
+        # Remove tank designation from all pets
+        for pet in self.pets:
+            pet['is_tank'] = False
+
+        # Set new tank
+        for pet in self.pets:
+            if pet['serial'] == serial:
+                pet['is_tank'] = True
+                self._tank_serial = serial
+                self._save_tank_serial()
+                return True
+
+        return False
+
+    def validate_pets(self):
+        """
+        Check if stored pets still exist as valid mobiles.
+        Removes invalid/dead pets from the list.
+        """
+        valid_pets = []
+        for pet in self.pets:
+            serial = pet['serial']
+            mob = API.Mobiles.FindMobile(serial)
+            if mob is not None and not getattr(mob, 'IsDead', True):
+                valid_pets.append(pet)
+            elif pet.get('is_tank', False):
+                # Tank pet removed, clear designation
+                self._tank_serial = 0
+                self._save_tank_serial()
+
+        self.pets = valid_pets
+
+    @property
+    def pet_count(self):
+        """Get count of tracked pets"""
+        return len(self.pets)
+
+    @property
+    def all_pets_alive(self):
+        """
+        Check if all tracked pets are alive.
+        Returns False if any pet is dead or missing.
+        """
+        if not self.pets:
+            return True  # No pets to check
+
+        for pet in self.pets:
+            mob = API.Mobiles.FindMobile(pet['serial'])
+            if mob is None or getattr(mob, 'IsDead', True):
+                return False
+
+        return True
+
+    def get_pet_by_name(self, name):
+        """
+        Find pet by name (case-insensitive).
+        Useful for resurrection targeting.
+        Returns pet dict or None if not found.
+        """
+        name_lower = name.lower()
+        for pet in self.pets:
+            if pet['name'].lower() == name_lower:
+                return pet
+        return None
+
 # ============ DANGER ASSESSMENT SYSTEM ============
 
 class DangerAssessment:
