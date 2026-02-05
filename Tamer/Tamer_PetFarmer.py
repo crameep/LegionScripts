@@ -127,6 +127,10 @@ supply_tracker = None     # SupplyTracker instance
 # Healing system
 healing_system = None     # HealingSystem instance
 
+# Banking system
+banking_system = None     # BankingSystem instance
+banking_triggers = None   # BankingTriggers instance
+
 # Healing tracking
 last_heal_time = 0
 last_vet_kit_time = 0
@@ -3614,12 +3618,214 @@ def build_looting_tab():
     config_gump.AddControl(stub_label)
 
 def build_banking_tab():
-    """Build the Banking tab content (stub)"""
-    global config_gump
+    """Build the Banking tab content"""
+    global config_gump, config_controls, banking_triggers, banking_system
 
-    stub_label = API.Gumps.CreateGumpTTFLabel("Banking tab not yet implemented", 15, "#888888")
-    stub_label.SetPos(10, 80)
-    config_gump.AddControl(stub_label)
+    if not banking_triggers or not banking_system:
+        stub_label = API.Gumps.CreateGumpTTFLabel("Banking systems not initialized", 15, "#888888")
+        stub_label.SetPos(10, 80)
+        config_gump.AddControl(stub_label)
+        return
+
+    y_offset = 70
+
+    # --- Banking Triggers Section ---
+    triggers_label = API.Gumps.CreateGumpTTFLabel("Banking Triggers", 16, "#ffcc00")
+    triggers_label.SetPos(10, y_offset)
+    config_gump.AddControl(triggers_label)
+    y_offset += 30
+
+    # Weight Threshold
+    weight_enabled = banking_triggers.weight_trigger['enabled']
+    weight_pct = int(banking_triggers.weight_trigger['threshold_pct'])
+    weight_text = "[X]" if weight_enabled else "[ ]"
+    weight_checkbox = API.Gumps.CreateSimpleButton(f"{weight_text} Weight Threshold", 160, 22)
+    weight_checkbox.SetPos(20, y_offset)
+    if weight_enabled:
+        weight_checkbox.SetBackgroundHue(68)
+    config_gump.AddControl(weight_checkbox)
+    config_controls["weight_checkbox"] = weight_checkbox
+    API.Gumps.AddControlOnClick(weight_checkbox, lambda: toggle_weight_trigger())
+
+    weight_input = API.Gumps.CreateGumpTextBox(str(weight_pct), 50, 22)
+    weight_input.SetPos(190, y_offset)
+    config_gump.AddControl(weight_input)
+    config_controls["weight_input"] = weight_input
+
+    weight_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    weight_set_btn.SetPos(250, y_offset)
+    config_gump.AddControl(weight_set_btn)
+    API.Gumps.AddControlOnClick(weight_set_btn, lambda: update_weight_threshold())
+
+    weight_pct_label = API.Gumps.CreateGumpTTFLabel("%", 15, "#ffffff")
+    weight_pct_label.SetPos(310, y_offset + 3)
+    config_gump.AddControl(weight_pct_label)
+    y_offset += 30
+
+    # Time Limit
+    time_enabled = banking_triggers.time_trigger['enabled']
+    time_min = banking_triggers.time_trigger['interval_minutes']
+    time_text = "[X]" if time_enabled else "[ ]"
+    time_checkbox = API.Gumps.CreateSimpleButton(f"{time_text} Time Limit", 160, 22)
+    time_checkbox.SetPos(20, y_offset)
+    if time_enabled:
+        time_checkbox.SetBackgroundHue(68)
+    config_gump.AddControl(time_checkbox)
+    config_controls["time_checkbox"] = time_checkbox
+    API.Gumps.AddControlOnClick(time_checkbox, lambda: toggle_time_trigger())
+
+    time_input = API.Gumps.CreateGumpTextBox(str(time_min), 50, 22)
+    time_input.SetPos(190, y_offset)
+    config_gump.AddControl(time_input)
+    config_controls["time_input"] = time_input
+
+    time_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    time_set_btn.SetPos(250, y_offset)
+    config_gump.AddControl(time_set_btn)
+    API.Gumps.AddControlOnClick(time_set_btn, lambda: update_time_trigger())
+
+    time_min_label = API.Gumps.CreateGumpTTFLabel("min", 15, "#ffffff")
+    time_min_label.SetPos(310, y_offset + 3)
+    config_gump.AddControl(time_min_label)
+    y_offset += 30
+
+    # Gold Amount
+    gold_enabled = banking_triggers.gold_trigger['enabled']
+    gold_amt = banking_triggers.gold_trigger['gold_amount']
+    gold_text = "[X]" if gold_enabled else "[ ]"
+    gold_checkbox = API.Gumps.CreateSimpleButton(f"{gold_text} Gold Amount", 160, 22)
+    gold_checkbox.SetPos(20, y_offset)
+    if gold_enabled:
+        gold_checkbox.SetBackgroundHue(68)
+    config_gump.AddControl(gold_checkbox)
+    config_controls["gold_checkbox"] = gold_checkbox
+    API.Gumps.AddControlOnClick(gold_checkbox, lambda: toggle_gold_trigger())
+
+    gold_input = API.Gumps.CreateGumpTextBox(str(gold_amt), 70, 22)
+    gold_input.SetPos(190, y_offset)
+    config_gump.AddControl(gold_input)
+    config_controls["gold_input"] = gold_input
+
+    gold_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    gold_set_btn.SetPos(270, y_offset)
+    config_gump.AddControl(gold_set_btn)
+    API.Gumps.AddControlOnClick(gold_set_btn, lambda: update_gold_trigger())
+
+    gold_label = API.Gumps.CreateGumpTTFLabel("gold", 15, "#ffffff")
+    gold_label.SetPos(330, y_offset + 3)
+    config_gump.AddControl(gold_label)
+    y_offset += 30
+
+    # Supply Low
+    supply_enabled = banking_triggers.supply_trigger['enabled']
+    supply_thresh = banking_triggers.supply_trigger['bandage_threshold']
+    supply_text = "[X]" if supply_enabled else "[ ]"
+    supply_checkbox = API.Gumps.CreateSimpleButton(f"{supply_text} Supply Low", 160, 22)
+    supply_checkbox.SetPos(20, y_offset)
+    if supply_enabled:
+        supply_checkbox.SetBackgroundHue(68)
+    config_gump.AddControl(supply_checkbox)
+    config_controls["supply_checkbox"] = supply_checkbox
+    API.Gumps.AddControlOnClick(supply_checkbox, lambda: toggle_supply_trigger())
+
+    supply_input = API.Gumps.CreateGumpTextBox(str(supply_thresh), 50, 22)
+    supply_input.SetPos(190, y_offset)
+    config_gump.AddControl(supply_input)
+    config_controls["supply_input"] = supply_input
+
+    supply_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    supply_set_btn.SetPos(250, y_offset)
+    config_gump.AddControl(supply_set_btn)
+    API.Gumps.AddControlOnClick(supply_set_btn, lambda: update_supply_trigger())
+
+    supply_label = API.Gumps.CreateGumpTTFLabel("bandages", 15, "#ffffff")
+    supply_label.SetPos(310, y_offset + 3)
+    config_gump.AddControl(supply_label)
+    y_offset += 40
+
+    # --- Banking Behavior Section ---
+    behavior_label = API.Gumps.CreateGumpTTFLabel("Banking Speed", 16, "#ffcc00")
+    behavior_label.SetPos(10, y_offset)
+    config_gump.AddControl(behavior_label)
+    y_offset += 30
+
+    # Radio buttons for speed
+    speed = banking_system.banking_speed
+    speeds = ["fast", "medium", "realistic"]
+    speed_labels = {
+        "fast": "Fast",
+        "medium": "Medium",
+        "realistic": "Realistic"
+    }
+    speed_descriptions = {
+        "fast": "~30s, direct pathfind, minimal pauses",
+        "medium": "~60s, mixed movement, normal pauses",
+        "realistic": "~90s, walking, longer pauses"
+    }
+
+    for speed_option in speeds:
+        radio_text = f"({chr(0x2022) if speed == speed_option else ' '}) {speed_labels[speed_option]}"
+        radio_btn = API.Gumps.CreateSimpleButton(radio_text, 100, 22)
+        radio_btn.SetPos(20, y_offset)
+        if speed == speed_option:
+            radio_btn.SetBackgroundHue(68)
+        config_gump.AddControl(radio_btn)
+        config_controls[f"speed_{speed_option}"] = radio_btn
+        API.Gumps.AddControlOnClick(radio_btn, lambda s=speed_option: set_banking_speed(s))
+
+        desc_label = API.Gumps.CreateGumpTTFLabel(speed_descriptions[speed_option], 15, "#888888")
+        desc_label.SetPos(130, y_offset + 3)
+        config_gump.AddControl(desc_label)
+        y_offset += 30
+
+    y_offset += 10
+
+    # --- Supply Restocking Section ---
+    restock_label = API.Gumps.CreateGumpTTFLabel("Supply Restocking", 16, "#ffcc00")
+    restock_label.SetPos(10, y_offset)
+    config_gump.AddControl(restock_label)
+    y_offset += 30
+
+    # Restock Bandages
+    restock_bandage_label = API.Gumps.CreateGumpTTFLabel("Restock Bandages to:", 15, "#ffffff")
+    restock_bandage_label.SetPos(20, y_offset + 3)
+    config_gump.AddControl(restock_bandage_label)
+
+    restock_bandage_input = API.Gumps.CreateGumpTextBox(str(banking_system.restock_bandage_amount), 60, 22)
+    restock_bandage_input.SetPos(180, y_offset)
+    config_gump.AddControl(restock_bandage_input)
+    config_controls["restock_bandage_input"] = restock_bandage_input
+
+    restock_bandage_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    restock_bandage_set_btn.SetPos(250, y_offset)
+    config_gump.AddControl(restock_bandage_set_btn)
+    API.Gumps.AddControlOnClick(restock_bandage_set_btn, lambda: update_restock_bandages())
+
+    restock_count_label = API.Gumps.CreateGumpTTFLabel("count", 15, "#ffffff")
+    restock_count_label.SetPos(310, y_offset + 3)
+    config_gump.AddControl(restock_count_label)
+    y_offset += 30
+
+    # Alert Vet Kits
+    vetkit_alert_enabled = banking_system.low_vetkit_alert_threshold > 0
+    vetkit_text = "[X]" if vetkit_alert_enabled else "[ ]"
+    vetkit_checkbox = API.Gumps.CreateSimpleButton(f"{vetkit_text} Alert when Vet Kits below:", 230, 22)
+    vetkit_checkbox.SetPos(20, y_offset)
+    if vetkit_alert_enabled:
+        vetkit_checkbox.SetBackgroundHue(68)
+    config_gump.AddControl(vetkit_checkbox)
+    config_controls["vetkit_alert_checkbox"] = vetkit_checkbox
+    API.Gumps.AddControlOnClick(vetkit_checkbox, lambda: toggle_vetkit_alert())
+
+    vetkit_input = API.Gumps.CreateGumpTextBox(str(banking_system.low_vetkit_alert_threshold), 50, 22)
+    vetkit_input.SetPos(260, y_offset)
+    config_gump.AddControl(vetkit_input)
+    config_controls["vetkit_input"] = vetkit_input
+
+    vetkit_set_btn = API.Gumps.CreateSimpleButton("Set", 50, 22)
+    vetkit_set_btn.SetPos(320, y_offset)
+    config_gump.AddControl(vetkit_set_btn)
+    API.Gumps.AddControlOnClick(vetkit_set_btn, lambda: update_vetkit_alert())
 
 def build_advanced_tab():
     """Build the Advanced tab content (stub)"""
@@ -3818,6 +4024,196 @@ def toggle_auto_cure():
     status = "enabled" if healing_system.auto_cure_poison else "disabled"
     API.SysMsg(f"Auto-cure poison {status}", 68)
 
+# ============ BANKING TAB CALLBACKS ============
+
+def toggle_weight_trigger():
+    """Toggle weight threshold trigger on/off"""
+    global banking_triggers
+    if not banking_triggers:
+        return
+
+    banking_triggers.weight_trigger['enabled'] = not banking_triggers.weight_trigger['enabled']
+    banking_triggers._save_config()
+    build_config_gump()
+    status = "enabled" if banking_triggers.weight_trigger['enabled'] else "disabled"
+    API.SysMsg(f"Weight trigger {status}", 68)
+
+def update_weight_threshold():
+    """Update weight threshold percentage"""
+    global banking_triggers, config_controls
+    if not banking_triggers or "weight_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["weight_input"].GetText())
+        if 60 <= value <= 95:
+            banking_triggers.weight_trigger['threshold_pct'] = float(value)
+            banking_triggers._save_config()
+            build_config_gump()
+            API.SysMsg(f"Weight threshold set to {value}%", 68)
+        else:
+            API.SysMsg("Value must be between 60 and 95", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def toggle_time_trigger():
+    """Toggle time interval trigger on/off"""
+    global banking_triggers
+    if not banking_triggers:
+        return
+
+    banking_triggers.time_trigger['enabled'] = not banking_triggers.time_trigger['enabled']
+    banking_triggers._save_config()
+    build_config_gump()
+    status = "enabled" if banking_triggers.time_trigger['enabled'] else "disabled"
+    API.SysMsg(f"Time trigger {status}", 68)
+
+def update_time_trigger():
+    """Update time interval in minutes"""
+    global banking_triggers, config_controls
+    if not banking_triggers or "time_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["time_input"].GetText())
+        if value > 0:
+            banking_triggers.time_trigger['interval_minutes'] = value
+            banking_triggers._save_config()
+            build_config_gump()
+            API.SysMsg(f"Time interval set to {value} minutes", 68)
+        else:
+            API.SysMsg("Value must be greater than 0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def toggle_gold_trigger():
+    """Toggle gold amount trigger on/off"""
+    global banking_triggers
+    if not banking_triggers:
+        return
+
+    banking_triggers.gold_trigger['enabled'] = not banking_triggers.gold_trigger['enabled']
+    banking_triggers._save_config()
+    build_config_gump()
+    status = "enabled" if banking_triggers.gold_trigger['enabled'] else "disabled"
+    API.SysMsg(f"Gold trigger {status}", 68)
+
+def update_gold_trigger():
+    """Update gold amount threshold"""
+    global banking_triggers, config_controls
+    if not banking_triggers or "gold_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["gold_input"].GetText())
+        if value > 0:
+            banking_triggers.gold_trigger['gold_amount'] = value
+            banking_triggers._save_config()
+            build_config_gump()
+            API.SysMsg(f"Gold threshold set to {value}", 68)
+        else:
+            API.SysMsg("Value must be greater than 0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def toggle_supply_trigger():
+    """Toggle supply low trigger on/off"""
+    global banking_triggers
+    if not banking_triggers:
+        return
+
+    banking_triggers.supply_trigger['enabled'] = not banking_triggers.supply_trigger['enabled']
+    banking_triggers._save_config()
+    build_config_gump()
+    status = "enabled" if banking_triggers.supply_trigger['enabled'] else "disabled"
+    API.SysMsg(f"Supply trigger {status}", 68)
+
+def update_supply_trigger():
+    """Update supply bandage threshold"""
+    global banking_triggers, config_controls
+    if not banking_triggers or "supply_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["supply_input"].GetText())
+        if value > 0:
+            banking_triggers.supply_trigger['bandage_threshold'] = value
+            banking_triggers._save_config()
+            build_config_gump()
+            API.SysMsg(f"Supply threshold set to {value} bandages", 68)
+        else:
+            API.SysMsg("Value must be greater than 0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def set_banking_speed(speed):
+    """Set banking speed (fast, medium, realistic)"""
+    global banking_system
+    if not banking_system:
+        return
+
+    if speed in ["fast", "medium", "realistic"]:
+        banking_system.banking_speed = speed
+        banking_system._save_config()
+        build_config_gump()
+        API.SysMsg(f"Banking speed set to {speed}", 68)
+
+def update_restock_bandages():
+    """Update bandage restock amount"""
+    global banking_system, config_controls
+    if not banking_system or "restock_bandage_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["restock_bandage_input"].GetText())
+        if value > 0:
+            banking_system.restock_bandage_amount = value
+            banking_system._save_config()
+            build_config_gump()
+            API.SysMsg(f"Bandage restock amount set to {value}", 68)
+        else:
+            API.SysMsg("Value must be greater than 0", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
+def toggle_vetkit_alert():
+    """Toggle vet kit alert on/off"""
+    global banking_system
+    if not banking_system:
+        return
+
+    if banking_system.low_vetkit_alert_threshold > 0:
+        banking_system.low_vetkit_alert_threshold = 0
+        status = "disabled"
+    else:
+        banking_system.low_vetkit_alert_threshold = 2  # Default
+        status = "enabled"
+
+    banking_system._save_config()
+    build_config_gump()
+    API.SysMsg(f"Vet kit alert {status}", 68)
+
+def update_vetkit_alert():
+    """Update vet kit alert threshold"""
+    global banking_system, config_controls
+    if not banking_system or "vetkit_input" not in config_controls:
+        return
+
+    try:
+        value = int(config_controls["vetkit_input"].GetText())
+        if value >= 0:
+            banking_system.low_vetkit_alert_threshold = value
+            banking_system._save_config()
+            build_config_gump()
+            if value > 0:
+                API.SysMsg(f"Vet kit alert threshold set to {value}", 68)
+            else:
+                API.SysMsg("Vet kit alert disabled", 68)
+        else:
+            API.SysMsg("Value must be 0 or greater", 32)
+    except ValueError:
+        API.SysMsg("Invalid value - must be a number", 32)
+
 # ============ HOTKEY CALLBACKS ============
 
 def toggle_pause():
@@ -3940,6 +4336,11 @@ try:
     supply_tracker = SupplyTracker(KEY_PREFIX)
     healing_system = HealingSystem()
     healing_system.sync_from_globals()  # Load current settings
+
+    # Initialize travel and banking systems
+    travel_system = TravelSystem(KEY_PREFIX)
+    banking_triggers = BankingTriggers(KEY_PREFIX)
+    banking_system = BankingSystem(travel_system, KEY_PREFIX)
 
     API.SysMsg(f"Pet Farmer v{__version__} loaded", 68)
     API.SysMsg("Press PAUSE to pause/unpause", 90)
