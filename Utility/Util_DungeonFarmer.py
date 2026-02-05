@@ -19,6 +19,22 @@
 
 import API
 import time
+import sys
+import os
+
+# Add parent directory to path for library imports
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Import from LegionUtils
+try:
+    from LegionUtils import WindowPositionTracker, DisplayGroup
+except ImportError as e:
+    API.SysMsg("Failed to import LegionUtils: " + str(e), 32)
+    WindowPositionTracker = None
+    DisplayGroup = None
 
 # ========== CONSTANTS ==========
 KEY_PREFIX = "DungeonFarmer_"
@@ -2753,6 +2769,870 @@ class AreaRecordingGump:
             self.gump = None
 
 
+# ========== CONFIGURATION WINDOW ==========
+class ConfigGump:
+    """Configuration window with tabs for Setup, Combat, Healing, Looting, Banking, and Advanced settings"""
+
+    def __init__(self, area_manager):
+        """
+        Initialize the configuration window.
+
+        Args:
+            area_manager: AreaManager instance for farming area management
+        """
+        self.area_manager = area_manager
+        self.gump = None
+        self.controls = {}
+        self.pos_tracker = None
+        self.current_tab = "setup"  # setup, combat, healing, looting, banking, advanced
+
+        # Persistent data
+        self.runebook_serial = self._load_runebook_serial()
+        self.bank_slot = self._load_int("BankSlot", 1)
+        self.home_slot = self._load_int("HomeSlot", 2)
+
+        # Area list scrolling
+        self.area_scroll_offset = 0
+        self.areas_per_page = 5
+
+        # Callbacks
+        self.on_closed = None
+
+        self._build_gump()
+
+    def _load_runebook_serial(self):
+        """Load saved runebook serial from persistence"""
+        saved = API.GetPersistentVar(KEY_PREFIX + "RunebookSerial", "0", API.PersistentVar.Char)
+        return int(saved) if saved.isdigit() else 0
+
+    def _save_runebook_serial(self):
+        """Save runebook serial to persistence"""
+        API.SavePersistentVar(KEY_PREFIX + "RunebookSerial", str(self.runebook_serial), API.PersistentVar.Char)
+
+    def _load_int(self, key, default):
+        """Load integer from persistence"""
+        saved = API.GetPersistentVar(KEY_PREFIX + key, str(default), API.PersistentVar.Char)
+        return int(saved) if saved.isdigit() else default
+
+    def _save_int(self, key, value):
+        """Save integer to persistence"""
+        API.SavePersistentVar(KEY_PREFIX + key, str(value), API.PersistentVar.Char)
+
+    def _build_gump(self):
+        """Build the configuration window UI"""
+        try:
+            self.gump = API.Gumps.CreateGump()
+
+            # Use WindowPositionTracker if available
+            if WindowPositionTracker:
+                self.pos_tracker = WindowPositionTracker(self.gump, KEY_PREFIX + "ConfigXY",
+                                                          default_x=150, default_y=150)
+                x = self.pos_tracker.last_x
+                y = self.pos_tracker.last_y
+            else:
+                x, y = 150, 150
+
+            self.gump.SetRect(x, y, 600, 500)
+
+            # Title
+            title = API.Gumps.CreateGumpTTFLabel("Dungeon Farmer Configuration", 16, "#ffaa00")
+            title.SetPos(10, 10)
+            self.gump.AddControl(title)
+
+            # Tab buttons (40px high)
+            tab_y = 40
+            tab_buttons = [
+                ("setup", "Setup", 10),
+                ("combat", "Combat", 100),
+                ("healing", "Healing", 190),
+                ("looting", "Looting", 280),
+                ("banking", "Banking", 370),
+                ("advanced", "Advanced", 460)
+            ]
+
+            for tab_id, tab_label, tab_x in tab_buttons:
+                btn = API.Gumps.CreateSimpleButton("[" + tab_label + "]", 80, 25)
+                btn.SetPos(tab_x, tab_y)
+                if tab_id == self.current_tab:
+                    btn.SetBackgroundHue(68)  # Green for active tab
+                else:
+                    btn.SetBackgroundHue(90)  # Gray for inactive
+                self.controls["tab_" + tab_id] = btn
+                self.gump.AddControl(btn)
+                API.Gumps.AddControlOnClick(btn, lambda t=tab_id: self._switch_tab(t))
+
+            # Build content for current tab
+            self._build_tab_content()
+
+            # Close button (bottom right)
+            close_btn = API.Gumps.CreateSimpleButton("[Close]", 100, 30)
+            close_btn.SetPos(490, 460)
+            close_btn.SetBackgroundHue(32)
+            self.gump.AddControl(close_btn)
+            API.Gumps.AddControlOnClick(close_btn, self.close)
+
+            # Add gump to display
+            API.Gumps.AddGump(self.gump)
+
+        except Exception as e:
+            API.SysMsg("ConfigGump._build_gump error: " + str(e), 32)
+
+    def _build_tab_content(self):
+        """Build content for the currently selected tab"""
+        # Clear previous tab content (if any)
+        for key in list(self.controls.keys()):
+            if key.startswith("content_"):
+                del self.controls[key]
+
+        # Build content based on current tab
+        if self.current_tab == "setup":
+            self._build_setup_tab()
+        elif self.current_tab == "combat":
+            self._build_combat_tab()
+        elif self.current_tab == "healing":
+            self._build_healing_tab()
+        elif self.current_tab == "looting":
+            self._build_looting_tab()
+        elif self.current_tab == "banking":
+            self._build_banking_tab()
+        elif self.current_tab == "advanced":
+            self._build_advanced_tab()
+
+    def _build_setup_tab(self):
+        """Build Setup tab content: runebook, bank/home slots, farming areas"""
+        y = 80
+
+        # ========== RUNEBOOK SECTION ==========
+        runebook_label = API.Gumps.CreateGumpTTFLabel("Runebook:", 15, "#ffffff")
+        runebook_label.SetPos(10, y)
+        self.controls["content_runebook_label"] = runebook_label
+        self.gump.AddControl(runebook_label)
+        y += 25
+
+        # Display current runebook
+        runebook_text = hex(self.runebook_serial) if self.runebook_serial != 0 else "Not Set"
+        runebook_display = API.Gumps.CreateGumpTTFLabel("  Serial: " + runebook_text, 15, "#ffcc00")
+        runebook_display.SetPos(10, y)
+        self.controls["content_runebook_display"] = runebook_display
+        self.gump.AddControl(runebook_display)
+
+        # [Set Runebook] button
+        set_rb_btn = API.Gumps.CreateSimpleButton("[Set Runebook]", 120, 25)
+        set_rb_btn.SetPos(200, y)
+        set_rb_btn.SetBackgroundHue(68)
+        self.controls["content_set_runebook_btn"] = set_rb_btn
+        self.gump.AddControl(set_rb_btn)
+        API.Gumps.AddControlOnClick(set_rb_btn, self._target_runebook)
+
+        # [Clear] button
+        clear_rb_btn = API.Gumps.CreateSimpleButton("[Clear]", 70, 25)
+        clear_rb_btn.SetPos(330, y)
+        clear_rb_btn.SetBackgroundHue(32)
+        self.controls["content_clear_runebook_btn"] = clear_rb_btn
+        self.gump.AddControl(clear_rb_btn)
+        API.Gumps.AddControlOnClick(clear_rb_btn, self._clear_runebook)
+        y += 40
+
+        # ========== BANK/HOME SLOTS SECTION ==========
+        bank_label = API.Gumps.CreateGumpTTFLabel("Bank Slot:", 15, "#ffffff")
+        bank_label.SetPos(10, y)
+        self.controls["content_bank_label"] = bank_label
+        self.gump.AddControl(bank_label)
+
+        # Bank slot number (1-16)
+        bank_slot_text = API.Gumps.CreateGumpTTFLabel(str(self.bank_slot), 15, "#ffcc00")
+        bank_slot_text.SetPos(100, y)
+        self.controls["content_bank_slot_text"] = bank_slot_text
+        self.gump.AddControl(bank_slot_text)
+
+        # [+] [-] buttons for bank slot
+        bank_minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 25)
+        bank_minus_btn.SetPos(140, y)
+        self.controls["content_bank_minus"] = bank_minus_btn
+        self.gump.AddControl(bank_minus_btn)
+        API.Gumps.AddControlOnClick(bank_minus_btn, lambda: self._adjust_slot("bank", -1))
+
+        bank_plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 25)
+        bank_plus_btn.SetPos(180, y)
+        self.controls["content_bank_plus"] = bank_plus_btn
+        self.gump.AddControl(bank_plus_btn)
+        API.Gumps.AddControlOnClick(bank_plus_btn, lambda: self._adjust_slot("bank", 1))
+
+        y += 30
+
+        # Home slot
+        home_label = API.Gumps.CreateGumpTTFLabel("Home Slot:", 15, "#ffffff")
+        home_label.SetPos(10, y)
+        self.controls["content_home_label"] = home_label
+        self.gump.AddControl(home_label)
+
+        home_slot_text = API.Gumps.CreateGumpTTFLabel(str(self.home_slot), 15, "#ffcc00")
+        home_slot_text.SetPos(100, y)
+        self.controls["content_home_slot_text"] = home_slot_text
+        self.gump.AddControl(home_slot_text)
+
+        # [+] [-] buttons for home slot
+        home_minus_btn = API.Gumps.CreateSimpleButton("[-]", 30, 25)
+        home_minus_btn.SetPos(140, y)
+        self.controls["content_home_minus"] = home_minus_btn
+        self.gump.AddControl(home_minus_btn)
+        API.Gumps.AddControlOnClick(home_minus_btn, lambda: self._adjust_slot("home", -1))
+
+        home_plus_btn = API.Gumps.CreateSimpleButton("[+]", 30, 25)
+        home_plus_btn.SetPos(180, y)
+        self.controls["content_home_plus"] = home_plus_btn
+        self.gump.AddControl(home_plus_btn)
+        API.Gumps.AddControlOnClick(home_plus_btn, lambda: self._adjust_slot("home", 1))
+
+        y += 40
+
+        # ========== FARMING AREAS SECTION ==========
+        areas_header = API.Gumps.CreateGumpTTFLabel("Farming Areas:", 16, "#ffaa00")
+        areas_header.SetPos(10, y)
+        self.controls["content_areas_header"] = areas_header
+        self.gump.AddControl(areas_header)
+        y += 30
+
+        # Get area list
+        area_names = self.area_manager.list_areas()
+
+        # Display 5 areas at a time
+        start_idx = self.area_scroll_offset
+        end_idx = min(start_idx + self.areas_per_page, len(area_names))
+
+        for i in range(start_idx, end_idx):
+            area_name = area_names[i]
+            area = self.area_manager.get_area(area_name)
+
+            # Area name
+            area_label = API.Gumps.CreateGumpTTFLabel("  " + area_name, 15, "#ffffff")
+            area_label.SetPos(10, y)
+            self.controls["content_area_" + str(i)] = area_label
+            self.gump.AddControl(area_label)
+
+            # [Edit] button
+            edit_btn = API.Gumps.CreateSimpleButton("[Edit]", 60, 22)
+            edit_btn.SetPos(300, y)
+            edit_btn.SetBackgroundHue(68)
+            self.controls["content_edit_" + str(i)] = edit_btn
+            self.gump.AddControl(edit_btn)
+            API.Gumps.AddControlOnClick(edit_btn, lambda name=area_name: self._edit_area(name))
+
+            # [Delete] button
+            delete_btn = API.Gumps.CreateSimpleButton("[Delete]", 70, 22)
+            delete_btn.SetPos(370, y)
+            delete_btn.SetBackgroundHue(32)
+            self.controls["content_delete_" + str(i)] = delete_btn
+            self.gump.AddControl(delete_btn)
+            API.Gumps.AddControlOnClick(delete_btn, lambda name=area_name: self._delete_area(name))
+
+            y += 27
+
+        # Scroll buttons if needed
+        if len(area_names) > self.areas_per_page:
+            # [Previous] button
+            if self.area_scroll_offset > 0:
+                prev_btn = API.Gumps.CreateSimpleButton("[Previous]", 90, 25)
+                prev_btn.SetPos(10, y)
+                self.controls["content_prev_btn"] = prev_btn
+                self.gump.AddControl(prev_btn)
+                API.Gumps.AddControlOnClick(prev_btn, self._scroll_areas_up)
+
+            # [Next] button
+            if end_idx < len(area_names):
+                next_btn = API.Gumps.CreateSimpleButton("[Next]", 90, 25)
+                next_btn.SetPos(110, y)
+                self.controls["content_next_btn"] = next_btn
+                self.gump.AddControl(next_btn)
+                API.Gumps.AddControlOnClick(next_btn, self._scroll_areas_down)
+
+            y += 30
+
+        # [Add New Area] button
+        add_area_btn = API.Gumps.CreateSimpleButton("[Add New Area]", 150, 30)
+        add_area_btn.SetPos(10, y)
+        add_area_btn.SetBackgroundHue(68)
+        self.controls["content_add_area_btn"] = add_area_btn
+        self.gump.AddControl(add_area_btn)
+        API.Gumps.AddControlOnClick(add_area_btn, self._add_new_area)
+
+        # [Record Safe Spots] button
+        safe_spots_btn = API.Gumps.CreateSimpleButton("[Record Safe Spots]", 170, 30)
+        safe_spots_btn.SetPos(170, y)
+        safe_spots_btn.SetBackgroundHue(43)
+        self.controls["content_safe_spots_btn"] = safe_spots_btn
+        self.gump.AddControl(safe_spots_btn)
+        API.Gumps.AddControlOnClick(safe_spots_btn, self._record_safe_spots)
+
+    def _build_combat_tab(self):
+        """Build Combat tab content (placeholder)"""
+        y = 80
+        placeholder = API.Gumps.CreateGumpTTFLabel("Combat settings - Not yet implemented", 15, "#888888")
+        placeholder.SetPos(10, y)
+        self.controls["content_placeholder"] = placeholder
+        self.gump.AddControl(placeholder)
+
+    def _build_healing_tab(self):
+        """Build Healing tab content (placeholder)"""
+        y = 80
+        placeholder = API.Gumps.CreateGumpTTFLabel("Healing settings - Not yet implemented", 15, "#888888")
+        placeholder.SetPos(10, y)
+        self.controls["content_placeholder"] = placeholder
+        self.gump.AddControl(placeholder)
+
+    def _build_looting_tab(self):
+        """Build Looting tab content (placeholder)"""
+        y = 80
+        placeholder = API.Gumps.CreateGumpTTFLabel("Looting settings - Not yet implemented", 15, "#888888")
+        placeholder.SetPos(10, y)
+        self.controls["content_placeholder"] = placeholder
+        self.gump.AddControl(placeholder)
+
+    def _build_banking_tab(self):
+        """Build Banking tab content (placeholder)"""
+        y = 80
+        placeholder = API.Gumps.CreateGumpTTFLabel("Banking settings - Not yet implemented", 15, "#888888")
+        placeholder.SetPos(10, y)
+        self.controls["content_placeholder"] = placeholder
+        self.gump.AddControl(placeholder)
+
+    def _build_advanced_tab(self):
+        """Build Advanced tab content (placeholder)"""
+        y = 80
+        placeholder = API.Gumps.CreateGumpTTFLabel("Advanced settings - Not yet implemented", 15, "#888888")
+        placeholder.SetPos(10, y)
+        self.controls["content_placeholder"] = placeholder
+        self.gump.AddControl(placeholder)
+
+    def _switch_tab(self, tab_id):
+        """Switch to a different tab"""
+        if tab_id == self.current_tab:
+            return
+
+        self.current_tab = tab_id
+        self.rebuild()
+
+    def _target_runebook(self):
+        """Target runebook and save serial"""
+        try:
+            API.SysMsg("Target your runebook...", 68)
+            target = API.RequestTarget(timeout=10)
+
+            if target and target > 0:
+                self.runebook_serial = target
+                self._save_runebook_serial()
+                API.SysMsg("Runebook set: " + hex(target), 68)
+                self.rebuild()
+            else:
+                API.SysMsg("Targeting cancelled", 43)
+
+        except Exception as e:
+            API.SysMsg("Error targeting runebook: " + str(e), 32)
+
+    def _clear_runebook(self):
+        """Clear runebook serial"""
+        self.runebook_serial = 0
+        self._save_runebook_serial()
+        API.SysMsg("Runebook cleared", 43)
+        self.rebuild()
+
+    def _adjust_slot(self, slot_type, delta):
+        """Adjust bank or home slot number"""
+        if slot_type == "bank":
+            self.bank_slot = max(1, min(16, self.bank_slot + delta))
+            self._save_int("BankSlot", self.bank_slot)
+        elif slot_type == "home":
+            self.home_slot = max(1, min(16, self.home_slot + delta))
+            self._save_int("HomeSlot", self.home_slot)
+
+        self.rebuild()
+
+    def _scroll_areas_up(self):
+        """Scroll area list up"""
+        self.area_scroll_offset = max(0, self.area_scroll_offset - self.areas_per_page)
+        self.rebuild()
+
+    def _scroll_areas_down(self):
+        """Scroll area list down"""
+        area_count = len(self.area_manager.list_areas())
+        self.area_scroll_offset = min(area_count - self.areas_per_page, self.area_scroll_offset + self.areas_per_page)
+        self.rebuild()
+
+    def _add_new_area(self):
+        """Open AreaRecordingGump to create a new area"""
+        API.SysMsg("Opening Area Recording window...", 68)
+        # TODO: Open AreaRecordingGump when implemented
+        # For now, just show message
+        API.SysMsg("AreaRecordingGump integration - TODO", 43)
+
+    def _edit_area(self, area_name):
+        """Edit an existing farming area"""
+        API.SysMsg("Editing area: " + area_name, 68)
+        # TODO: Open AreaRecordingGump with area pre-loaded
+        API.SysMsg("Edit area integration - TODO", 43)
+
+    def _delete_area(self, area_name):
+        """Delete a farming area"""
+        if self.area_manager.delete_area(area_name):
+            API.SysMsg("Deleted area: " + area_name, 68)
+            self.rebuild()
+        else:
+            API.SysMsg("Failed to delete area: " + area_name, 32)
+
+    def _record_safe_spots(self):
+        """Open safe spot recording panel"""
+        API.SysMsg("Opening Safe Spot Recording...", 68)
+        # TODO: Implement safe spot recording sub-panel
+        API.SysMsg("Safe spot recording - TODO", 43)
+
+    def rebuild(self):
+        """Rebuild the entire gump (for tab switching and updates)"""
+        if self.gump:
+            self.gump.Dispose()
+
+        self._build_gump()
+
+    def update(self):
+        """Update window position tracking"""
+        if self.pos_tracker:
+            self.pos_tracker.update()
+
+    def close(self):
+        """Close the configuration window"""
+        # Save position
+        if self.pos_tracker:
+            self.pos_tracker.save()
+
+        # Dispose gump
+        if self.gump:
+            self.gump.Dispose()
+            self.gump = None
+
+        # Trigger callback
+        if self.on_closed:
+            self.on_closed()
+
+
+# ========== MAIN CONTROL PANEL GUI ==========
+class DungeonFarmerGUI:
+    """Main always-visible control panel with status, statistics, pet health, and controls"""
+
+    def __init__(self, pet_manager, danger_assessment):
+        """
+        Initialize the main control panel GUI.
+
+        Args:
+            pet_manager: PetManager instance for pet health tracking
+            danger_assessment: DangerAssessment instance for danger meter
+        """
+        self.pet_manager = pet_manager
+        self.danger_assessment = danger_assessment
+        self.gump = None
+        self.controls = {}
+        self.display_group = None
+        self.pos_tracker = None
+
+        # State tracking
+        self.state = "IDLE"
+        self.location = "Unknown"
+        self.session_start_time = time.time()
+        self.is_paused = False
+
+        # Statistics (will be updated by external systems)
+        self.stats = {
+            "gold": 0,
+            "gold_per_hour": 0,
+            "kills": 0,
+            "deaths": 0,
+            "flees": 0,
+            "bandages": 0,
+            "bandages_hours": 0.0,
+            "vet_kits": 0,
+            "weight_current": 0,
+            "weight_max": 0
+        }
+
+        # Callbacks
+        self.on_pause_clicked = None
+        self.on_config_clicked = None
+        self.on_stop_clicked = None
+        self.on_emergency_recall_clicked = None
+
+        self._build_gump()
+
+    def _build_gump(self):
+        """Build the main control panel gump UI"""
+        try:
+            self.gump = API.Gumps.CreateGump()
+
+            # Use WindowPositionTracker if available
+            if WindowPositionTracker:
+                self.pos_tracker = WindowPositionTracker(self.gump, KEY_PREFIX + "MainXY",
+                                                          default_x=100, default_y=100)
+                x = self.pos_tracker.last_x
+                y = self.pos_tracker.last_y
+            else:
+                x, y = 100, 100
+
+            self.gump.SetRect(x, y, 350, 400)
+
+            y_offset = 10
+
+            # ========== STATUS SECTION (350x80px) ==========
+            # State label (large, color-coded)
+            state_label = API.Gumps.CreateGumpTTFLabel(self.state, 16, self._get_state_color())
+            state_label.SetPos(10, y_offset)
+            self.controls["state_label"] = state_label
+            self.gump.AddControl(state_label)
+            y_offset += 25
+
+            # Location label
+            location_label = API.Gumps.CreateGumpTTFLabel("Location: " + self.location, 15, "#ffffff")
+            location_label.SetPos(10, y_offset)
+            self.controls["location_label"] = location_label
+            self.gump.AddControl(location_label)
+            y_offset += 25
+
+            # Danger meter label
+            danger_label = API.Gumps.CreateGumpTTFLabel("Danger: 0%", 15, "#00ff00")
+            danger_label.SetPos(10, y_offset)
+            self.controls["danger_label"] = danger_label
+            self.gump.AddControl(danger_label)
+            y_offset += 25
+
+            # Session timer
+            timer_label = API.Gumps.CreateGumpTTFLabel("Session: 00:00:00", 15, "#aaaaaa")
+            timer_label.SetPos(10, y_offset)
+            self.controls["timer_label"] = timer_label
+            self.gump.AddControl(timer_label)
+            y_offset += 30
+
+            # ========== STATISTICS SECTION (350x120px) ==========
+            # Gold
+            gold_label = API.Gumps.CreateGumpTTFLabel("Gold: 0 (0/hr)", 15, "#ffcc00")
+            gold_label.SetPos(10, y_offset)
+            self.controls["gold_label"] = gold_label
+            self.gump.AddControl(gold_label)
+            y_offset += 25
+
+            # Kills
+            kills_label = API.Gumps.CreateGumpTTFLabel("Kills: 0", 15, "#00ff00")
+            kills_label.SetPos(10, y_offset)
+            self.controls["kills_label"] = kills_label
+            self.gump.AddControl(kills_label)
+            y_offset += 25
+
+            # Deaths / Flees
+            deaths_label = API.Gumps.CreateGumpTTFLabel("Deaths/Flees: 0 / 0", 15, "#ff4444")
+            deaths_label.SetPos(10, y_offset)
+            self.controls["deaths_label"] = deaths_label
+            self.gump.AddControl(deaths_label)
+            y_offset += 25
+
+            # Bandages
+            bandages_label = API.Gumps.CreateGumpTTFLabel("Bandages: 0 left (0.0hr)", 15, "#ffffff")
+            bandages_label.SetPos(10, y_offset)
+            self.controls["bandages_label"] = bandages_label
+            self.gump.AddControl(bandages_label)
+            y_offset += 25
+
+            # Vet kits
+            vet_kits_label = API.Gumps.CreateGumpTTFLabel("Vet Kits: 0 left", 15, "#ffffff")
+            vet_kits_label.SetPos(10, y_offset)
+            self.controls["vet_kits_label"] = vet_kits_label
+            self.gump.AddControl(vet_kits_label)
+            y_offset += 25
+
+            # Weight
+            weight_label = API.Gumps.CreateGumpTTFLabel("Weight: 0 / 0", 15, "#ffffff")
+            weight_label.SetPos(10, y_offset)
+            self.controls["weight_label"] = weight_label
+            self.gump.AddControl(weight_label)
+            y_offset += 30
+
+            # ========== PET HEALTH SECTION (350x100px) ==========
+            pet_status_label = API.Gumps.CreateGumpTTFLabel("Pets: Not scanned", 15, "#ffffff")
+            pet_status_label.SetPos(10, y_offset)
+            self.controls["pet_status"] = pet_status_label
+            self.gump.AddControl(pet_status_label)
+            self.controls["pet_section_y"] = y_offset
+            y_offset += 100  # Reserve space for pets
+
+            # ========== CONTROLS SECTION (350x100px) ==========
+            # Pause button
+            pause_btn = API.Gumps.CreateSimpleButton("[PAUSE]", 100, 30)
+            pause_btn.SetPos(10, y_offset)
+            pause_btn.SetBackgroundHue(68)  # Green when running
+            self.controls["pause_btn"] = pause_btn
+            self.gump.AddControl(pause_btn)
+            API.Gumps.AddControlOnClick(pause_btn, self._on_pause_btn)
+
+            # Config button
+            config_btn = API.Gumps.CreateSimpleButton("[CONFIG]", 100, 30)
+            config_btn.SetPos(120, y_offset)
+            config_btn.SetBackgroundHue(90)  # Gray
+            self.controls["config_btn"] = config_btn
+            self.gump.AddControl(config_btn)
+            API.Gumps.AddControlOnClick(config_btn, self._on_config_btn)
+
+            # Stop button
+            stop_btn = API.Gumps.CreateSimpleButton("[STOP]", 100, 30)
+            stop_btn.SetPos(230, y_offset)
+            stop_btn.SetBackgroundHue(32)  # Red
+            self.controls["stop_btn"] = stop_btn
+            self.gump.AddControl(stop_btn)
+            API.Gumps.AddControlOnClick(stop_btn, self._on_stop_btn)
+            y_offset += 40
+
+            # Emergency recall button
+            emergency_btn = API.Gumps.CreateSimpleButton("[EMERGENCY RECALL]", 150, 30)
+            emergency_btn.SetPos(10, y_offset)
+            emergency_btn.SetBackgroundHue(32)  # Red
+            self.controls["emergency_btn"] = emergency_btn
+            self.gump.AddControl(emergency_btn)
+            API.Gumps.AddControlOnClick(emergency_btn, self._on_emergency_btn)
+
+            # Setup DisplayGroup if available
+            if DisplayGroup:
+                self.display_group = DisplayGroup(update_interval=0.5)
+                self.display_group.add_label("state", self.controls["state_label"],
+                                             lambda: self.state)
+                self.display_group.add_label("location", self.controls["location_label"],
+                                             lambda: "Location: " + str(self.location))
+                self.display_group.add_label("timer", self.controls["timer_label"],
+                                             self._format_session_time)
+                self.display_group.add_label("gold", self.controls["gold_label"],
+                                             self._format_gold)
+                self.display_group.add_label("kills", self.controls["kills_label"],
+                                             lambda: "Kills: " + str(self.stats["kills"]))
+                self.display_group.add_label("deaths", self.controls["deaths_label"],
+                                             self._format_deaths)
+                self.display_group.add_label("bandages", self.controls["bandages_label"],
+                                             self._format_bandages)
+                self.display_group.add_label("vet_kits", self.controls["vet_kits_label"],
+                                             lambda: "Vet Kits: " + str(self.stats["vet_kits"]) + " left")
+                self.display_group.add_label("weight", self.controls["weight_label"],
+                                             self._format_weight)
+                self.display_group.add_label("pet_status", self.controls["pet_status"],
+                                             self._format_pet_status)
+
+            # Add on_closed callback
+            if self.pos_tracker:
+                API.Gumps.AddControlOnClick(self.gump, self._on_closed)
+
+            API.Gumps.AddGump(self.gump)
+
+        except Exception as e:
+            API.SysMsg("Error building DungeonFarmerGUI: " + str(e), 32)
+
+    def _get_state_color(self):
+        """Get color for current state"""
+        state_lower = self.state.lower()
+        if "flee" in state_lower or "danger" in state_lower:
+            return "#ff0000"  # Red
+        elif "bank" in state_lower or "pause" in state_lower or "idle" in state_lower:
+            return "#ffff00"  # Yellow
+        elif "farm" in state_lower or "combat" in state_lower:
+            return "#00ff00"  # Green
+        else:
+            return "#ffffff"  # White
+
+    def _format_session_time(self):
+        """Format session time as HH:MM:SS"""
+        elapsed = int(time.time() - self.session_start_time)
+        hours = elapsed // 3600
+        minutes = (elapsed % 3600) // 60
+        seconds = elapsed % 60
+        return "Session: " + "{:02d}:{:02d}:{:02d}".format(hours, minutes, seconds)
+
+    def _format_gold(self):
+        """Format gold with rate"""
+        gold = self.stats.get("gold", 0)
+        rate = self.stats.get("gold_per_hour", 0)
+        if rate >= 1000:
+            rate_str = "{:.1f}K".format(rate / 1000.0)
+        else:
+            rate_str = str(int(rate))
+        return "Gold: " + "{:,}".format(gold) + " (" + rate_str + "/hr)"
+
+    def _format_deaths(self):
+        """Format deaths/flees"""
+        deaths = self.stats.get("deaths", 0)
+        flees = self.stats.get("flees", 0)
+        return "Deaths/Flees: " + str(deaths) + " / " + str(flees)
+
+    def _format_bandages(self):
+        """Format bandages with hours remaining"""
+        count = self.stats.get("bandages", 0)
+        hours = self.stats.get("bandages_hours", 0.0)
+        color = self._get_supply_color(hours)
+        # Note: Can't change label color after creation, but we track it for recreation
+        return "Bandages: " + str(count) + " left ({:.1f}hr)".format(hours)
+
+    def _format_weight(self):
+        """Format weight as current/max"""
+        current = self.stats.get("weight_current", 0)
+        max_weight = self.stats.get("weight_max", 0)
+        return "Weight: " + str(current) + " / " + str(max_weight)
+
+    def _get_supply_color(self, hours_remaining):
+        """Get color hue based on hours remaining"""
+        if hours_remaining > 2.0:
+            return 68  # Green
+        elif hours_remaining > 1.0:
+            return 43  # Yellow
+        else:
+            return 32  # Red
+
+    def _get_danger_color(self, danger_pct):
+        """Get color for danger percentage"""
+        if danger_pct >= 70:
+            return "#ff0000"  # Red
+        elif danger_pct >= 40:
+            return "#ff8800"  # Orange
+        elif danger_pct >= 20:
+            return "#ffff00"  # Yellow
+        else:
+            return "#00ff00"  # Green
+
+    def _on_pause_btn(self):
+        """Handle pause button click"""
+        if self.on_pause_clicked:
+            self.on_pause_clicked()
+
+    def _on_config_btn(self):
+        """Handle config button click"""
+        if self.on_config_clicked:
+            self.on_config_clicked()
+
+    def _on_stop_btn(self):
+        """Handle stop button click"""
+        if self.on_stop_clicked:
+            self.on_stop_clicked()
+
+    def _on_emergency_btn(self):
+        """Handle emergency recall button click"""
+        if self.on_emergency_recall_clicked:
+            self.on_emergency_recall_clicked()
+
+    def _on_closed(self):
+        """Handle gump closed event"""
+        if self.pos_tracker:
+            self.pos_tracker.save()
+
+    def update_state(self, state):
+        """Update current state display"""
+        self.state = state.upper()
+        if "state_label" in self.controls:
+            self.controls["state_label"].SetText(self.state)
+            # Update color by recreating label (can't change color after creation)
+            # For now, just update text - color updates would require gump rebuild
+
+    def update_location(self, location):
+        """Update current location display"""
+        self.location = location
+
+    def update_danger(self, danger_pct):
+        """Update danger meter"""
+        if "danger_label" in self.controls:
+            color = self._get_danger_color(danger_pct)
+            danger_text = "Danger: " + str(int(danger_pct)) + "%"
+            self.controls["danger_label"].SetText(danger_text)
+            # Note: Color would need gump rebuild to change
+
+    def update_statistics(self, **kwargs):
+        """Update statistics display"""
+        for key, value in kwargs.items():
+            if key in self.stats:
+                self.stats[key] = value
+
+    def update_pause_state(self, is_paused):
+        """Update pause button state"""
+        self.is_paused = is_paused
+        if "pause_btn" in self.controls:
+            btn = self.controls["pause_btn"]
+            btn.SetText("[RESUME]" if is_paused else "[PAUSE]")
+            btn.SetBackgroundHue(43 if is_paused else 68)  # Yellow when paused, green when running
+
+    def update_pet_health(self):
+        """Update pet health bars - updates text for existing labels"""
+        try:
+            if not self.pet_manager:
+                return
+
+            # Update pet status label
+            if "pet_status" in self.controls:
+                pets = self.pet_manager.pets if hasattr(self.pet_manager, 'pets') else []
+                pet_count = len(pets)
+                alive_count = sum(1 for p in pets if not self._is_pet_dead(p["serial"]))
+                status_text = "Pets: {}/{} alive".format(alive_count, pet_count)
+                self.controls["pet_status"].SetText(status_text)
+
+        except Exception as e:
+            API.SysMsg("Error updating pet health: " + str(e), 32)
+
+    def _is_pet_dead(self, serial):
+        """Check if pet is dead"""
+        mob = API.Mobiles.FindMobile(serial)
+        return mob is None or mob.IsDead
+
+    def _format_pet_status(self):
+        """Format pet status for display"""
+        if not self.pet_manager:
+            return "Pets: Not scanned"
+
+        pets = self.pet_manager.pets if hasattr(self.pet_manager, 'pets') else []
+        if not pets:
+            return "Pets: None detected"
+
+        alive_count = sum(1 for p in pets if not self._is_pet_dead(p["serial"]))
+        total_count = len(pets)
+
+        # Calculate average HP
+        total_hp_pct = 0
+        for pet in pets:
+            mob = API.Mobiles.FindMobile(pet["serial"])
+            if mob and not mob.IsDead and mob.HitsMax > 0:
+                total_hp_pct += (mob.Hits / mob.HitsMax * 100)
+
+        avg_hp = total_hp_pct / alive_count if alive_count > 0 else 0
+
+        return "Pets: {}/{} alive ({:.0f}% avg HP)".format(alive_count, total_count, avg_hp)
+
+    def update(self):
+        """Update all displays (call periodically from main loop)"""
+        try:
+            # Update position tracker
+            if self.pos_tracker:
+                self.pos_tracker.update()
+
+            # Update display group
+            if self.display_group:
+                self.display_group.update()
+
+            # Update danger from danger_assessment
+            if self.danger_assessment:
+                danger = self.danger_assessment.calculate_danger()
+                self.update_danger(danger)
+
+            # Update pet health
+            self.update_pet_health()
+
+        except Exception as e:
+            API.SysMsg("Error updating DungeonFarmerGUI: " + str(e), 32)
+
+    def close(self):
+        """Close the gump and save position"""
+        try:
+            if self.pos_tracker:
+                self.pos_tracker.save()
+            if self.gump:
+                self.gump.Dispose()
+                self.gump = None
+        except Exception as e:
+            API.SysMsg("Error closing DungeonFarmerGUI: " + str(e), 32)
+
+
 # ========== MAIN SCRIPT ==========
 # NOTE: This is a foundational implementation for the core classes.
 # The full dungeon farming script will be built up in subsequent tasks.
@@ -3394,6 +4274,138 @@ def test_monitor_combat():
         import traceback
         API.SysMsg(str(traceback.format_exc()), 32)
 
+def test_main_gui():
+    """Test function to verify DungeonFarmerGUI works correctly"""
+    API.SysMsg("Testing DungeonFarmerGUI...", 68)
+
+    try:
+        # Initialize required systems
+        pet_manager = PetManager()
+        pet_manager.scan_pets()
+        danger_assessment = DangerAssessment(pet_manager)
+
+        API.SysMsg("Initializing DungeonFarmerGUI...", 68)
+        gui = DungeonFarmerGUI(pet_manager, danger_assessment)
+
+        API.SysMsg("GUI created - verify window displays at saved position", 43)
+        API.Pause(2)
+
+        # Test 1: Update state
+        API.SysMsg("Test 1: Updating state to FLEEING...", 68)
+        gui.update_state("FLEEING")
+        API.Pause(2)
+
+        # Test 2: Update location
+        API.SysMsg("Test 2: Updating location...", 68)
+        gui.update_location("Orc Fort")
+        API.Pause(2)
+
+        # Test 3: Update danger
+        API.SysMsg("Test 3: Updating danger to 75%...", 68)
+        gui.update_danger(75)
+        API.Pause(2)
+
+        # Test 4: Update statistics
+        API.SysMsg("Test 4: Updating statistics...", 68)
+        gui.update_statistics(
+            gold=12345,
+            gold_per_hour=5200,
+            kills=23,
+            deaths=0,
+            flees=3,
+            bandages=142,
+            bandages_hours=2.3,
+            vet_kits=5,
+            weight_current=350,
+            weight_max=400
+        )
+        API.Pause(2)
+
+        # Test 5: Update pause state
+        API.SysMsg("Test 5: Testing pause button state...", 68)
+        gui.update_pause_state(True)
+        API.SysMsg("  Paused - verify button shows [RESUME] in yellow", 43)
+        API.Pause(2)
+
+        gui.update_pause_state(False)
+        API.SysMsg("  Running - verify button shows [PAUSE] in green", 43)
+        API.Pause(2)
+
+        # Test 6: Update loop (simulate main loop updates)
+        API.SysMsg("Test 6: Running update loop for 10 seconds...", 68)
+        for i in range(100):
+            gui.update()
+            API.Pause(0.1)
+
+        # Test 7: Close and verify position persists
+        API.SysMsg("Test 7: Closing GUI - position should be saved", 68)
+        gui.close()
+        API.Pause(1)
+
+        # Test 8: Reopen and verify position restored
+        API.SysMsg("Test 8: Reopening GUI - should restore saved position", 68)
+        gui2 = DungeonFarmerGUI(pet_manager, danger_assessment)
+        API.Pause(2)
+
+        API.SysMsg("DungeonFarmerGUI test complete! Close manually when ready.", 68)
+
+        # Leave GUI open for manual inspection
+        # gui2.close()
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
+def test_config_gump():
+    """Test function to verify ConfigGump works correctly"""
+    API.SysMsg("Testing ConfigGump...", 68)
+
+    try:
+        # Initialize required systems
+        area_manager = AreaManager()
+
+        API.SysMsg("Initializing ConfigGump...", 68)
+        config_gump = ConfigGump(area_manager)
+
+        API.SysMsg("ConfigGump created - verify window displays at saved position", 43)
+        API.SysMsg("Test tab switching, runebook targeting, and area management", 43)
+        API.Pause(2)
+
+        # Test 1: Switch tabs
+        API.SysMsg("Test 1: Testing tab system...", 68)
+        API.SysMsg("  Click each tab to verify switching works", 43)
+        API.Pause(5)
+
+        # Test 2: Test runebook targeting
+        API.SysMsg("Test 2: Test runebook targeting...", 68)
+        API.SysMsg("  Click [Set Runebook] and target a runebook", 43)
+        API.Pause(5)
+
+        # Test 3: Test slot adjustments
+        API.SysMsg("Test 3: Test bank/home slot adjustments...", 68)
+        API.SysMsg("  Click [+] and [-] buttons to adjust slots", 43)
+        API.Pause(5)
+
+        # Test 4: Test area management
+        API.SysMsg("Test 4: Test area list...", 68)
+        areas = area_manager.list_areas()
+        if areas:
+            API.SysMsg("  Found " + str(len(areas)) + " areas in manager", 43)
+        else:
+            API.SysMsg("  No areas configured yet", 43)
+        API.Pause(5)
+
+        API.SysMsg("ConfigGump test complete! Close window manually when ready.", 68)
+
+        # Leave window open for manual inspection
+        # config_gump.close()
+
+    except Exception as e:
+        API.SysMsg("Test error: " + str(e), 32)
+        import traceback
+        API.SysMsg(str(traceback.format_exc()), 32)
+
 # Run tests if script is loaded
 # Uncomment to test:
 # test_farming_areas()
@@ -3405,5 +4417,7 @@ def test_monitor_combat():
 # test_danger_assessment()
 # test_combat_manager()
 # test_monitor_combat()
+# test_main_gui()
+# test_config_gump()
 
-API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager v1.6)", 68)
+API.SysMsg("Dungeon Farmer loaded (FarmingArea + HealingSystem + PatrolSystem + NPCThreatMap + DangerAssessment + CombatManager + MainGUI + ConfigGump v1.8)", 68)
