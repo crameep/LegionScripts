@@ -27,6 +27,12 @@ CONFIG_HEIGHT = 550
 TESTER_WIDTH = 320
 TESTER_HEIGHT = 200
 
+# Color hues
+HUE_RED = 32        # Danger/error
+HUE_GREEN = 68      # Success/active
+HUE_YELLOW = 43     # Warning
+HUE_GRAY = 90       # Neutral
+
 # ============ PERSISTENCE KEYS ============
 KEY_PREFIX = "TomeDumper_"
 TOMES_KEY = KEY_PREFIX + "Tomes"
