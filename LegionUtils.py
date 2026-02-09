@@ -2074,7 +2074,7 @@ class GumpCapture:
         """Detect a new gump that appears
 
         Scans for gumps before and after opening an item to identify
-        which gump ID appeared. Tests common gump ID ranges.
+        which gump ID appeared. Tests extended gump ID range (1-1000).
 
         Args:
             tome_serial: Serial of item to open (or None to scan current gumps)
@@ -2084,8 +2084,9 @@ class GumpCapture:
             int: Gump ID if detected, 0 if timeout
         """
         # Scan for gumps that are currently open (before opening tome)
+        # Extended range to 1000 to catch custom gumps (storage tomes, etc.)
         before_gumps = set()
-        for test_id in range(1, 200):
+        for test_id in range(1, 1001):
             if API.HasGump(test_id):
                 before_gumps.add(test_id)
 
@@ -2102,11 +2103,11 @@ class GumpCapture:
                 return 0
 
         # Wait a bit for gump to appear
-        API.Pause(1.5)
+        API.Pause(2.0)  # Increased from 1.5s for reliability
 
-        # Scan for new gumps
+        # Scan for new gumps (extended range)
         after_gumps = set()
-        for test_id in range(1, 200):
+        for test_id in range(1, 1001):
             if API.HasGump(test_id):
                 after_gumps.add(test_id)
 
@@ -2114,7 +2115,7 @@ class GumpCapture:
         new_gumps = after_gumps - before_gumps
 
         if len(new_gumps) == 0:
-            API.SysMsg("No new gump detected - try again", 32)
+            API.SysMsg("No new gump detected (scanned 1-1000) - try again", 32)
             return 0
         elif len(new_gumps) == 1:
             detected_id = list(new_gumps)[0]
