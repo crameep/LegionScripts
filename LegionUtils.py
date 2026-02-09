@@ -2091,6 +2091,8 @@ class GumpCapture:
                 before_gumps.add(test_id)
 
         API.SysMsg("Found " + str(len(before_gumps)) + " gumps open before", 88)
+        if before_gumps:
+            API.SysMsg("  Gump IDs: " + str(sorted(list(before_gumps))), 88)
 
         # Open tome if provided
         if tome_serial:
@@ -2111,11 +2113,16 @@ class GumpCapture:
             if API.HasGump(test_id):
                 after_gumps.add(test_id)
 
+        API.SysMsg("Found " + str(len(after_gumps)) + " gumps open after", 88)
+        if after_gumps:
+            API.SysMsg("  Gump IDs: " + str(sorted(list(after_gumps))), 88)
+
         # Find the new gump(s)
         new_gumps = after_gumps - before_gumps
 
         if len(new_gumps) == 0:
-            API.SysMsg("No new gump detected (scanned 1-1000) - try again", 32)
+            API.SysMsg("No new gump detected (scanned 1-1000)", 32)
+            API.SysMsg("Did you open the tome during the 2 second wait?", 43)
             return 0
         elif len(new_gumps) == 1:
             detected_id = list(new_gumps)[0]
