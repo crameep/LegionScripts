@@ -530,13 +530,7 @@ def do_recall(dest_key):
         API.SysMsg("Cooldown: " + str(round(remaining, 1)) + "s", 43)
         return False
 
-    # Find the runebook
-    runebook = API.FindItem(dest["runebook"])
-    if not runebook:
-        API.SysMsg("Runebook not found! Re-setup " + dest_key, 32)
-        return False
-
-    # Use the runebook
+    # Use the runebook (works even if in closed container)
     API.SysMsg("Recalling to " + dest["name"] + "...", 68)
     API.UseObject(dest["runebook"])
 
