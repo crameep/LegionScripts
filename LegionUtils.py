@@ -2089,10 +2089,15 @@ class GumpCapture:
             all_gumps_before = API.GetAllGumps()
             if all_gumps_before:
                 for gump in all_gumps_before:
-                    # GetAllGumps returns list of gump objects or IDs
-                    # Try to get ID from gump object, or use it directly if it's an int
+                    # GetAllGumps returns list of gump objects
+                    # Use ServerSerial (consistent) or fallback to LocalSerial
                     try:
-                        gump_id = getattr(gump, 'LocalSerial', gump)
+                        if hasattr(gump, 'ServerSerial'):
+                            gump_id = gump.ServerSerial
+                        elif hasattr(gump, 'LocalSerial'):
+                            gump_id = gump.LocalSerial
+                        else:
+                            gump_id = gump  # Fallback if it's just an int
                         if gump_id:
                             before_gumps.add(gump_id)
                     except:
@@ -2123,7 +2128,12 @@ class GumpCapture:
             if all_gumps_after:
                 for gump in all_gumps_after:
                     try:
-                        gump_id = getattr(gump, 'LocalSerial', gump)
+                        if hasattr(gump, 'ServerSerial'):
+                            gump_id = gump.ServerSerial
+                        elif hasattr(gump, 'LocalSerial'):
+                            gump_id = gump.LocalSerial
+                        else:
+                            gump_id = gump
                         if gump_id:
                             after_gumps.add(gump_id)
                     except:
