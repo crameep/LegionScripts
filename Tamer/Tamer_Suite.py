@@ -175,6 +175,10 @@ out_of_bandages_cooldown = 0  # Timestamp when we ran out - prevents spam
 out_of_vetkit_warned = False  # Only warn once when vet kit not found
 manual_heal_target = 0
 
+# Cursor tracking - prevents script from canceling player's manual targeting
+script_cursor_time = 0  # Timestamp when script last set a PreTarget
+manual_cursor_detected = False  # True when player has a manual targeting cursor
+
 # GUI
 is_expanded = True
 show_config = False  # Config panel visibility (deprecated - will use separate gump)
@@ -387,7 +391,18 @@ def check_critical_alerts():
                 play_sound_alert(SOUND_PET_DIED)
 
 def clear_stray_cursor():
-    """Immediate cursor cleanup - prevents leftover cursors"""
+    """Smart cursor cleanup - only clears script-created cursors, never manual ones"""
+    global script_cursor_time, manual_cursor_detected
+
+    # Only clear cursors if script set them recently (within 0.5s)
+    # This prevents clearing player's manual targeting cursors
+    if time.time() - script_cursor_time > 0.5:
+        # Cursor is likely manual - don't touch it!
+        if API.HasTarget():
+            manual_cursor_detected = True
+        return
+
+    # Script-created cursor - safe to clear
     try:
         if API.HasTarget():
             API.CancelTarget()
@@ -398,9 +413,13 @@ def clear_stray_cursor():
     except:
         pass
 
+    script_cursor_time = 0  # Reset timestamp
+
 def cancel_all_targets():
     """Clear all targeting cursors - call before every targeting operation"""
-    clear_stray_cursor()
+    global script_cursor_time
+    clear_stray_cursor()  # Only clears script cursors, not manual ones
+    script_cursor_time = time.time()  # Mark that script is about to set a cursor
     API.Pause(0.05)  # Brief pause for server sync
 
 def get_potion_count(graphic):
@@ -524,7 +543,7 @@ def target_trapped_pouch():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def handle_auto_target():
     """Auto-target next enemy when current dies (continuous combat)"""
@@ -565,8 +584,7 @@ def handle_auto_target():
             except:
                 pass
             finally:
-                # Clean up any leftover cursors from WaitForTarget/Target
-                clear_stray_cursor()
+                # Cursor cleanup now handled by smart clear_stray_cursor()
                 API.SysMsg("Auto-targeting: " + get_mob_name(next_enemy), 68)
         else:
             current_attack_target = 0
@@ -820,7 +838,7 @@ def start_heal_action(target, action_type, duration, is_self):
         except Exception as e:
             API.SysMsg("Heal error: " + str(e), 32)
         finally:
-            clear_stray_cursor()
+            API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     mob = API.FindMobile(target)
@@ -853,8 +871,7 @@ def start_heal_action(target, action_type, duration, is_self):
         except Exception as e:
             API.SysMsg("Rez error: " + str(e), 32)
         finally:
-            API.CancelPreTarget()
-            clear_stray_cursor()
+            API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     if action_type == "cure":
@@ -878,8 +895,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Cure error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         else:
             if not check_bandages():
                 return
@@ -908,8 +924,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     if action_type == "heal":
@@ -933,8 +948,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         else:
             if not check_bandages():
                 return
@@ -963,8 +977,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
 
 def check_heal_complete():
     global HEAL_STATE
@@ -1039,8 +1052,7 @@ def attempt_friend_rez():
     except Exception as e:
         API.SysMsg("Friend rez error: " + str(e), 32)
     finally:
-        API.CancelPreTarget()
-        clear_stray_cursor()
+        API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
 
 # ============ COMMANDS ============
 def should_use_order_mode():
@@ -1072,7 +1084,7 @@ def all_kill_manual():
         except Exception as e:
             API.SysMsg("Target error: " + str(e), 32)
         finally:
-            clear_stray_cursor()
+            pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def all_kill_hotkey():
     global current_attack_target
@@ -1105,7 +1117,7 @@ def all_kill_hotkey():
             except:
                 API.SysMsg("Target cancelled", 43)
             finally:
-                clear_stray_cursor()
+                pass  # Cursor cleanup now handled by smart clear_stray_cursor()
         return
 
     current_attack_target = enemy.Serial
@@ -1125,7 +1137,7 @@ def all_kill_hotkey():
         except:
             pass
         finally:
-            clear_stray_cursor()
+            pass  # Cursor cleanup now handled by smart clear_stray_cursor()
     else:
         execute_order_mode("all kill", enemy.Serial)
 
@@ -1180,7 +1192,7 @@ def execute_order_mode(base_cmd, attack_target):
                     API.HeadMsg("KILL!", attack_target, 32)
                 API.Pause(0.2)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def say_bank():
     API.Msg("bank")
@@ -1214,7 +1226,7 @@ def add_pet():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def remove_pet():
     """Toggle remove mode - click a pet in the list to remove it"""
@@ -2324,7 +2336,7 @@ def set_tank():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def clear_tank():
     global TANK_PET
@@ -2358,7 +2370,7 @@ def set_vetkit():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def clear_vetkit():
     global VET_KIT_GRAPHIC
@@ -2411,7 +2423,7 @@ def toggle_rez_friend():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 # ============ HOTKEY CAPTURE SYSTEM ============
 def make_key_handler(key_name):
@@ -3124,6 +3136,17 @@ while not API.StopRequested:
         # Process GUI clicks and HOTKEYS - always instant!
         API.ProcessCallbacks()
 
+        # Detect manual targeting cursor (player using abilities/skills)
+        if API.HasTarget() and time.time() - script_cursor_time > 0.5:
+            # Player has a manual cursor - pause all healing actions
+            if not manual_cursor_detected:
+                manual_cursor_detected = True
+                API.SysMsg("Manual targeting detected - healing paused", 43)
+        elif not API.HasTarget() and manual_cursor_detected:
+            # Manual cursor cleared - resume healing
+            manual_cursor_detected = False
+            API.SysMsg("Manual targeting complete - healing resumed", 68)
+
         # Check if current heal is done
         check_heal_complete()
 
@@ -3169,13 +3192,13 @@ while not API.StopRequested:
         check_critical_alerts()
 
         # FRIEND REZ LOGIC (highest priority - pauses all other healing)
-        if not PAUSED and rez_friend_active:
+        if not PAUSED and not manual_cursor_detected and rez_friend_active:
             statusLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
             attempt_friend_rez()
             continue
 
         # HEALER LOGIC (non-blocking)
-        if not PAUSED and HEAL_STATE == "idle":
+        if not PAUSED and not manual_cursor_detected and HEAL_STATE == "idle":
             # Skip healing if we're in bandage cooldown (out of bandages recently)
             if out_of_bandages_cooldown > 0:
                 # Check if bandages are back in stock
@@ -3198,7 +3221,7 @@ while not API.StopRequested:
                     start_heal_action(target, action_type, duration, is_self)
 
         # AUTO-TARGET LOGIC (continuous combat)
-        if not PAUSED and auto_target:
+        if not PAUSED and not manual_cursor_detected and auto_target:
             handle_auto_target()
 
         # Short pause - loop runs ~10x/second (balance of responsiveness vs CPU)
