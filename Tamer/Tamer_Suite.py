@@ -179,6 +179,7 @@ out_of_vetkit_warned = False  # Only warn once when vet kit not found
 # Cursor tracking - prevents script from canceling player's manual targeting
 script_cursor_time = 0  # Timestamp when script last set a PreTarget
 manual_cursor_detected = False  # True when player has a manual targeting cursor
+last_manual_cursor_msg = 0  # Timestamp of last manual cursor message (prevents spam)
 
 # GUI
 is_expanded = True
@@ -3279,15 +3280,22 @@ while not API.StopRequested:
         API.ProcessCallbacks()
 
         # Detect manual targeting cursor (player using abilities/skills)
-        if API.HasTarget() and time.time() - script_cursor_time > 0.5:
+        # Increased threshold to 1.5s to reduce false positives
+        if API.HasTarget() and time.time() - script_cursor_time > 1.5:
             # Player has a manual cursor - pause all healing actions
             if not manual_cursor_detected:
                 manual_cursor_detected = True
-                API.SysMsg("Manual targeting detected - healing paused", 43)
+                # Only show message if not shown recently (prevent spam)
+                global last_manual_cursor_msg
+                if time.time() - last_manual_cursor_msg > 3.0:
+                    API.SysMsg("Manual targeting detected - healing paused", 43)
+                    last_manual_cursor_msg = time.time()
         elif not API.HasTarget() and manual_cursor_detected:
             # Manual cursor cleared - resume healing
             manual_cursor_detected = False
-            API.SysMsg("Manual targeting complete - healing resumed", 68)
+            if time.time() - last_manual_cursor_msg > 3.0:
+                API.SysMsg("Manual targeting complete - healing resumed", 68)
+                last_manual_cursor_msg = time.time()
 
         # Check if current heal is done
         check_heal_complete()
