@@ -63,7 +63,7 @@ SELF_DELAY = 4.5              # Self bandage time
 VET_DELAY = 4.5               # Pet bandage time
 REZ_DELAY = 10.0              # Pet resurrection time
 CAST_DELAY = 2.5              # Greater Heal spell time
-VET_KIT_DELAY = 5.0           # Vet kit cooldown
+VET_KIT_DELAY = 5.0           # Vet kit execution/cast time (adjustable in config)
 
 # === RANGES ===
 BANDAGE_RANGE = 2
@@ -290,7 +290,12 @@ def is_poisoned(mob):
         if hasattr(mob, 'IsPoisoned') and mob.IsPoisoned:
             return True
         return False
-    except:
+    except AttributeError:
+        # Expected - mob doesn't have poison properties
+        return False
+    except Exception as e:
+        # Unexpected error - log for debugging
+        API.SysMsg("ERROR: is_poisoned() failed: " + str(e), 32)
         return False
 
 def is_player_poisoned():
@@ -301,13 +306,21 @@ def is_player_poisoned():
         if hasattr(player, 'IsPoisoned') and player.IsPoisoned:
             return True
         return False
-    except:
+    except AttributeError:
+        # Expected - player doesn't have poison properties
+        return False
+    except Exception as e:
+        API.SysMsg("ERROR: is_player_poisoned() failed: " + str(e), 32)
         return False
 
 def is_player_dead():
     try:
         return API.Player.IsDead
-    except:
+    except AttributeError:
+        # Player object missing IsDead property
+        return False
+    except Exception as e:
+        API.SysMsg("ERROR: is_player_dead() failed: " + str(e), 32)
         return False
 
 def get_mob_name(mob, default="Unknown"):
@@ -315,7 +328,11 @@ def get_mob_name(mob, default="Unknown"):
         return default
     try:
         return mob.Name if mob.Name else default
-    except:
+    except AttributeError:
+        # Mob doesn't have Name property
+        return default
+    except Exception as e:
+        API.SysMsg("ERROR: get_mob_name() failed: " + str(e), 32)
         return default
 
 def get_hp_percent(mob):
@@ -325,7 +342,15 @@ def get_hp_percent(mob):
         if mob.HitsMax > 0:
             return int((mob.Hits / mob.HitsMax) * 100)
         return 100
-    except:
+    except AttributeError:
+        # Mob missing HP properties
+        return 100
+    except ZeroDivisionError:
+        # Defensive - shouldn't happen due to HitsMax > 0 check
+        API.SysMsg("ERROR: Zero HP max detected", 32)
+        return 100
+    except Exception as e:
+        API.SysMsg("ERROR: get_hp_percent() failed: " + str(e), 32)
         return 100
 
 def get_distance(mob):
@@ -333,7 +358,11 @@ def get_distance(mob):
         return 999
     try:
         return mob.Distance if hasattr(mob, 'Distance') else 999
-    except:
+    except AttributeError:
+        # Mob doesn't have Distance property
+        return 999
+    except Exception as e:
+        API.SysMsg("ERROR: get_distance() failed: " + str(e), 32)
         return 999
 
 def get_bandage_count():
@@ -343,7 +372,11 @@ def get_bandage_count():
                 return API.Found.Amount
             return -1
         return 0
-    except:
+    except AttributeError:
+        # API.Found missing Amount property
+        return -1
+    except Exception as e:
+        API.SysMsg("ERROR: get_bandage_count() failed: " + str(e), 32)
         return -1
 
 def check_bandages():
@@ -368,8 +401,15 @@ def play_sound_alert(sound_id):
     try:
         if hasattr(API, 'PlaySound'):
             API.PlaySound(sound_id)
-    except:
-        pass
+        else:
+            # Warn once that PlaySound is not available
+            global _sound_api_warned
+            if not globals().get('_sound_api_warned', False):
+                API.SysMsg("WARNING: API.PlaySound not available - sounds disabled", 43)
+                globals()['_sound_api_warned'] = True
+    except Exception as e:
+        # Sound system failing - notify user
+        API.SysMsg("Sound alert failed (ID: " + str(sound_id) + "): " + str(e), 43)
 
 def check_critical_alerts():
     global last_critical_alert, last_pet_death_alerts
@@ -409,12 +449,13 @@ def clear_stray_cursor():
     try:
         if API.HasTarget():
             API.CancelTarget()
-    except:
-        pass
+    except Exception as e:
+        API.SysMsg("ERROR: Failed to cancel target cursor: " + str(e), 32)
+
     try:
         API.CancelPreTarget()
-    except:
-        pass
+    except Exception as e:
+        API.SysMsg("ERROR: Failed to cancel pretarget: " + str(e), 32)
 
     script_cursor_time = 0  # Reset timestamp
 
@@ -651,6 +692,12 @@ def sync_pets_from_storage():
             name = parts[0]
             try:
                 serial = int(parts[1])
+
+                # Validate serial
+                if serial <= 0:
+                    API.SysMsg("ERROR: Invalid pet serial in saved data: " + str(serial), 43)
+                    continue
+
                 active = True
                 if len(parts) >= 3:
                     active = (parts[2] == "1")
@@ -658,8 +705,11 @@ def sync_pets_from_storage():
                 PETS.append(serial)
                 PET_NAMES[serial] = name
                 PET_ACTIVE[serial] = active
-            except:
-                pass
+            except ValueError:
+                API.SysMsg("ERROR: Corrupted pet data - serial not numeric: " + parts[1], 32)
+                API.SysMsg("  Pet name: " + name, 32)
+            except Exception as e:
+                API.SysMsg("ERROR: Failed to load pet: " + name + " - " + str(e), 32)
 
 # ============ HEALING ACTIONS ============
 def get_next_heal_action():
@@ -2725,10 +2775,17 @@ def update_pet_hotkey_main_display():
                 text = "[---]"
                 hue = 90  # Gray = unbound
 
-            displays[i].SetText(text)
-            displays[i].SetBackgroundHue(hue)
-    except:
-        pass
+            try:
+                displays[i].SetText(text)
+                displays[i].SetBackgroundHue(hue)
+            except AttributeError:
+                # Display control disposed - expected during shutdown
+                return
+            except Exception as e:
+                API.SysMsg("ERROR: Failed to update pet hotkey display " + str(i+1) + ": " + str(e), 32)
+    except Exception as e:
+        # Outer catch for structural issues
+        API.SysMsg("ERROR: Pet hotkey display update failed: " + str(e), 32)
 
 def update_pet_arrow_display():
     """Update arrow indicators to show pet active/skip status (NEW v2.2)"""
@@ -2827,14 +2884,24 @@ def load_settings():
     tank_str = API.GetPersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
     try:
         TANK_PET = int(tank_str)
-    except:
+        if TANK_PET < 0:
+            raise ValueError("Negative serial not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted tank pet setting: " + tank_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         TANK_PET = 0
+        API.SavePersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
 
     vetkit_str = API.GetPersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
     try:
         VET_KIT_GRAPHIC = int(vetkit_str)
-    except:
+        if VET_KIT_GRAPHIC < 0:
+            raise ValueError("Negative graphic not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted vet kit setting: " + vetkit_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         VET_KIT_GRAPHIC = 0
+        API.SavePersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
 
     TARGET_REDS = API.GetPersistentVar(REDS_KEY, "False", API.PersistentVar.Char) == "True"
     TARGET_GRAYS = API.GetPersistentVar(GRAYS_KEY, "False", API.PersistentVar.Char) == "True"
@@ -2845,8 +2912,13 @@ def load_settings():
     pouch_str = API.GetPersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
     try:
         trapped_pouch_serial = int(pouch_str)
-    except:
+        if trapped_pouch_serial < 0:
+            raise ValueError("Negative serial not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted trapped pouch setting: " + pouch_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         trapped_pouch_serial = 0
+        API.SavePersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
 
     trapped_pouch_enabled = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
     auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
@@ -2857,20 +2929,35 @@ def load_settings():
     self_delay_str = API.GetPersistentVar(SELF_DELAY_KEY, "4.5", API.PersistentVar.Char)
     try:
         SELF_DELAY = float(self_delay_str)
-    except:
+        if not (0.5 <= SELF_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(SELF_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid self bandage delay: " + self_delay_str, 43)
+        API.SysMsg("  Using default 4.5s", 43)
         SELF_DELAY = 4.5
+        API.SavePersistentVar(SELF_DELAY_KEY, "4.5", API.PersistentVar.Char)
 
     vet_delay_str = API.GetPersistentVar(VET_DELAY_KEY, "4.5", API.PersistentVar.Char)
     try:
         VET_DELAY = float(vet_delay_str)
-    except:
+        if not (0.5 <= VET_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(VET_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid vet delay: " + vet_delay_str, 43)
+        API.SysMsg("  Using default 4.5s", 43)
         VET_DELAY = 4.5
+        API.SavePersistentVar(VET_DELAY_KEY, "4.5", API.PersistentVar.Char)
 
     vet_kit_delay_str = API.GetPersistentVar(VET_KIT_DELAY_KEY, "5.0", API.PersistentVar.Char)
     try:
         VET_KIT_DELAY = float(vet_kit_delay_str)
-    except:
+        if not (0.5 <= VET_KIT_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(VET_KIT_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid vet kit delay: " + vet_kit_delay_str, 43)
+        API.SysMsg("  Using default 5.0s", 43)
         VET_KIT_DELAY = 5.0
+        API.SavePersistentVar(VET_KIT_DELAY_KEY, "5.0", API.PersistentVar.Char)
 
     load_hotkeys()
     load_pet_hotkeys()  # NEW v2.2
@@ -3144,14 +3231,27 @@ update_pet_order_display()
 API.SysMsg("Registering key handlers...", 53)
 
 registered_count = 0
+failed_keys = []
 for key in ALL_KEYS:
     try:
         API.OnHotKey(key, make_key_handler(key))
         registered_count += 1
     except Exception as e:
-        pass
+        failed_keys.append((key, str(e)))
 
 API.SysMsg("Registered " + str(registered_count) + " keys", 68)
+
+if failed_keys:
+    API.SysMsg("WARNING: " + str(len(failed_keys)) + " keys failed to register", 43)
+    if DEBUG or registered_count == 0:
+        # Show details if debug mode OR if all keys failed
+        for key, error in failed_keys[:5]:  # Show first 5 failures
+            API.SysMsg("  " + key + ": " + error, 43)
+        if len(failed_keys) > 5:
+            API.SysMsg("  ... and " + str(len(failed_keys) - 5) + " more", 43)
+
+    if registered_count == 0:
+        API.SysMsg("CRITICAL: NO hotkeys registered - script hotkeys will not work!", 32)
 
 # Initial display
 update_pet_display()
