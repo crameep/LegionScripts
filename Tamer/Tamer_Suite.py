@@ -3283,15 +3283,16 @@ while not API.StopRequested:
         # Increased threshold to 1.5s to reduce false positives
         if API.HasTarget() and time.time() - script_cursor_time > 1.5:
             # Player has a manual cursor - pause all healing actions
+            global manual_cursor_detected, last_manual_cursor_msg
             if not manual_cursor_detected:
                 manual_cursor_detected = True
                 # Only show message if not shown recently (prevent spam)
-                global last_manual_cursor_msg
                 if time.time() - last_manual_cursor_msg > 3.0:
                     API.SysMsg("Manual targeting detected - healing paused", 43)
                     last_manual_cursor_msg = time.time()
         elif not API.HasTarget() and manual_cursor_detected:
             # Manual cursor cleared - resume healing
+            global manual_cursor_detected, last_manual_cursor_msg
             manual_cursor_detected = False
             if time.time() - last_manual_cursor_msg > 3.0:
                 API.SysMsg("Manual targeting complete - healing resumed", 68)
