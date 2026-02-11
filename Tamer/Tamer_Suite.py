@@ -83,6 +83,8 @@ VET_KIT_CRITICAL_HP = 50      # Use vet kit immediately if multiple pets critica
 MAX_DISTANCE = 10             # Max hostile search range
 COMMAND_DELAY = 0.8           # Delay between ordered pet commands
 TARGET_TIMEOUT = 3.0          # Target cursor timeout
+PRETARGET_DELAY = 0.1         # Delay for PreTarget to register with server
+PRETARGET_DELAY_ORDER = 0.15  # Longer delay for order mode (better lag tolerance)
 
 # === SOUND ALERTS ===
 USE_SOUND_ALERTS = True
@@ -173,7 +175,6 @@ last_vetkit_use = 0
 out_of_bandages_warned = False  # Only warn once when out of bandages
 out_of_bandages_cooldown = 0  # Timestamp when we ran out - prevents spam
 out_of_vetkit_warned = False  # Only warn once when vet kit not found
-manual_heal_target = 0
 
 # Cursor tracking - prevents script from canceling player's manual targeting
 script_cursor_time = 0  # Timestamp when script last set a PreTarget
@@ -198,7 +199,7 @@ potion_cooldown_end = 0
 
 # Trapped Pouch
 trapped_pouch_serial = 0
-use_trapped_pouch = True
+trapped_pouch_enabled = True  # Renamed to avoid collision with use_trapped_pouch() function
 
 # Auto-targeting
 auto_target = False
@@ -225,11 +226,13 @@ config_last_known_x = 150
 config_last_known_y = 150
 config_last_position_check = 0
 
-# Friend rez
+# Friend rez (non-blocking state machine)
 rez_friend_target = 0
 rez_friend_active = False
 rez_friend_attempts = 0
 rez_friend_name = ""
+rez_friend_state = "idle"  # State: "idle" or "rezzing"
+rez_friend_start_time = 0  # Timestamp when rez started
 MAX_REZ_ATTEMPTS = 50
 REZ_FRIEND_DELAY = 8.0
 
@@ -547,7 +550,7 @@ def target_trapped_pouch():
 
 def handle_auto_target():
     """Auto-target next enemy when current dies (continuous combat)"""
-    global current_attack_target
+    global current_attack_target, script_cursor_time
 
     if not auto_target:
         return
@@ -575,12 +578,15 @@ def handle_auto_target():
         next_enemy = API.NearestMobile(notorieties, AUTO_TARGET_RANGE)
         if next_enemy and next_enemy.Serial != API.Player.Serial and not next_enemy.IsDead:
             try:
+                # Mark script cursor to prevent false manual cursor detection
+                script_cursor_time = time.time()
+                # Pre-target before command to avoid targeting conflicts
+                API.PreTarget(next_enemy.Serial, "harmful")
+                API.Pause(PRETARGET_DELAY)
                 API.Msg("all kill")
-                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                    API.Target(next_enemy.Serial)
-                    current_attack_target = next_enemy.Serial
-                    update_combat_flag()
-                    API.HeadMsg("NEXT!", next_enemy.Serial, 68)
+                current_attack_target = next_enemy.Serial
+                update_combat_flag()
+                API.HeadMsg("NEXT!", next_enemy.Serial, 68)
             except:
                 pass
             finally:
@@ -668,7 +674,7 @@ def get_next_heal_action():
                     return None
             return (API.Player.Serial, "heal_self", SELF_DELAY, True)
 
-    if use_trapped_pouch and is_player_paralyzed():
+    if trapped_pouch_enabled and is_player_paralyzed():
         if use_trapped_pouch():
             return None
 
@@ -1001,58 +1007,82 @@ def check_heal_complete():
 
 # ============ FRIEND REZ LOGIC ============
 def attempt_friend_rez():
-    global rez_friend_active, rez_friend_attempts
+    """Non-blocking friend rez using state machine"""
+    global rez_friend_active, rez_friend_attempts, rez_friend_state, rez_friend_start_time
     global out_of_bandages_warned, out_of_bandages_cooldown
 
-    if rez_friend_target == 0:
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+    # If no active rez state, check if we should start one
+    if rez_friend_state == "idle":
+        if rez_friend_target == 0:
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    mob = API.FindMobile(rez_friend_target)
-    if not mob:
-        API.SysMsg("Friend not found. Rez cancelled.", 43)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        mob = API.FindMobile(rez_friend_target)
+        if not mob:
+            API.SysMsg("Friend not found. Rez cancelled.", 43)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if not mob.IsDead:
-        API.SysMsg("Friend is alive! Rez complete.", 68)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if not mob.IsDead:
+            API.SysMsg("Friend is alive! Rez complete.", 68)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
-        API.SysMsg("Max attempts reached. Rez cancelled.", 32)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
+            API.SysMsg("Max attempts reached. Rez cancelled.", 32)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if not check_bandages():
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if not check_bandages():
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    try:
-        cancel_all_targets()
-        API.PreTarget(rez_friend_target, "beneficial")
-        API.Pause(0.2)
+        # Start the rez (non-blocking)
+        try:
+            cancel_all_targets()
+            API.PreTarget(rez_friend_target, "beneficial")
+            API.Pause(0.2)
 
-        if API.FindType(BANDAGE):
-            API.UseObject(API.Found, False)
-            API.Pause(0.3)  # Wait for pretarget consumption
+            if API.FindType(BANDAGE):
+                API.UseObject(API.Found, False)
+                API.Pause(0.3)  # Wait for pretarget consumption
 
-            rez_friend_attempts += 1
-            API.Pause(REZ_FRIEND_DELAY)
-        else:
-            if not out_of_bandages_warned:
-                API.SysMsg("Bandage not found for friend rez!", 43)
-                out_of_bandages_warned = True
-                out_of_bandages_cooldown = time.time()
-    except Exception as e:
-        API.SysMsg("Friend rez error: " + str(e), 32)
-    finally:
-        API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
+                rez_friend_attempts += 1
+                rez_friend_state = "rezzing"
+                rez_friend_start_time = time.time()
+            else:
+                if not out_of_bandages_warned:
+                    API.SysMsg("Bandage not found for friend rez!", 43)
+                    out_of_bandages_warned = True
+                    out_of_bandages_cooldown = time.time()
+                rez_friend_active = False
+                statusLabel.SetText("Running")
+        except Exception as e:
+            API.SysMsg("Friend rez error: " + str(e), 32)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+        finally:
+            API.CancelPreTarget()
+
+    # Check if rez is complete (non-blocking wait)
+    elif rez_friend_state == "rezzing":
+        elapsed = time.time() - rez_friend_start_time
+        if elapsed >= REZ_FRIEND_DELAY:
+            # Rez attempt complete, check result
+            mob = API.FindMobile(rez_friend_target)
+            if mob and not mob.IsDead:
+                API.SysMsg("Friend is alive! Rez complete.", 68)
+                rez_friend_active = False
+                rez_friend_state = "idle"
+                statusLabel.SetText("Running")
+            else:
+                # Still dead, try again next loop
+                rez_friend_state = "idle"
 
 # ============ COMMANDS ============
 def should_use_order_mode():
@@ -1126,14 +1156,13 @@ def all_kill_hotkey():
     if not should_use_order_mode():
         try:
             cancel_all_targets()  # Clear before targeting
+            # Pre-target before command to avoid targeting conflicts
+            API.PreTarget(enemy.Serial, "harmful")
+            API.Pause(PRETARGET_DELAY)
             API.Msg("all kill")
-            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                API.Target(enemy.Serial)
-                API.Attack(enemy.Serial)
-                API.HeadMsg("KILL!", enemy.Serial, 32)
-                API.SysMsg("All kill: " + get_mob_name(enemy), 68)
-            else:
-                API.SysMsg("No target cursor", 32)
+            API.Attack(enemy.Serial)
+            API.HeadMsg("KILL!", enemy.Serial, 32)
+            API.SysMsg("All kill: " + get_mob_name(enemy), 68)
         except:
             pass
         finally:
@@ -1182,14 +1211,19 @@ def execute_order_mode(base_cmd, attack_target):
             if i > 0:
                 API.Pause(COMMAND_DELAY)
 
+            # Pre-target before command to avoid targeting conflicts
+            if attack_target != 0:
+                API.PreTarget(attack_target, "harmful")
+                API.Pause(PRETARGET_DELAY_ORDER)  # Longer for server sync (better lag tolerance)
+
             cmd = base_cmd.replace("all", name)
             API.Msg(cmd)
             API.SysMsg("  " + str(i+1) + ". " + name + " -> " + base_cmd.replace("all ", ""), 88)
 
             if attack_target != 0:
-                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                    API.Target(attack_target)
-                    API.HeadMsg("KILL!", attack_target, 32)
+                API.HeadMsg("KILL!", attack_target, 32)
+                API.Pause(0.2)
+            else:
                 API.Pause(0.2)
     finally:
         pass  # Cursor cleanup now handled by smart clear_stray_cursor()
@@ -1278,7 +1312,7 @@ def clear_all_pets():
 
 def make_pet_click_callback(idx):
     def callback():
-        global manual_heal_target
+        global priority_heal_pet
 
         # Check if in remove mode
         if REMOVE_MODE:
@@ -1302,7 +1336,7 @@ def make_pet_click_callback(idx):
         API.HeadMsg("Follow!", serial, 68)
         API.Pause(0.3)
 
-        manual_heal_target = serial
+        priority_heal_pet = serial
         API.SysMsg("Following + priority heal: " + name, 68)
     return callback
 
@@ -1857,13 +1891,13 @@ def build_config_gump():
 
     config_controls["use_pouch_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
     config_controls["use_pouch_off"].SetPos(col3_x + 60, col3_y)
-    config_controls["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+    config_controls["use_pouch_off"].SetBackgroundHue(32 if not trapped_pouch_enabled else 90)
     API.Gumps.AddControlOnClick(config_controls["use_pouch_off"], lambda: toggle_use_trapped_pouch(False))
     config_gump.Add(config_controls["use_pouch_off"])
 
     config_controls["use_pouch_on"] = API.Gumps.CreateSimpleButton("[ON]", 50, 18)
     config_controls["use_pouch_on"].SetPos(col3_x + 113, col3_y)
-    config_controls["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+    config_controls["use_pouch_on"].SetBackgroundHue(68 if trapped_pouch_enabled else 90)
     API.Gumps.AddControlOnClick(config_controls["use_pouch_on"], lambda: toggle_use_trapped_pouch(True))
     config_gump.Add(config_controls["use_pouch_on"])
 
@@ -2215,9 +2249,9 @@ def update_config_gump_state():
 
     # Use Pouch toggle
     if "use_pouch_off" in c:
-        c["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+        c["use_pouch_off"].SetBackgroundHue(32 if not trapped_pouch_enabled else 90)
     if "use_pouch_on" in c:
-        c["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+        c["use_pouch_on"].SetBackgroundHue(68 if trapped_pouch_enabled else 90)
 
 def toggle_magery_config(use_mage):
     """Toggle magery mode from config window"""
@@ -2292,9 +2326,9 @@ def toggle_auto_target(state):
     update_config_gump_state()
 
 def toggle_use_trapped_pouch(state):
-    global use_trapped_pouch
-    use_trapped_pouch = state
-    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(use_trapped_pouch), API.PersistentVar.Char)
+    global trapped_pouch_enabled
+    trapped_pouch_enabled = state
+    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(trapped_pouch_enabled), API.PersistentVar.Char)
     update_config_cmd_display()
     update_config_gump_state()
 
@@ -2394,11 +2428,13 @@ def clear_trapped_pouch():
 
 def toggle_rez_friend():
     global rez_friend_active, rez_friend_target, rez_friend_attempts, rez_friend_name
+    global rez_friend_state
 
     if rez_friend_active:
         rez_friend_active = False
         rez_friend_target = 0
         rez_friend_attempts = 0
+        rez_friend_state = "idle"
         API.SysMsg("Friend rez cancelled", 43)
         statusLabel.SetText("Running")
         return
@@ -2780,7 +2816,7 @@ def update_config_cmd_display():
 def load_settings():
     global USE_MAGERY, USE_REZ, HEAL_SELF, TANK_PET, VET_KIT_GRAPHIC
     global TARGET_REDS, TARGET_GRAYS, ATTACK_MODE, SKIP_OUT_OF_RANGE
-    global USE_POTIONS, trapped_pouch_serial, use_trapped_pouch, auto_target
+    global USE_POTIONS, trapped_pouch_serial, trapped_pouch_enabled, auto_target
     global is_expanded, SELF_DELAY, VET_DELAY, VET_KIT_DELAY
 
     USE_MAGERY = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char) == "True"
@@ -2812,7 +2848,7 @@ def load_settings():
     except:
         trapped_pouch_serial = 0
 
-    use_trapped_pouch = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
+    trapped_pouch_enabled = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
     auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
 
     is_expanded = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char) == "True"
@@ -2829,6 +2865,12 @@ def load_settings():
         VET_DELAY = float(vet_delay_str)
     except:
         VET_DELAY = 4.5
+
+    vet_kit_delay_str = API.GetPersistentVar(VET_KIT_DELAY_KEY, "5.0", API.PersistentVar.Char)
+    try:
+        VET_KIT_DELAY = float(vet_kit_delay_str)
+    except:
+        VET_KIT_DELAY = 5.0
 
     load_hotkeys()
     load_pet_hotkeys()  # NEW v2.2
