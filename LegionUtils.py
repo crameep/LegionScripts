@@ -992,6 +992,7 @@ class ExpandableWindow:
             # Resize background if provided
             if self.background:
                 self.background.SetRect(0, 0, self.width, height)
+                self.background.IsVisible = self.is_expanded
         except:
             pass
 

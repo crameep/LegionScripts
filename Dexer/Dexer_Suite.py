@@ -100,6 +100,7 @@ CONFIG_XY_KEY = "DexerSuite_ConfigXY"
 EXPLO_THROW_DELAY_KEY = "DexerSuite_ExploThrowDelay"
 WEAPON_SERIAL_KEY = "DexerSuite_WeaponSerial"
 SHIELD_SERIAL_KEY = "DexerSuite_ShieldSerial"
+AUTO_EQUIP_SHIELD_KEY = "DexerSuite_AutoEquipShield"
 
 # Schema versioning for throwables persistence
 THROWABLES_SCHEMA_VERSION = 1
@@ -150,6 +151,8 @@ use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
 # Equipment
 weapon_serial = 0             # Serial of weapon to auto-equip
 shield_serial = 0             # Serial of shield to auto-equip (optional)
+auto_equip_shield = True      # Whether to auto-equip shield (can disable if shield triggers AOE)
+shield_equip_cooldown = 0     # Timestamp when shield can be equipped again (30s cooldown)
 
 # Combat tracking
 current_attack_target = 0     # Serial of current attack target
@@ -373,9 +376,23 @@ def target_shield():
         API.SysMsg("Target error: " + str(e), 32)
         cancel_all_targets()
 
+def clear_weapon():
+    """Clear weapon serial (set to 0)"""
+    global weapon_serial
+    weapon_serial = 0
+    API.SavePersistentVar(WEAPON_SERIAL_KEY, "0", API.PersistentVar.Char)
+    API.SysMsg("Weapon cleared", 68)
+
+def clear_shield():
+    """Clear shield serial (set to 0)"""
+    global shield_serial
+    shield_serial = 0
+    API.SavePersistentVar(SHIELD_SERIAL_KEY, "0", API.PersistentVar.Char)
+    API.SysMsg("Shield cleared", 68)
+
 def ensure_equipment_equipped():
     """Ensure weapon and shield are equipped before combat"""
-    global weapon_serial, shield_serial
+    global weapon_serial, shield_serial, auto_equip_shield, shield_equip_cooldown
 
     # Check weapon
     if weapon_serial > 0:
@@ -390,8 +407,8 @@ def ensure_equipment_equipped():
                 except Exception as e:
                     API.SysMsg("Failed to equip weapon: " + str(e), 32)
 
-    # Check shield
-    if shield_serial > 0:
+    # Check shield (with cooldown and auto-targeting for AOE taunt)
+    if auto_equip_shield and shield_serial > 0 and time.time() >= shield_equip_cooldown:
         shield_item = API.FindItem(shield_serial)
         if shield_item:
             # Check if equipped (Layer 2 = shield slot)
@@ -399,7 +416,18 @@ def ensure_equipment_equipped():
             if layer != 2:  # Not equipped
                 try:
                     API.UseObject(shield_serial, False)
-                    API.Pause(0.3)  # Give time for equip
+                    API.Pause(0.5)  # Give time for equip and AOE taunt cursor
+
+                    # Auto-target self for AOE taunt if cursor appeared
+                    if API.HasTarget():
+                        try:
+                            API.Target(API.Player.Serial)
+                            API.Pause(0.2)
+                        except:
+                            pass
+
+                    # Set cooldown for 30 seconds
+                    shield_equip_cooldown = time.time() + 30.0
                 except Exception as e:
                     API.SysMsg("Failed to equip shield: " + str(e), 32)
 
@@ -797,6 +825,18 @@ def toggle_use_trapped_pouch():
         config_controls["use_pouch_btn"].SetBackgroundHue(68 if use_trapped_pouch else 90)
 
     API.SysMsg("Use Trapped Pouch: " + ("ON" if use_trapped_pouch else "OFF"), 68)
+
+def toggle_auto_equip_shield():
+    global auto_equip_shield
+    auto_equip_shield = not auto_equip_shield
+    API.SavePersistentVar(AUTO_EQUIP_SHIELD_KEY, str(auto_equip_shield), API.PersistentVar.Char)
+
+    # Update config window button if open
+    if "auto_equip_shield_btn" in config_controls:
+        config_controls["auto_equip_shield_btn"].SetText("[" + ("ON" if auto_equip_shield else "OFF") + "]")
+        config_controls["auto_equip_shield_btn"].SetBackgroundHue(68 if auto_equip_shield else 90)
+
+    API.SysMsg("Auto-Equip Shield: " + ("ON" if auto_equip_shield else "OFF"), 68 if auto_equip_shield else 32)
 
 def on_set_trapped_pouch():
     target_trapped_pouch()
@@ -1208,6 +1248,9 @@ def load_settings():
         shield_serial = int(API.GetPersistentVar(SHIELD_SERIAL_KEY, "0", API.PersistentVar.Char))
     except (ValueError, TypeError):
         shield_serial = 0
+
+    # Load auto-equip shield setting
+    auto_equip_shield = API.GetPersistentVar(AUTO_EQUIP_SHIELD_KEY, "True", API.PersistentVar.Char) == "True"
 
 def save_throwables():
     """Save throwables configuration with schema version"""
@@ -1676,11 +1719,17 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(set_weapon_btn, target_weapon)
     config_gump.Add(set_weapon_btn)
 
+    clear_weapon_btn = API.Gumps.CreateSimpleButton("[Clear]", 50, 18)
+    clear_weapon_btn.SetPos(left_x + 175, y)
+    clear_weapon_btn.SetBackgroundHue(32)
+    API.Gumps.AddControlOnClick(clear_weapon_btn, clear_weapon)
+    config_gump.Add(clear_weapon_btn)
+
     # Weapon status
     weapon_status = "Set" if weapon_serial > 0 else "Not Set"
     weapon_status_color = "#00ff00" if weapon_serial > 0 else "#888888"
     weapon_status_lbl = API.Gumps.CreateGumpTTFLabel(weapon_status, 15, weapon_status_color)
-    weapon_status_lbl.SetPos(left_x + 175, y + 3)
+    weapon_status_lbl.SetPos(left_x + 235, y + 3)
     config_gump.Add(weapon_status_lbl)
 
     y += 25
@@ -1696,16 +1745,35 @@ def build_config_gump():
     API.Gumps.AddControlOnClick(set_shield_btn, target_shield)
     config_gump.Add(set_shield_btn)
 
+    clear_shield_btn = API.Gumps.CreateSimpleButton("[Clear]", 50, 18)
+    clear_shield_btn.SetPos(left_x + 175, y)
+    clear_shield_btn.SetBackgroundHue(32)
+    API.Gumps.AddControlOnClick(clear_shield_btn, clear_shield)
+    config_gump.Add(clear_shield_btn)
+
     # Shield status
     shield_status = "Set" if shield_serial > 0 else "Not Set"
     shield_status_color = "#00ff00" if shield_serial > 0 else "#888888"
     shield_status_lbl = API.Gumps.CreateGumpTTFLabel(shield_status, 15, shield_status_color)
-    shield_status_lbl.SetPos(left_x + 175, y + 3)
+    shield_status_lbl.SetPos(left_x + 235, y + 3)
     config_gump.Add(shield_status_lbl)
 
+    y += 25
+
+    # Auto-Equip Shield toggle
+    auto_equip_lbl = API.Gumps.CreateGumpTTFLabel("Auto-Equip Shield:", 15, "#dddddd")
+    auto_equip_lbl.SetPos(left_x, y + 3)
+    config_gump.Add(auto_equip_lbl)
+
+    config_controls["auto_equip_shield_btn"] = API.Gumps.CreateSimpleButton("[" + ("ON" if auto_equip_shield else "OFF") + "]", 50, 18)
+    config_controls["auto_equip_shield_btn"].SetPos(left_x + 130, y)
+    config_controls["auto_equip_shield_btn"].SetBackgroundHue(68 if auto_equip_shield else 90)
+    API.Gumps.AddControlOnClick(config_controls["auto_equip_shield_btn"], toggle_auto_equip_shield)
+    config_gump.Add(config_controls["auto_equip_shield_btn"])
+
     # Help text
-    equip_help = API.Gumps.CreateGumpTTFLabel("(Auto-equip before combat)", 15, "#888888")
-    equip_help.SetPos(left_x + 240, y + 3)
+    equip_help = API.Gumps.CreateGumpTTFLabel("(30s cooldown, auto-targets self for AOE)", 15, "#888888")
+    equip_help.SetPos(left_x + 190, y + 3)
     config_gump.Add(equip_help)
 
     y += 30
