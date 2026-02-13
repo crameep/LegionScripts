@@ -395,25 +395,31 @@ def ensure_equipment_equipped():
 
     # Check weapon (use FindLayer to check what's actually equipped)
     if weapon_serial > 0:
-        try:
-            equipped_weapon = API.FindLayer("RightHand")
-            # Only equip if nothing in hand OR different weapon equipped
-            if not equipped_weapon or getattr(equipped_weapon, 'Serial', 0) != weapon_serial:
-                API.EquipItem(weapon_serial)
-                API.Pause(0.3)
-        except Exception as e:
-            API.SysMsg("Failed to equip weapon: " + str(e), 32)
+        # First check if weapon exists in backpack
+        weapon_item = API.FindItem(weapon_serial)
+        if weapon_item:
+            try:
+                equipped_weapon = API.FindLayer("RightHand")
+                # Only equip if nothing in hand OR different weapon equipped
+                if not equipped_weapon or getattr(equipped_weapon, 'Serial', 0) != weapon_serial:
+                    API.EquipItem(weapon_serial)
+                    API.Pause(0.3)
+            except Exception as e:
+                API.SysMsg("Failed to equip weapon: " + str(e), 32)
 
     # Check shield (use FindLayer to check what's actually equipped)
     if auto_equip_shield and shield_serial > 0:
-        try:
-            equipped_shield = API.FindLayer("LeftHand")
-            # Only equip if nothing in left hand OR different shield equipped
-            if not equipped_shield or getattr(equipped_shield, 'Serial', 0) != shield_serial:
-                API.EquipItem(shield_serial)
-                API.Pause(0.3)
-        except Exception as e:
-            API.SysMsg("Failed to equip shield: " + str(e), 32)
+        # First check if shield exists in backpack
+        shield_item = API.FindItem(shield_serial)
+        if shield_item:
+            try:
+                equipped_shield = API.FindLayer("LeftHand")
+                # Only equip if nothing in left hand OR different shield equipped
+                if not equipped_shield or getattr(equipped_shield, 'Serial', 0) != shield_serial:
+                    API.EquipItem(shield_serial)
+                    API.Pause(0.3)
+            except Exception as e:
+                API.SysMsg("Failed to equip shield: " + str(e), 32)
 
 # ============ STATE MANAGEMENT ============
 def check_heal_complete():
