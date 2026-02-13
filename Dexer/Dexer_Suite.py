@@ -393,31 +393,27 @@ def ensure_equipment_equipped():
     """Ensure weapon and shield are equipped before combat"""
     global weapon_serial, shield_serial, auto_equip_shield
 
-    # Check weapon (use EquipItem to avoid triggering use effects like carving)
+    # Check weapon (use FindLayer to check what's actually equipped)
     if weapon_serial > 0:
-        weapon_item = API.FindItem(weapon_serial)
-        if weapon_item:
-            # Check if equipped (Layer 1 = one-handed weapon, Layer 2 = two-handed weapon)
-            layer = getattr(weapon_item, 'Layer', 0)
-            if layer not in [1, 2]:  # Not equipped
-                try:
-                    API.EquipItem(weapon_serial)  # Use EquipItem instead of UseObject
-                    API.Pause(0.3)  # Give time for equip
-                except Exception as e:
-                    API.SysMsg("Failed to equip weapon: " + str(e), 32)
+        try:
+            equipped_weapon = API.FindLayer("RightHand")
+            # Only equip if nothing in hand OR different weapon equipped
+            if not equipped_weapon or getattr(equipped_weapon, 'Serial', 0) != weapon_serial:
+                API.EquipItem(weapon_serial)
+                API.Pause(0.3)
+        except Exception as e:
+            API.SysMsg("Failed to equip weapon: " + str(e), 32)
 
-    # Check shield (use EquipItem to avoid triggering AOE taunt)
+    # Check shield (use FindLayer to check what's actually equipped)
     if auto_equip_shield and shield_serial > 0:
-        shield_item = API.FindItem(shield_serial)
-        if shield_item:
-            # Check if equipped (Layer 2 = shield slot)
-            layer = getattr(shield_item, 'Layer', 0)
-            if layer != 2:  # Not equipped
-                try:
-                    API.EquipItem(shield_serial)  # Use EquipItem instead of UseObject
-                    API.Pause(0.3)  # Give time for equip
-                except Exception as e:
-                    API.SysMsg("Failed to equip shield: " + str(e), 32)
+        try:
+            equipped_shield = API.FindLayer("LeftHand")
+            # Only equip if nothing in left hand OR different shield equipped
+            if not equipped_shield or getattr(equipped_shield, 'Serial', 0) != shield_serial:
+                API.EquipItem(shield_serial)
+                API.Pause(0.3)
+        except Exception as e:
+            API.SysMsg("Failed to equip shield: " + str(e), 32)
 
 # ============ STATE MANAGEMENT ============
 def check_heal_complete():
