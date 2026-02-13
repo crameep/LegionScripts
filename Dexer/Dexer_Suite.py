@@ -151,8 +151,7 @@ use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
 # Equipment
 weapon_serial = 0             # Serial of weapon to auto-equip
 shield_serial = 0             # Serial of shield to auto-equip (optional)
-auto_equip_shield = True      # Whether to auto-equip shield (can disable if shield triggers AOE)
-shield_equip_cooldown = 0     # Timestamp when shield can be equipped again (30s cooldown)
+auto_equip_shield = True      # Whether to auto-equip shield
 
 # Combat tracking
 current_attack_target = 0     # Serial of current attack target
@@ -392,7 +391,7 @@ def clear_shield():
 
 def ensure_equipment_equipped():
     """Ensure weapon and shield are equipped before combat"""
-    global weapon_serial, shield_serial, auto_equip_shield, shield_equip_cooldown
+    global weapon_serial, shield_serial, auto_equip_shield
 
     # Check weapon (use EquipItem to avoid triggering use effects like carving)
     if weapon_serial > 0:
@@ -407,27 +406,16 @@ def ensure_equipment_equipped():
                 except Exception as e:
                     API.SysMsg("Failed to equip weapon: " + str(e), 32)
 
-    # Check shield (with cooldown and auto-targeting for AOE taunt)
-    if auto_equip_shield and shield_serial > 0 and time.time() >= shield_equip_cooldown:
+    # Check shield (use EquipItem to avoid triggering AOE taunt)
+    if auto_equip_shield and shield_serial > 0:
         shield_item = API.FindItem(shield_serial)
         if shield_item:
             # Check if equipped (Layer 2 = shield slot)
             layer = getattr(shield_item, 'Layer', 0)
             if layer != 2:  # Not equipped
                 try:
-                    API.UseObject(shield_serial, False)
-                    API.Pause(0.5)  # Give time for equip and AOE taunt cursor
-
-                    # Auto-target self for AOE taunt if cursor appeared
-                    if API.HasTarget():
-                        try:
-                            API.Target(API.Player.Serial)
-                            API.Pause(0.2)
-                        except:
-                            pass
-
-                    # Set cooldown for 30 seconds
-                    shield_equip_cooldown = time.time() + 30.0
+                    API.EquipItem(shield_serial)  # Use EquipItem instead of UseObject
+                    API.Pause(0.3)  # Give time for equip
                 except Exception as e:
                     API.SysMsg("Failed to equip shield: " + str(e), 32)
 
@@ -1772,7 +1760,7 @@ def build_config_gump():
     config_gump.Add(config_controls["auto_equip_shield_btn"])
 
     # Help text
-    equip_help = API.Gumps.CreateGumpTTFLabel("(30s cooldown, auto-targets self for AOE)", 15, "#888888")
+    equip_help = API.Gumps.CreateGumpTTFLabel("(Auto-equip before combat)", 15, "#888888")
     equip_help.SetPos(left_x + 190, y + 3)
     config_gump.Add(equip_help)
 
