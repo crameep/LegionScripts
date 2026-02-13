@@ -152,7 +152,6 @@ use_trapped_pouch = True      # Whether to use trapped pouch for paralyze
 weapon_serial = 0             # Serial of weapon to auto-equip
 shield_serial = 0             # Serial of shield to auto-equip (optional)
 auto_equip_shield = True      # Whether to auto-equip shield (can disable if shield triggers AOE)
-weapon_equip_cooldown = 0     # Timestamp when weapon can be equipped again (30s cooldown)
 shield_equip_cooldown = 0     # Timestamp when shield can be equipped again (30s cooldown)
 
 # Combat tracking
@@ -393,19 +392,18 @@ def clear_shield():
 
 def ensure_equipment_equipped():
     """Ensure weapon and shield are equipped before combat"""
-    global weapon_serial, shield_serial, auto_equip_shield, weapon_equip_cooldown, shield_equip_cooldown
+    global weapon_serial, shield_serial, auto_equip_shield, shield_equip_cooldown
 
-    # Check weapon (with cooldown to prevent triggering special abilities)
-    if weapon_serial > 0 and time.time() >= weapon_equip_cooldown:
+    # Check weapon (use EquipItem to avoid triggering use effects like carving)
+    if weapon_serial > 0:
         weapon_item = API.FindItem(weapon_serial)
         if weapon_item:
             # Check if equipped (Layer 1 = one-handed weapon, Layer 2 = two-handed weapon)
             layer = getattr(weapon_item, 'Layer', 0)
             if layer not in [1, 2]:  # Not equipped
                 try:
-                    API.UseObject(weapon_serial, False)
+                    API.EquipItem(weapon_serial)  # Use EquipItem instead of UseObject
                     API.Pause(0.3)  # Give time for equip
-                    weapon_equip_cooldown = time.time() + 30.0
                 except Exception as e:
                     API.SysMsg("Failed to equip weapon: " + str(e), 32)
 
