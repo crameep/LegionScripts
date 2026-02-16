@@ -2073,48 +2073,83 @@ class GumpCapture:
     def detect_new_gump(self, tome_serial, timeout=10):
         """Detect a new gump that appears
 
-        Scans for gumps before and after opening an item to identify
-        which gump ID appeared. Tests common gump ID ranges.
+        Uses API.GetAllGumps() to detect newly opened gumps.
+        Compares gumps before and after opening to find the new one.
 
         Args:
-            tome_serial: Serial of item to open (or None to scan current gumps)
+            tome_serial: Serial of item to open (or None to wait for user to open)
             timeout: Max time to wait for gump (seconds)
 
         Returns:
             int: Gump ID if detected, 0 if timeout
         """
-        # Scan for gumps that are currently open (before opening tome)
-        before_gumps = set()
-        for test_id in range(1, 200):
-            if API.HasGump(test_id):
-                before_gumps.add(test_id)
+        # Get list of gumps currently open (before)
+        try:
+            before_gumps = set()
+            all_gumps_before = API.GetAllGumps()
+            if all_gumps_before:
+                for gump in all_gumps_before:
+                    # GetAllGumps returns list of gump objects
+                    # Use ServerSerial (consistent) or fallback to LocalSerial
+                    try:
+                        if hasattr(gump, 'ServerSerial'):
+                            gump_id = gump.ServerSerial
+                        elif hasattr(gump, 'LocalSerial'):
+                            gump_id = gump.LocalSerial
+                        else:
+                            gump_id = gump  # Fallback if it's just an int
+                        if gump_id:
+                            before_gumps.add(gump_id)
+                    except:
+                        before_gumps.add(gump)
 
-        API.SysMsg("Found " + str(len(before_gumps)) + " gumps open before", 88)
+            API.SysMsg("Found " + str(len(before_gumps)) + " gumps before. Open tome now...", 68)
+        except Exception as e:
+            API.SysMsg("Error getting gumps before: " + str(e), 32)
+            before_gumps = set()
 
-        # Open tome if provided
+        # Open tome if serial provided (optional)
         if tome_serial:
             tome = API.FindItem(tome_serial)
             if tome:
                 API.UseObject(tome_serial, False)
                 API.Pause(0.8)
             else:
-                API.SysMsg("Tome not found", 32)
-                return 0
+                API.SysMsg("Tome not found (serial provided but not found)", 43)
+                # Continue anyway - user can manually open
 
-        # Wait a bit for gump to appear
-        API.Pause(1.5)
+        # Wait for new gump to appear
+        API.Pause(2.0)
 
-        # Scan for new gumps
-        after_gumps = set()
-        for test_id in range(1, 200):
-            if API.HasGump(test_id):
-                after_gumps.add(test_id)
+        # Get list of gumps now (after)
+        try:
+            after_gumps = set()
+            all_gumps_after = API.GetAllGumps()
+            if all_gumps_after:
+                for gump in all_gumps_after:
+                    try:
+                        if hasattr(gump, 'ServerSerial'):
+                            gump_id = gump.ServerSerial
+                        elif hasattr(gump, 'LocalSerial'):
+                            gump_id = gump.LocalSerial
+                        else:
+                            gump_id = gump
+                        if gump_id:
+                            after_gumps.add(gump_id)
+                    except:
+                        after_gumps.add(gump)
 
-        # Find the new gump(s)
+            API.SysMsg("Found " + str(len(after_gumps)) + " gumps after", 88)
+        except Exception as e:
+            API.SysMsg("Error getting gumps after: " + str(e), 32)
+            return 0
+
+        # Find new gumps
         new_gumps = after_gumps - before_gumps
 
         if len(new_gumps) == 0:
-            API.SysMsg("No new gump detected - try again", 32)
+            API.SysMsg("No new gump detected", 32)
+            API.SysMsg("Did you open the tome?", 43)
             return 0
         elif len(new_gumps) == 1:
             detected_id = list(new_gumps)[0]
@@ -2123,7 +2158,7 @@ class GumpCapture:
         else:
             # Multiple new gumps - return the first one
             detected_id = sorted(list(new_gumps))[0]
-            API.SysMsg("Multiple gumps detected, using: " + str(detected_id), 43)
+            API.SysMsg("Multiple gumps detected (" + str(len(new_gumps)) + "), using: " + str(detected_id), 43)
             return detected_id
 
     def test_button(self, gump_id, button_id):

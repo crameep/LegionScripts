@@ -1,5 +1,5 @@
 # ============================================================
-# Runebook Recaller v2.7 (Hotkey Edition)
+# Runebook Recaller v2.8 (Hotkey Edition)
 # by Coryigon for UO Unchained
 # ============================================================
 #
@@ -28,6 +28,12 @@
 #   - Remembers settings between sessions
 #   - Unified UI design (180px width, semantic color coding)
 #
+# v2.8 Changes:
+#   - Added retry logic for button clicks (max 3 attempts)
+#   - Added gump verification before each click attempt
+#   - Fixed race condition where gump wasn't fully interactive
+#   - Added RUNEBOOK_GUMP_ID constant for proper gump verification
+#
 # v2.7 Changes:
 #   - Dynamic window width: 155px normal mode, 190px config mode
 #   - Buttons fill space in normal mode, window expands for SET buttons
@@ -51,7 +57,7 @@
 import API
 import time
 
-__version__ = "2.7"
+__version__ = "2.8"
 
 # ============ SETTINGS ============
 SETTINGS_KEY = "RunebookRecall"
@@ -59,7 +65,10 @@ RECALL_COOLDOWN = 1.0      # Seconds between recalls
 GUMP_WAIT_TIME = 3.0       # Max time to wait for runebook gump (increased)
 RUNEBOOK_GRAPHIC = 0x22C5  # Standard runebook graphic
 USE_OBJECT_DELAY = 0.5     # Delay after using runebook before waiting for gump
-GUMP_READY_DELAY = 0.3     # Delay after gump appears before clicking button
+GUMP_READY_DELAY = 0.5     # Delay after gump appears before clicking button
+RUNEBOOK_GUMP_ID = 89      # Runebook gump ID for verification
+MAX_CLICK_RETRIES = 3      # Max retries for button click
+RETRY_DELAY = 0.2          # Delay between retry attempts
 
 # ============ GUI DIMENSIONS ============
 WINDOW_WIDTH_NORMAL = 155  # Normal mode (no SET buttons): 5px + 147px button + 3px margin
@@ -515,7 +524,7 @@ def hide_config_panel():
 
 # ============ RECALL FUNCTION ============
 def do_recall(dest_key):
-    """Perform recall to a destination"""
+    """Perform recall to a destination with retry logic and gump verification"""
     global last_recall_time
 
     dest = destinations.get(dest_key)
@@ -530,13 +539,7 @@ def do_recall(dest_key):
         API.SysMsg("Cooldown: " + str(round(remaining, 1)) + "s", 43)
         return False
 
-    # Find the runebook
-    runebook = API.FindItem(dest["runebook"])
-    if not runebook:
-        API.SysMsg("Runebook not found! Re-setup " + dest_key, 32)
-        return False
-
-    # Use the runebook
+    # Use the runebook (works even if in closed container)
     API.SysMsg("Recalling to " + dest["name"] + "...", 68)
     API.UseObject(dest["runebook"])
 
@@ -551,16 +554,33 @@ def do_recall(dest_key):
     # Delay after gump appears - let it fully render
     API.Pause(GUMP_READY_DELAY)
 
-    # Click the recall button
+    # Click the recall button with retry logic
     button_id = slot_to_button(dest["slot"])
-    result = API.ReplyGump(button_id)
+    result = False
+
+    for attempt in range(MAX_CLICK_RETRIES):
+        API.ProcessCallbacks()  # Keep hotkeys responsive during retry
+
+        # Verify gump still open before each attempt
+        if not API.HasGump(RUNEBOOK_GUMP_ID):
+            API.SysMsg("Runebook gump closed unexpectedly!", 32)
+            return False
+
+        result = API.ReplyGump(button_id, RUNEBOOK_GUMP_ID)
+        if result:
+            break
+
+        # Log retry attempt
+        if attempt < MAX_CLICK_RETRIES - 1:
+            API.SysMsg("Retrying button click... (attempt " + str(attempt + 2) + "/" + str(MAX_CLICK_RETRIES) + ")", 43)
+            API.Pause(RETRY_DELAY)
 
     if result:
         last_recall_time = time.time()
         API.SysMsg("Recall: " + dest["name"] + " (slot " + str(dest["slot"]) + ")", 68)
         return True
     else:
-        API.SysMsg("Failed to click button " + str(button_id), 32)
+        API.SysMsg("Failed to click button " + str(button_id) + " after " + str(MAX_CLICK_RETRIES) + " attempts", 32)
         return False
 
 # ============ SETUP FUNCTIONS ============

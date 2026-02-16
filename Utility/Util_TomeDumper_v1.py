@@ -27,6 +27,12 @@ CONFIG_HEIGHT = 550
 TESTER_WIDTH = 320
 TESTER_HEIGHT = 200
 
+# Color hues
+HUE_RED = 32        # Danger/error
+HUE_GREEN = 68      # Success/active
+HUE_YELLOW = 43     # Warning
+HUE_GRAY = 90       # Neutral
+
 # ============ PERSISTENCE KEYS ============
 KEY_PREFIX = "TomeDumper_"
 TOMES_KEY = KEY_PREFIX + "Tomes"
@@ -174,6 +180,46 @@ def get_cached_item_count(tome_index):
     return item_count_cache.get(tome_index, 0)
 
 # ============ CORE LOGIC - DUMP PROCESS ============
+def get_tome_gump_id(tome_serial):
+    """Get the current gump ID for an open tome (handles dynamic IDs)"""
+    try:
+        tome = API.FindItem(tome_serial)
+        if not tome:
+            return 0
+
+        # Try to get the container gump from the tome item
+        try:
+            gump = tome.GetContainerGump()
+            if gump:
+                # Use ServerSerial (consistent) first, then LocalSerial
+                if hasattr(gump, 'ServerSerial') and gump.ServerSerial:
+                    return gump.ServerSerial
+                elif hasattr(gump, 'LocalSerial') and gump.LocalSerial:
+                    return gump.LocalSerial
+        except:
+            pass
+
+        # Fallback: scan all gumps (less reliable but works)
+        try:
+            all_gumps = API.GetAllGumps()
+            if all_gumps and len(all_gumps) > 0:
+                # Return the most recent gump (last in list)
+                gump = all_gumps[-1]
+                # Use ServerSerial first (consistent ID)
+                if hasattr(gump, 'ServerSerial') and gump.ServerSerial:
+                    return gump.ServerSerial
+                elif hasattr(gump, 'LocalSerial') and gump.LocalSerial:
+                    return gump.LocalSerial
+                else:
+                    return gump
+        except:
+            pass
+
+        return 0
+    except Exception as e:
+        API.SysMsg("Error getting gump ID: " + str(e), 32)
+        return 0
+
 def dump_single_tome(tome_config):
     """Dump items to a single tome"""
     global session_dumps, session_items, last_dump_result
@@ -290,22 +336,19 @@ def dump_single_tome(tome_config):
 
         if targeting_mode == "none":
             # No targeting - just click button once
-            if tome_config["gump_id"] > 0:
-                API.UseObject(tome.Serial, False)
-                API.Pause(0.5)
+            # Open tome
+            API.UseObject(tome.Serial, False)
+            API.Pause(0.8)
 
-                timeout = time.time() + 3.0
-                while time.time() < timeout:
-                    if API.HasGump(tome_config["gump_id"]):
-                        break
-                    API.Pause(0.1)
+            # Get current gump ID (handles dynamic IDs)
+            current_gump_id = get_tome_gump_id(tome.Serial)
+            if current_gump_id == 0:
+                error_mgr.set_error("Could not get gump ID for: " + str(tome_config.get("name", "Unknown")))
+                return False
 
-                if not API.HasGump(tome_config.get("gump_id", 0)):
-                    error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
-                    return False
-
+            # Click fill button with current gump ID
             if tome_config["fill_button_id"] > 0:
-                API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                 API.Pause(0.5)
 
             session_dumps += 1
@@ -320,22 +363,16 @@ def dump_single_tome(tome_config):
                 API.SysMsg("Dumping from container " + str(i + 1) + "/" + str(len(target_containers)) + "...", 68)
 
                 # Open tome gump
-                if tome_config["gump_id"] > 0:
-                    API.UseObject(tome.Serial, False)
-                    API.Pause(0.8)
+                API.UseObject(tome.Serial, False)
+                API.Pause(0.8)
 
-                    # Wait for gump
-                    timeout = time.time() + 3.0
-                    while time.time() < timeout:
-                        if API.HasGump(tome_config["gump_id"]):
-                            break
-                        API.Pause(0.1)
+                # Get current gump ID (handles dynamic IDs)
+                current_gump_id = get_tome_gump_id(tome.Serial)
+                if current_gump_id == 0:
+                    error_mgr.set_error("Could not get gump ID for: " + str(tome_config.get("name", "Unknown")))
+                    break  # Stop processing remaining containers
 
-                    if not API.HasGump(tome_config.get("gump_id", 0)):
-                        error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
-                        break  # Stop processing remaining containers
-
-                    API.Pause(0.3)
+                API.Pause(0.3)
 
                 # Clear any existing targets
                 cancel_all_targets()
@@ -344,7 +381,7 @@ def dump_single_tome(tome_config):
                 # Click button to create target cursor
                 if tome_config["fill_button_id"] > 0:
                     API.SysMsg("Clicking button " + str(tome_config["fill_button_id"]) + "...", 88)
-                    API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                    API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                     API.Pause(0.3)
 
                     # Wait for target cursor to be ready

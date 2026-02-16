@@ -63,7 +63,7 @@ SELF_DELAY = 4.5              # Self bandage time
 VET_DELAY = 4.5               # Pet bandage time
 REZ_DELAY = 10.0              # Pet resurrection time
 CAST_DELAY = 2.5              # Greater Heal spell time
-VET_KIT_DELAY = 5.0           # Vet kit cooldown
+VET_KIT_DELAY = 5.0           # Vet kit execution/cast time (adjustable in config)
 
 # === RANGES ===
 BANDAGE_RANGE = 2
@@ -83,6 +83,8 @@ VET_KIT_CRITICAL_HP = 50      # Use vet kit immediately if multiple pets critica
 MAX_DISTANCE = 10             # Max hostile search range
 COMMAND_DELAY = 0.8           # Delay between ordered pet commands
 TARGET_TIMEOUT = 3.0          # Target cursor timeout
+PRETARGET_DELAY = 0.1         # Delay for PreTarget to register with server
+PRETARGET_DELAY_ORDER = 0.15  # Longer delay for order mode (better lag tolerance)
 
 # === SOUND ALERTS ===
 USE_SOUND_ALERTS = True
@@ -173,7 +175,11 @@ last_vetkit_use = 0
 out_of_bandages_warned = False  # Only warn once when out of bandages
 out_of_bandages_cooldown = 0  # Timestamp when we ran out - prevents spam
 out_of_vetkit_warned = False  # Only warn once when vet kit not found
-manual_heal_target = 0
+
+# Cursor tracking - prevents script from canceling player's manual targeting
+script_cursor_time = 0  # Timestamp when script last set a PreTarget
+manual_cursor_detected = False  # True when player has a manual targeting cursor
+last_manual_cursor_msg = 0  # Timestamp of last manual cursor message (prevents spam)
 
 # GUI
 is_expanded = True
@@ -194,7 +200,7 @@ potion_cooldown_end = 0
 
 # Trapped Pouch
 trapped_pouch_serial = 0
-use_trapped_pouch = True
+trapped_pouch_enabled = True  # Renamed to avoid collision with use_trapped_pouch() function
 
 # Auto-targeting
 auto_target = False
@@ -221,11 +227,13 @@ config_last_known_x = 150
 config_last_known_y = 150
 config_last_position_check = 0
 
-# Friend rez
+# Friend rez (non-blocking state machine)
 rez_friend_target = 0
 rez_friend_active = False
 rez_friend_attempts = 0
 rez_friend_name = ""
+rez_friend_state = "idle"  # State: "idle" or "rezzing"
+rez_friend_start_time = 0  # Timestamp when rez started
 MAX_REZ_ATTEMPTS = 50
 REZ_FRIEND_DELAY = 8.0
 
@@ -283,7 +291,12 @@ def is_poisoned(mob):
         if hasattr(mob, 'IsPoisoned') and mob.IsPoisoned:
             return True
         return False
-    except:
+    except AttributeError:
+        # Expected - mob doesn't have poison properties
+        return False
+    except Exception as e:
+        # Unexpected error - log for debugging
+        API.SysMsg("ERROR: is_poisoned() failed: " + str(e), 32)
         return False
 
 def is_player_poisoned():
@@ -294,13 +307,21 @@ def is_player_poisoned():
         if hasattr(player, 'IsPoisoned') and player.IsPoisoned:
             return True
         return False
-    except:
+    except AttributeError:
+        # Expected - player doesn't have poison properties
+        return False
+    except Exception as e:
+        API.SysMsg("ERROR: is_player_poisoned() failed: " + str(e), 32)
         return False
 
 def is_player_dead():
     try:
         return API.Player.IsDead
-    except:
+    except AttributeError:
+        # Player object missing IsDead property
+        return False
+    except Exception as e:
+        API.SysMsg("ERROR: is_player_dead() failed: " + str(e), 32)
         return False
 
 def get_mob_name(mob, default="Unknown"):
@@ -308,7 +329,11 @@ def get_mob_name(mob, default="Unknown"):
         return default
     try:
         return mob.Name if mob.Name else default
-    except:
+    except AttributeError:
+        # Mob doesn't have Name property
+        return default
+    except Exception as e:
+        API.SysMsg("ERROR: get_mob_name() failed: " + str(e), 32)
         return default
 
 def get_hp_percent(mob):
@@ -318,7 +343,15 @@ def get_hp_percent(mob):
         if mob.HitsMax > 0:
             return int((mob.Hits / mob.HitsMax) * 100)
         return 100
-    except:
+    except AttributeError:
+        # Mob missing HP properties
+        return 100
+    except ZeroDivisionError:
+        # Defensive - shouldn't happen due to HitsMax > 0 check
+        API.SysMsg("ERROR: Zero HP max detected", 32)
+        return 100
+    except Exception as e:
+        API.SysMsg("ERROR: get_hp_percent() failed: " + str(e), 32)
         return 100
 
 def get_distance(mob):
@@ -326,7 +359,11 @@ def get_distance(mob):
         return 999
     try:
         return mob.Distance if hasattr(mob, 'Distance') else 999
-    except:
+    except AttributeError:
+        # Mob doesn't have Distance property
+        return 999
+    except Exception as e:
+        API.SysMsg("ERROR: get_distance() failed: " + str(e), 32)
         return 999
 
 def get_bandage_count():
@@ -336,7 +373,11 @@ def get_bandage_count():
                 return API.Found.Amount
             return -1
         return 0
-    except:
+    except AttributeError:
+        # API.Found missing Amount property
+        return -1
+    except Exception as e:
+        API.SysMsg("ERROR: get_bandage_count() failed: " + str(e), 32)
         return -1
 
 def check_bandages():
@@ -361,8 +402,15 @@ def play_sound_alert(sound_id):
     try:
         if hasattr(API, 'PlaySound'):
             API.PlaySound(sound_id)
-    except:
-        pass
+        else:
+            # Warn once that PlaySound is not available
+            global _sound_api_warned
+            if not globals().get('_sound_api_warned', False):
+                API.SysMsg("WARNING: API.PlaySound not available - sounds disabled", 43)
+                globals()['_sound_api_warned'] = True
+    except Exception as e:
+        # Sound system failing - notify user
+        API.SysMsg("Sound alert failed (ID: " + str(sound_id) + "): " + str(e), 43)
 
 def check_critical_alerts():
     global last_critical_alert, last_pet_death_alerts
@@ -387,20 +435,36 @@ def check_critical_alerts():
                 play_sound_alert(SOUND_PET_DIED)
 
 def clear_stray_cursor():
-    """Immediate cursor cleanup - prevents leftover cursors"""
+    """Smart cursor cleanup - only clears script-created cursors, never manual ones"""
+    global script_cursor_time, manual_cursor_detected
+
+    # Only clear cursors if script set them recently (within 0.5s)
+    # This prevents clearing player's manual targeting cursors
+    if time.time() - script_cursor_time > 0.5:
+        # Cursor is likely manual - don't touch it!
+        if API.HasTarget():
+            manual_cursor_detected = True
+        return
+
+    # Script-created cursor - safe to clear
     try:
         if API.HasTarget():
             API.CancelTarget()
-    except:
-        pass
+    except Exception as e:
+        API.SysMsg("ERROR: Failed to cancel target cursor: " + str(e), 32)
+
     try:
         API.CancelPreTarget()
-    except:
-        pass
+    except Exception as e:
+        API.SysMsg("ERROR: Failed to cancel pretarget: " + str(e), 32)
+
+    script_cursor_time = 0  # Reset timestamp
 
 def cancel_all_targets():
     """Clear all targeting cursors - call before every targeting operation"""
-    clear_stray_cursor()
+    global script_cursor_time
+    clear_stray_cursor()  # Only clears script cursors, not manual ones
+    script_cursor_time = time.time()  # Mark that script is about to set a cursor
     API.Pause(0.05)  # Brief pause for server sync
 
 def get_potion_count(graphic):
@@ -524,11 +588,11 @@ def target_trapped_pouch():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def handle_auto_target():
     """Auto-target next enemy when current dies (continuous combat)"""
-    global current_attack_target
+    global current_attack_target, script_cursor_time
 
     if not auto_target:
         return
@@ -556,17 +620,19 @@ def handle_auto_target():
         next_enemy = API.NearestMobile(notorieties, AUTO_TARGET_RANGE)
         if next_enemy and next_enemy.Serial != API.Player.Serial and not next_enemy.IsDead:
             try:
+                # Mark script cursor to prevent false manual cursor detection
+                script_cursor_time = time.time()
+                # Pre-target before command to avoid targeting conflicts
+                API.PreTarget(next_enemy.Serial, "harmful")
+                API.Pause(PRETARGET_DELAY)
                 API.Msg("all kill")
-                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                    API.Target(next_enemy.Serial)
-                    current_attack_target = next_enemy.Serial
-                    update_combat_flag()
-                    API.HeadMsg("NEXT!", next_enemy.Serial, 68)
+                current_attack_target = next_enemy.Serial
+                update_combat_flag()
+                API.HeadMsg("NEXT!", next_enemy.Serial, 68)
             except:
                 pass
             finally:
-                # Clean up any leftover cursors from WaitForTarget/Target
-                clear_stray_cursor()
+                # Cursor cleanup now handled by smart clear_stray_cursor()
                 API.SysMsg("Auto-targeting: " + get_mob_name(next_enemy), 68)
         else:
             current_attack_target = 0
@@ -627,6 +693,12 @@ def sync_pets_from_storage():
             name = parts[0]
             try:
                 serial = int(parts[1])
+
+                # Validate serial
+                if serial <= 0:
+                    API.SysMsg("ERROR: Invalid pet serial in saved data: " + str(serial), 43)
+                    continue
+
                 active = True
                 if len(parts) >= 3:
                     active = (parts[2] == "1")
@@ -634,8 +706,11 @@ def sync_pets_from_storage():
                 PETS.append(serial)
                 PET_NAMES[serial] = name
                 PET_ACTIVE[serial] = active
-            except:
-                pass
+            except ValueError:
+                API.SysMsg("ERROR: Corrupted pet data - serial not numeric: " + parts[1], 32)
+                API.SysMsg("  Pet name: " + name, 32)
+            except Exception as e:
+                API.SysMsg("ERROR: Failed to load pet: " + name + " - " + str(e), 32)
 
 # ============ HEALING ACTIONS ============
 def get_next_heal_action():
@@ -650,7 +725,7 @@ def get_next_heal_action():
                     return None
             return (API.Player.Serial, "heal_self", SELF_DELAY, True)
 
-    if use_trapped_pouch and is_player_paralyzed():
+    if trapped_pouch_enabled and is_player_paralyzed():
         if use_trapped_pouch():
             return None
 
@@ -820,7 +895,7 @@ def start_heal_action(target, action_type, duration, is_self):
         except Exception as e:
             API.SysMsg("Heal error: " + str(e), 32)
         finally:
-            clear_stray_cursor()
+            API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     mob = API.FindMobile(target)
@@ -853,8 +928,7 @@ def start_heal_action(target, action_type, duration, is_self):
         except Exception as e:
             API.SysMsg("Rez error: " + str(e), 32)
         finally:
-            API.CancelPreTarget()
-            clear_stray_cursor()
+            API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     if action_type == "cure":
@@ -878,8 +952,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Cure error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         else:
             if not check_bandages():
                 return
@@ -908,8 +981,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         return
 
     if action_type == "heal":
@@ -933,8 +1005,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
         else:
             if not check_bandages():
                 return
@@ -963,8 +1034,7 @@ def start_heal_action(target, action_type, duration, is_self):
             except Exception as e:
                 API.SysMsg("Heal error: " + str(e), 32)
             finally:
-                API.CancelPreTarget()
-                clear_stray_cursor()
+                API.CancelPreTarget()  # Only cancel PreTarget, don't touch active cursors
 
 def check_heal_complete():
     global HEAL_STATE
@@ -988,59 +1058,82 @@ def check_heal_complete():
 
 # ============ FRIEND REZ LOGIC ============
 def attempt_friend_rez():
-    global rez_friend_active, rez_friend_attempts
+    """Non-blocking friend rez using state machine"""
+    global rez_friend_active, rez_friend_attempts, rez_friend_state, rez_friend_start_time
     global out_of_bandages_warned, out_of_bandages_cooldown
 
-    if rez_friend_target == 0:
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+    # If no active rez state, check if we should start one
+    if rez_friend_state == "idle":
+        if rez_friend_target == 0:
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    mob = API.FindMobile(rez_friend_target)
-    if not mob:
-        API.SysMsg("Friend not found. Rez cancelled.", 43)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        mob = API.FindMobile(rez_friend_target)
+        if not mob:
+            API.SysMsg("Friend not found. Rez cancelled.", 43)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if not mob.IsDead:
-        API.SysMsg("Friend is alive! Rez complete.", 68)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if not mob.IsDead:
+            API.SysMsg("Friend is alive! Rez complete.", 68)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
-        API.SysMsg("Max attempts reached. Rez cancelled.", 32)
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if rez_friend_attempts >= MAX_REZ_ATTEMPTS:
+            API.SysMsg("Max attempts reached. Rez cancelled.", 32)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    if not check_bandages():
-        rez_friend_active = False
-        statusLabel.SetText("Running")
-        return
+        if not check_bandages():
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+            return
 
-    try:
-        cancel_all_targets()
-        API.PreTarget(rez_friend_target, "beneficial")
-        API.Pause(0.2)
+        # Start the rez (non-blocking)
+        try:
+            cancel_all_targets()
+            API.PreTarget(rez_friend_target, "beneficial")
+            API.Pause(0.2)
 
-        if API.FindType(BANDAGE):
-            API.UseObject(API.Found, False)
-            API.Pause(0.3)  # Wait for pretarget consumption
+            if API.FindType(BANDAGE):
+                API.UseObject(API.Found, False)
+                API.Pause(0.3)  # Wait for pretarget consumption
 
-            rez_friend_attempts += 1
-            API.Pause(REZ_FRIEND_DELAY)
-        else:
-            if not out_of_bandages_warned:
-                API.SysMsg("Bandage not found for friend rez!", 43)
-                out_of_bandages_warned = True
-                out_of_bandages_cooldown = time.time()
-    except Exception as e:
-        API.SysMsg("Friend rez error: " + str(e), 32)
-    finally:
-        API.CancelPreTarget()
-        clear_stray_cursor()
+                rez_friend_attempts += 1
+                rez_friend_state = "rezzing"
+                rez_friend_start_time = time.time()
+            else:
+                if not out_of_bandages_warned:
+                    API.SysMsg("Bandage not found for friend rez!", 43)
+                    out_of_bandages_warned = True
+                    out_of_bandages_cooldown = time.time()
+                rez_friend_active = False
+                statusLabel.SetText("Running")
+        except Exception as e:
+            API.SysMsg("Friend rez error: " + str(e), 32)
+            rez_friend_active = False
+            statusLabel.SetText("Running")
+        finally:
+            API.CancelPreTarget()
+
+    # Check if rez is complete (non-blocking wait)
+    elif rez_friend_state == "rezzing":
+        elapsed = time.time() - rez_friend_start_time
+        if elapsed >= REZ_FRIEND_DELAY:
+            # Rez attempt complete, check result
+            mob = API.FindMobile(rez_friend_target)
+            if mob and not mob.IsDead:
+                API.SysMsg("Friend is alive! Rez complete.", 68)
+                rez_friend_active = False
+                rez_friend_state = "idle"
+                statusLabel.SetText("Running")
+            else:
+                # Still dead, try again next loop
+                rez_friend_state = "idle"
 
 # ============ COMMANDS ============
 def should_use_order_mode():
@@ -1072,7 +1165,7 @@ def all_kill_manual():
         except Exception as e:
             API.SysMsg("Target error: " + str(e), 32)
         finally:
-            clear_stray_cursor()
+            pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def all_kill_hotkey():
     global current_attack_target
@@ -1105,7 +1198,7 @@ def all_kill_hotkey():
             except:
                 API.SysMsg("Target cancelled", 43)
             finally:
-                clear_stray_cursor()
+                pass  # Cursor cleanup now handled by smart clear_stray_cursor()
         return
 
     current_attack_target = enemy.Serial
@@ -1114,18 +1207,17 @@ def all_kill_hotkey():
     if not should_use_order_mode():
         try:
             cancel_all_targets()  # Clear before targeting
+            # Pre-target before command to avoid targeting conflicts
+            API.PreTarget(enemy.Serial, "harmful")
+            API.Pause(PRETARGET_DELAY)
             API.Msg("all kill")
-            if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                API.Target(enemy.Serial)
-                API.Attack(enemy.Serial)
-                API.HeadMsg("KILL!", enemy.Serial, 32)
-                API.SysMsg("All kill: " + get_mob_name(enemy), 68)
-            else:
-                API.SysMsg("No target cursor", 32)
+            API.Attack(enemy.Serial)
+            API.HeadMsg("KILL!", enemy.Serial, 32)
+            API.SysMsg("All kill: " + get_mob_name(enemy), 68)
         except:
             pass
         finally:
-            clear_stray_cursor()
+            pass  # Cursor cleanup now handled by smart clear_stray_cursor()
     else:
         execute_order_mode("all kill", enemy.Serial)
 
@@ -1170,17 +1262,22 @@ def execute_order_mode(base_cmd, attack_target):
             if i > 0:
                 API.Pause(COMMAND_DELAY)
 
+            # Pre-target before command to avoid targeting conflicts
+            if attack_target != 0:
+                API.PreTarget(attack_target, "harmful")
+                API.Pause(PRETARGET_DELAY_ORDER)  # Longer for server sync (better lag tolerance)
+
             cmd = base_cmd.replace("all", name)
             API.Msg(cmd)
             API.SysMsg("  " + str(i+1) + ". " + name + " -> " + base_cmd.replace("all ", ""), 88)
 
             if attack_target != 0:
-                if API.WaitForTarget(timeout=TARGET_TIMEOUT):
-                    API.Target(attack_target)
-                    API.HeadMsg("KILL!", attack_target, 32)
+                API.HeadMsg("KILL!", attack_target, 32)
+                API.Pause(0.2)
+            else:
                 API.Pause(0.2)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def say_bank():
     API.Msg("bank")
@@ -1214,7 +1311,7 @@ def add_pet():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def remove_pet():
     """Toggle remove mode - click a pet in the list to remove it"""
@@ -1266,7 +1363,7 @@ def clear_all_pets():
 
 def make_pet_click_callback(idx):
     def callback():
-        global manual_heal_target
+        global priority_heal_pet
 
         # Check if in remove mode
         if REMOVE_MODE:
@@ -1290,7 +1387,7 @@ def make_pet_click_callback(idx):
         API.HeadMsg("Follow!", serial, 68)
         API.Pause(0.3)
 
-        manual_heal_target = serial
+        priority_heal_pet = serial
         API.SysMsg("Following + priority heal: " + name, 68)
     return callback
 
@@ -1845,13 +1942,13 @@ def build_config_gump():
 
     config_controls["use_pouch_off"] = API.Gumps.CreateSimpleButton("[OFF]", 50, 18)
     config_controls["use_pouch_off"].SetPos(col3_x + 60, col3_y)
-    config_controls["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+    config_controls["use_pouch_off"].SetBackgroundHue(32 if not trapped_pouch_enabled else 90)
     API.Gumps.AddControlOnClick(config_controls["use_pouch_off"], lambda: toggle_use_trapped_pouch(False))
     config_gump.Add(config_controls["use_pouch_off"])
 
     config_controls["use_pouch_on"] = API.Gumps.CreateSimpleButton("[ON]", 50, 18)
     config_controls["use_pouch_on"].SetPos(col3_x + 113, col3_y)
-    config_controls["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+    config_controls["use_pouch_on"].SetBackgroundHue(68 if trapped_pouch_enabled else 90)
     API.Gumps.AddControlOnClick(config_controls["use_pouch_on"], lambda: toggle_use_trapped_pouch(True))
     config_gump.Add(config_controls["use_pouch_on"])
 
@@ -2203,9 +2300,9 @@ def update_config_gump_state():
 
     # Use Pouch toggle
     if "use_pouch_off" in c:
-        c["use_pouch_off"].SetBackgroundHue(32 if not use_trapped_pouch else 90)
+        c["use_pouch_off"].SetBackgroundHue(32 if not trapped_pouch_enabled else 90)
     if "use_pouch_on" in c:
-        c["use_pouch_on"].SetBackgroundHue(68 if use_trapped_pouch else 90)
+        c["use_pouch_on"].SetBackgroundHue(68 if trapped_pouch_enabled else 90)
 
 def toggle_magery_config(use_mage):
     """Toggle magery mode from config window"""
@@ -2280,9 +2377,9 @@ def toggle_auto_target(state):
     update_config_gump_state()
 
 def toggle_use_trapped_pouch(state):
-    global use_trapped_pouch
-    use_trapped_pouch = state
-    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(use_trapped_pouch), API.PersistentVar.Char)
+    global trapped_pouch_enabled
+    trapped_pouch_enabled = state
+    API.SavePersistentVar(USE_TRAPPED_POUCH_KEY, str(trapped_pouch_enabled), API.PersistentVar.Char)
     update_config_cmd_display()
     update_config_gump_state()
 
@@ -2324,7 +2421,7 @@ def set_tank():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def clear_tank():
     global TANK_PET
@@ -2358,7 +2455,7 @@ def set_vetkit():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 def clear_vetkit():
     global VET_KIT_GRAPHIC
@@ -2382,11 +2479,13 @@ def clear_trapped_pouch():
 
 def toggle_rez_friend():
     global rez_friend_active, rez_friend_target, rez_friend_attempts, rez_friend_name
+    global rez_friend_state
 
     if rez_friend_active:
         rez_friend_active = False
         rez_friend_target = 0
         rez_friend_attempts = 0
+        rez_friend_state = "idle"
         API.SysMsg("Friend rez cancelled", 43)
         statusLabel.SetText("Running")
         return
@@ -2411,7 +2510,7 @@ def toggle_rez_friend():
     except Exception as e:
         API.SysMsg("Target error: " + str(e), 32)
     finally:
-        clear_stray_cursor()
+        pass  # Cursor cleanup now handled by smart clear_stray_cursor()
 
 # ============ HOTKEY CAPTURE SYSTEM ============
 def make_key_handler(key_name):
@@ -2677,10 +2776,17 @@ def update_pet_hotkey_main_display():
                 text = "[---]"
                 hue = 90  # Gray = unbound
 
-            displays[i].SetText(text)
-            displays[i].SetBackgroundHue(hue)
-    except:
-        pass
+            try:
+                displays[i].SetText(text)
+                displays[i].SetBackgroundHue(hue)
+            except AttributeError:
+                # Display control disposed - expected during shutdown
+                return
+            except Exception as e:
+                API.SysMsg("ERROR: Failed to update pet hotkey display " + str(i+1) + ": " + str(e), 32)
+    except Exception as e:
+        # Outer catch for structural issues
+        API.SysMsg("ERROR: Pet hotkey display update failed: " + str(e), 32)
 
 def update_pet_arrow_display():
     """Update arrow indicators to show pet active/skip status (NEW v2.2)"""
@@ -2768,7 +2874,7 @@ def update_config_cmd_display():
 def load_settings():
     global USE_MAGERY, USE_REZ, HEAL_SELF, TANK_PET, VET_KIT_GRAPHIC
     global TARGET_REDS, TARGET_GRAYS, ATTACK_MODE, SKIP_OUT_OF_RANGE
-    global USE_POTIONS, trapped_pouch_serial, use_trapped_pouch, auto_target
+    global USE_POTIONS, trapped_pouch_serial, trapped_pouch_enabled, auto_target
     global is_expanded, SELF_DELAY, VET_DELAY, VET_KIT_DELAY
 
     USE_MAGERY = API.GetPersistentVar(MAGERY_KEY, "False", API.PersistentVar.Char) == "True"
@@ -2779,14 +2885,24 @@ def load_settings():
     tank_str = API.GetPersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
     try:
         TANK_PET = int(tank_str)
-    except:
+        if TANK_PET < 0:
+            raise ValueError("Negative serial not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted tank pet setting: " + tank_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         TANK_PET = 0
+        API.SavePersistentVar(TANK_KEY, "0", API.PersistentVar.Char)
 
     vetkit_str = API.GetPersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
     try:
         VET_KIT_GRAPHIC = int(vetkit_str)
-    except:
+        if VET_KIT_GRAPHIC < 0:
+            raise ValueError("Negative graphic not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted vet kit setting: " + vetkit_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         VET_KIT_GRAPHIC = 0
+        API.SavePersistentVar(VETKIT_KEY, "0", API.PersistentVar.Char)
 
     TARGET_REDS = API.GetPersistentVar(REDS_KEY, "False", API.PersistentVar.Char) == "True"
     TARGET_GRAYS = API.GetPersistentVar(GRAYS_KEY, "False", API.PersistentVar.Char) == "True"
@@ -2797,10 +2913,15 @@ def load_settings():
     pouch_str = API.GetPersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
     try:
         trapped_pouch_serial = int(pouch_str)
-    except:
+        if trapped_pouch_serial < 0:
+            raise ValueError("Negative serial not allowed")
+    except ValueError as e:
+        API.SysMsg("ERROR: Corrupted trapped pouch setting: " + pouch_str, 43)
+        API.SysMsg("  Resetting to default (0)", 43)
         trapped_pouch_serial = 0
+        API.SavePersistentVar(TRAPPED_POUCH_SERIAL_KEY, "0", API.PersistentVar.Char)
 
-    use_trapped_pouch = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
+    trapped_pouch_enabled = API.GetPersistentVar(USE_TRAPPED_POUCH_KEY, "True", API.PersistentVar.Char) == "True"
     auto_target = API.GetPersistentVar(AUTO_TARGET_KEY, "False", API.PersistentVar.Char) == "True"
 
     is_expanded = API.GetPersistentVar(EXPANDED_KEY, "True", API.PersistentVar.Char) == "True"
@@ -2809,14 +2930,35 @@ def load_settings():
     self_delay_str = API.GetPersistentVar(SELF_DELAY_KEY, "4.5", API.PersistentVar.Char)
     try:
         SELF_DELAY = float(self_delay_str)
-    except:
+        if not (0.5 <= SELF_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(SELF_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid self bandage delay: " + self_delay_str, 43)
+        API.SysMsg("  Using default 4.5s", 43)
         SELF_DELAY = 4.5
+        API.SavePersistentVar(SELF_DELAY_KEY, "4.5", API.PersistentVar.Char)
 
     vet_delay_str = API.GetPersistentVar(VET_DELAY_KEY, "4.5", API.PersistentVar.Char)
     try:
         VET_DELAY = float(vet_delay_str)
-    except:
+        if not (0.5 <= VET_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(VET_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid vet delay: " + vet_delay_str, 43)
+        API.SysMsg("  Using default 4.5s", 43)
         VET_DELAY = 4.5
+        API.SavePersistentVar(VET_DELAY_KEY, "4.5", API.PersistentVar.Char)
+
+    vet_kit_delay_str = API.GetPersistentVar(VET_KIT_DELAY_KEY, "5.0", API.PersistentVar.Char)
+    try:
+        VET_KIT_DELAY = float(vet_kit_delay_str)
+        if not (0.5 <= VET_KIT_DELAY <= 10.0):
+            raise ValueError("Delay out of range: " + str(VET_KIT_DELAY))
+    except ValueError as e:
+        API.SysMsg("ERROR: Invalid vet kit delay: " + vet_kit_delay_str, 43)
+        API.SysMsg("  Using default 5.0s", 43)
+        VET_KIT_DELAY = 5.0
+        API.SavePersistentVar(VET_KIT_DELAY_KEY, "5.0", API.PersistentVar.Char)
 
     load_hotkeys()
     load_pet_hotkeys()  # NEW v2.2
@@ -3090,14 +3232,27 @@ update_pet_order_display()
 API.SysMsg("Registering key handlers...", 53)
 
 registered_count = 0
+failed_keys = []
 for key in ALL_KEYS:
     try:
         API.OnHotKey(key, make_key_handler(key))
         registered_count += 1
     except Exception as e:
-        pass
+        failed_keys.append((key, str(e)))
 
 API.SysMsg("Registered " + str(registered_count) + " keys", 68)
+
+if failed_keys:
+    API.SysMsg("WARNING: " + str(len(failed_keys)) + " keys failed to register", 43)
+    if DEBUG or registered_count == 0:
+        # Show details if debug mode OR if all keys failed
+        for key, error in failed_keys[:5]:  # Show first 5 failures
+            API.SysMsg("  " + key + ": " + error, 43)
+        if len(failed_keys) > 5:
+            API.SysMsg("  ... and " + str(len(failed_keys) - 5) + " more", 43)
+
+    if registered_count == 0:
+        API.SysMsg("CRITICAL: NO hotkeys registered - script hotkeys will not work!", 32)
 
 # Initial display
 update_pet_display()
@@ -3123,6 +3278,23 @@ while not API.StopRequested:
     try:
         # Process GUI clicks and HOTKEYS - always instant!
         API.ProcessCallbacks()
+
+        # Detect manual targeting cursor (player using abilities/skills)
+        # Increased threshold to 1.5s to reduce false positives
+        if API.HasTarget() and time.time() - script_cursor_time > 1.5:
+            # Player has a manual cursor - pause all healing actions
+            if not manual_cursor_detected:
+                manual_cursor_detected = True
+                # Only show message if not shown recently (prevent spam)
+                if time.time() - last_manual_cursor_msg > 3.0:
+                    API.SysMsg("Manual targeting detected - healing paused", 43)
+                    last_manual_cursor_msg = time.time()
+        elif not API.HasTarget() and manual_cursor_detected:
+            # Manual cursor cleared - resume healing
+            manual_cursor_detected = False
+            if time.time() - last_manual_cursor_msg > 3.0:
+                API.SysMsg("Manual targeting complete - healing resumed", 68)
+                last_manual_cursor_msg = time.time()
 
         # Check if current heal is done
         check_heal_complete()
@@ -3169,13 +3341,13 @@ while not API.StopRequested:
         check_critical_alerts()
 
         # FRIEND REZ LOGIC (highest priority - pauses all other healing)
-        if not PAUSED and rez_friend_active:
+        if not PAUSED and not manual_cursor_detected and rez_friend_active:
             statusLabel.SetText("Rezzing: " + rez_friend_name + " (#" + str(rez_friend_attempts) + ")")
             attempt_friend_rez()
             continue
 
         # HEALER LOGIC (non-blocking)
-        if not PAUSED and HEAL_STATE == "idle":
+        if not PAUSED and not manual_cursor_detected and HEAL_STATE == "idle":
             # Skip healing if we're in bandage cooldown (out of bandages recently)
             if out_of_bandages_cooldown > 0:
                 # Check if bandages are back in stock
@@ -3198,7 +3370,7 @@ while not API.StopRequested:
                     start_heal_action(target, action_type, duration, is_self)
 
         # AUTO-TARGET LOGIC (continuous combat)
-        if not PAUSED and auto_target:
+        if not PAUSED and not manual_cursor_detected and auto_target:
             handle_auto_target()
 
         # Short pause - loop runs ~10x/second (balance of responsiveness vs CPU)
