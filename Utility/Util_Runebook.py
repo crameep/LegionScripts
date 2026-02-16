@@ -59,7 +59,7 @@ RECALL_COOLDOWN = 1.0      # Seconds between recalls
 GUMP_WAIT_TIME = 3.0       # Max time to wait for runebook gump (increased)
 RUNEBOOK_GRAPHIC = 0x22C5  # Standard runebook graphic
 USE_OBJECT_DELAY = 0.5     # Delay after using runebook before waiting for gump
-GUMP_READY_DELAY = 0.3     # Delay after gump appears before clicking button
+GUMP_READY_DELAY = 0.5     # Delay after gump appears before clicking button
 
 # ============ GUI DIMENSIONS ============
 WINDOW_WIDTH_NORMAL = 155  # Normal mode (no SET buttons): 5px + 147px button + 3px margin
