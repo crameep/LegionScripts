@@ -33,7 +33,7 @@ except NameError:
 RECALL_DELAY = 2.0
 GUMP_WAIT_TIME = 3.0
 USE_OBJECT_DELAY = 0.5
-GUMP_READY_DELAY = 0.3  # Time for gump to fully load
+GUMP_READY_DELAY = 0.5  # Time for gump to fully load
 
 # Runebook
 RUNEBOOK_GUMP_ID = 89
