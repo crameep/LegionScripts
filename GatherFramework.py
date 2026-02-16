@@ -1,6 +1,12 @@
 # GatherFramework.py
 # Reusable framework for resource gathering bots
-# Version 1.1
+# Version 1.2
+#
+# v1.2 Changes:
+#   - Added retry logic and gump verification to StorageSystem.dump_resources()
+#   - Added API.ProcessCallbacks() during gump wait and retry loops
+#   - Weight check moved before container interaction for accurate comparison
+#   - Pattern from Util_Runebook.py v2.8
 #
 # v1.1 Changes:
 #   - Added retry logic and gump verification to TravelSystem.recall_to_slot()
@@ -433,6 +439,8 @@ class StorageSystem:
     def dump_resources(self):
         """Open storage container and use fill button.
 
+        Uses retry logic and gump verification (v2.8 pattern from Util_Runebook.py).
+
         Returns:
             True if successful, False otherwise
         """
@@ -441,29 +449,47 @@ class StorageSystem:
             return False
 
         try:
+            # Check weight before dump
+            weight_before = getattr(API.Player, 'Weight', 0)
+
             # Use container
             API.UseObject(self.container_serial)
             API.Pause(USE_OBJECT_DELAY)
 
-            # Wait for gump
+            # Wait for gump with responsiveness
             wait_start = time.time()
             while not API.HasGump(self.gump_id):
+                API.ProcessCallbacks()  # Keep hotkeys responsive
                 if time.time() > wait_start + GUMP_WAIT_TIME:
                     API.SysMsg("Storage gump didn't open!", HUE_RED)
                     return False
                 API.Pause(0.1)
 
+            # Delay after gump appears - let it fully render
             API.Pause(GUMP_READY_DELAY)
 
-            # Click fill button
-            result = API.ReplyGump(self.fill_button, self.gump_id)
+            # Click fill button with retry logic (v2.8 pattern)
+            result = False
+            for attempt in range(MAX_CLICK_RETRIES):
+                API.ProcessCallbacks()  # Keep hotkeys responsive during retry
+
+                # Verify gump still open before each attempt
+                if not API.HasGump(self.gump_id):
+                    API.SysMsg("Storage gump closed unexpectedly!", HUE_RED)
+                    return False
+
+                result = API.ReplyGump(self.fill_button, self.gump_id)
+                if result:
+                    break
+
+                # Log retry attempt
+                if attempt < MAX_CLICK_RETRIES - 1:
+                    API.SysMsg(f"Retrying fill button... (attempt {attempt + 2}/{MAX_CLICK_RETRIES})", HUE_YELLOW)
+                    API.Pause(RETRY_DELAY)
 
             if not result:
-                API.SysMsg("Failed to click fill button!", HUE_RED)
+                API.SysMsg(f"Failed to click fill button after {MAX_CLICK_RETRIES} attempts!", HUE_RED)
                 return False
-
-            # Check weight before dump
-            weight_before = getattr(API.Player, 'Weight', 0)
 
             API.Pause(2.0)  # Wait for items to transfer
 
