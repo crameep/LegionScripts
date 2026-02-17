@@ -2124,6 +2124,7 @@ def autopick_logic():
 
         # Recall to home
         if recall_home():
+            all_guard_me()
             autopick_state = "at_home"
             API.SysMsg("At home - ready to unload cotton", 68)
         else:
@@ -2147,6 +2148,7 @@ def autopick_logic():
 
         # Recall to farm spot
         if recall_to_farm():
+            all_guard_me()
             autopick_state = "scanning"
             no_plants_start_time = 0  # Reset no plants timer
             API.SysMsg("Back at farm - resuming picking", 68)
@@ -2381,6 +2383,7 @@ def fullauto_logic():
             # TODO: Pet summoning disabled (context menu option varies between 6 and 7)
             # Expected pets to follow since we called "all follow me" before recall
 
+            all_guard_me()
             fullauto_state = "checking_for_enemies"
             fullauto_start_time = time.time()
             no_plants_start_time = 0
@@ -2587,6 +2590,7 @@ def fullauto_logic():
         API.Pause(1.0)
 
         if recall_home():
+            all_guard_me()
             API.SysMsg("Emergency recall successful - healing", 68)
             fullauto_state = "resurrecting_pets"
             fullauto_start_time = time.time()
@@ -2849,6 +2853,7 @@ def fullauto_logic():
         API.Pause(1.0)
 
         if recall_home():
+            all_guard_me()
             fullauto_state = "checking_inventory"
             fullauto_start_time = time.time()
             API.SysMsg("At home - processing cotton", 68)
