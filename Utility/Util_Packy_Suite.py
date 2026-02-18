@@ -605,3 +605,6 @@ while not API.StopRequested and not script_should_stop:
         API.SysMsg("Error in main loop: " + str(e), 32)
         debug_msg("Main loop exception: " + str(e))
         API.Pause(1)
+
+# ============ CLEANUP ============
+API.SysMsg("Packy Suite stopped.", 90)
