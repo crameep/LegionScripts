@@ -554,16 +554,29 @@ API.Gumps.AddGump(gump)
 # Update display with loaded state
 update_display()
 
-# Startup messages
+# ============ STARTUP MESSAGES ============
 API.SysMsg("Packy Suite v" + __version__ + " loaded!", 68)
+API.SysMsg("[ON/OFF]=toggle | [Packy]=target | [+ Add Item]=watch | [Clear]=reset", 43)
+
 if packy_serial > 0:
-    API.SysMsg("Packhorse: 0x" + format(packy_serial, 'X'), 66)
+    packy = get_packy()
+    if packy:
+        API.SysMsg("Packhorse: 0x" + format(packy_serial, 'X') + " (in range)", 66)
+    else:
+        API.SysMsg("Packhorse: 0x" + format(packy_serial, 'X') + " (not found)", 43)
 else:
-    API.SysMsg("Click [Packy] to set your packhorse", 43)
+    API.SysMsg("No packhorse set - click [Packy] to target your pack animal", 43)
+
 if len(watched_items) > 0:
-    API.SysMsg("Watching " + str(len(watched_items)) + " item types", 66)
+    # Show first few graphics for reference
+    graphics_preview = ", ".join(["0x" + format(g, 'X') for g in watched_items[:3]])
+    if len(watched_items) > 3:
+        graphics_preview += "..."
+    API.SysMsg("Watching " + str(len(watched_items)) + " item type(s): " + graphics_preview, 66)
 else:
-    API.SysMsg("Click [+ Add Item] to add items to watch", 43)
+    API.SysMsg("No items being watched - click [+ Add Item] to add item types", 43)
+
+API.SysMsg("Scans every " + str(SCAN_INTERVAL) + "s | Max " + str(MAX_MOVES_PER_SCAN) + " items/scan | Range: " + str(MAX_DISTANCE) + " tiles", 90)
 
 # ============ MAIN LOOP ============
 DISPLAY_UPDATE_INTERVAL = 0.5
