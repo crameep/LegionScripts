@@ -134,6 +134,57 @@ def load_expanded_state():
     global is_expanded
     is_expanded = load_bool(EXPANDED_KEY, True)
 
+def scan_backpack_for_items():
+    """Scan backpack for items matching watched graphics.
+
+    Returns a list of PyItem objects matching watched_items graphics,
+    up to MAX_MOVES_PER_SCAN items. Returns empty list if none found.
+    """
+    if not watched_items:
+        return []
+
+    try:
+        backpack = API.Player.Backpack
+        if not backpack:
+            debug_msg("No backpack found")
+            return []
+
+        backpack_serial = backpack.Serial
+        items = API.ItemsInContainer(backpack_serial, True)  # Recursive scan
+        if not items:
+            debug_msg("No items in backpack")
+            return []
+
+        matching_items = []
+        for item in items:
+            if len(matching_items) >= MAX_MOVES_PER_SCAN:
+                break
+
+            if not hasattr(item, 'Graphic'):
+                continue
+
+            graphic = item.Graphic
+            if graphic in watched_items:
+                # Skip items already in packy's pack (shouldn't happen but safety check)
+                if hasattr(item, 'Container') and packy_serial > 0:
+                    packy = get_packy()
+                    if packy:
+                        # Get packy's backpack serial if available
+                        packy_backpack = getattr(packy, 'Backpack', None)
+                        if packy_backpack and hasattr(packy_backpack, 'Serial'):
+                            if item.Container == packy_backpack.Serial:
+                                debug_msg("Skipping item already in packy: " + str(item.Serial))
+                                continue
+
+                debug_msg("Found matching item: 0x" + format(graphic, 'X') + " serial: " + str(item.Serial))
+                matching_items.append(item)
+
+        return matching_items
+
+    except Exception as e:
+        debug_msg("Error scanning backpack: " + str(e))
+        return []
+
 # ============ EXPAND/COLLAPSE ============
 def toggle_expand():
     """Toggle window expanded/collapsed state"""
