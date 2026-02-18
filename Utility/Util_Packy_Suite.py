@@ -320,69 +320,88 @@ def collapse_window():
 def toggle_enabled():
     """Toggle script enabled state"""
     global enabled
-    enabled = not enabled
-    save_bool(ENABLED_KEY, enabled)
-    update_display()
-    API.SysMsg("Packy Suite: " + ("ENABLED" if enabled else "DISABLED"), 68 if enabled else 32)
+    try:
+        enabled = not enabled
+        save_bool(ENABLED_KEY, enabled)
+        if not enabled:
+            errors.clear_error()  # Clear errors when disabled
+        update_display()
+        API.SysMsg("Packy Suite: " + ("ENABLED" if enabled else "DISABLED"), 68 if enabled else 32)
+    except Exception as e:
+        API.SysMsg("Error toggling state: " + str(e), 32)
+        debug_msg("Error in toggle_enabled: " + str(e))
 
 def target_packy():
     """Target packhorse to set as destination"""
     global packy_serial
 
-    API.SysMsg("Target your packhorse...", 68)
+    try:
+        API.SysMsg("Target your packhorse...", 68)
 
-    target = request_target(timeout=10)
-    if target:
-        mob = API.Mobiles.FindMobile(target)
-        if not mob:
-            API.SysMsg("Invalid target - must be a mobile!", 32)
-            return
+        target = request_target(timeout=10)
+        if target:
+            mob = API.Mobiles.FindMobile(target)
+            if not mob:
+                API.SysMsg("Invalid target - must be a mobile!", 32)
+                return
 
-        packy_serial = target
-        save_int(PACKY_KEY, packy_serial)
-        debug_msg("Packy serial set to: " + str(packy_serial))
-        errors.clear_error()
-        update_display()
-        API.SysMsg("Packhorse set! Serial: 0x" + format(packy_serial, 'X'), 68)
-    else:
-        API.SysMsg("Targeting cancelled", 53)
+            packy_serial = target
+            save_int(PACKY_KEY, packy_serial)
+            debug_msg("Packy serial set to: " + str(packy_serial))
+            errors.clear_error()
+            update_display()
+            API.SysMsg("Packhorse set! Serial: 0x" + format(packy_serial, 'X'), 68)
+        else:
+            API.SysMsg("Targeting cancelled", 53)
+    except Exception as e:
+        errors.set_error("Target error: " + str(e))
+        debug_msg("Error in target_packy: " + str(e))
 
 def add_item_type():
     """Add an item type to watch list by targeting an item"""
     global watched_items
 
-    API.SysMsg("Target an item to add to watch list...", 68)
+    try:
+        API.SysMsg("Target an item to add to watch list...", 68)
 
-    target = request_target(timeout=10)
-    if target:
-        item = API.FindItem(target)
-        if not item:
-            API.SysMsg("Invalid target!", 32)
-            return
+        target = request_target(timeout=10)
+        if target:
+            item = API.FindItem(target)
+            if not item:
+                API.SysMsg("Invalid target!", 32)
+                return
 
-        graphic = getattr(item, 'Graphic', 0)
-        if graphic == 0:
-            API.SysMsg("Could not get item graphic!", 32)
-            return
+            graphic = getattr(item, 'Graphic', 0)
+            if graphic == 0:
+                API.SysMsg("Could not get item graphic!", 32)
+                return
 
-        if graphic in watched_items:
-            API.SysMsg("Item type already in watch list!", 43)
-            return
+            if graphic in watched_items:
+                API.SysMsg("Item type already in watch list!", 43)
+                return
 
-        watched_items.append(graphic)
-        save_watched_items()
-        update_display()
-        API.SysMsg("Added item type: 0x" + format(graphic, 'X') + " (" + str(len(watched_items)) + " total)", 68)
-    else:
-        API.SysMsg("Targeting cancelled", 53)
+            watched_items.append(graphic)
+            save_watched_items()
+            update_display()
+            API.SysMsg("Added item type: 0x" + format(graphic, 'X') + " (" + str(len(watched_items)) + " total)", 68)
+        else:
+            API.SysMsg("Targeting cancelled", 53)
+    except Exception as e:
+        errors.set_error("Add item error: " + str(e))
+        debug_msg("Error in add_item_type: " + str(e))
 
 def clear_items():
     """Clear all watched item types"""
     global watched_items
-    watched_items = []
-    save_watched_items()
-    update_display()
-    API.SysMsg("Watch list cleared", 68)
+    try:
+        watched_items = []
+        save_watched_items()
+        errors.clear_error()  # Clear any item-related errors
+        update_display()
+        API.SysMsg("Watch list cleared", 68)
+    except Exception as e:
+        errors.set_error("Clear error: " + str(e))
+        debug_msg("Error in clear_items: " + str(e))
 
 def update_display():
     """Update all GUI display elements"""
@@ -390,10 +409,15 @@ def update_display():
         return
 
     try:
-        # Status label
-        if enabled:
+        # Status label - show error state if there's an active error
+        if errors.has_error():
+            # Show error status (message already displayed by ErrorManager)
+            statusLabel.SetText("Status: ERROR")
+        elif enabled:
             if packy_serial == 0:
                 statusLabel.SetText("Status: NO PACKY")
+            elif len(watched_items) == 0:
+                statusLabel.SetText("Status: NO ITEMS")
             else:
                 packy = get_packy()
                 if packy:
