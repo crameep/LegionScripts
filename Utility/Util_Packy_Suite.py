@@ -185,6 +185,86 @@ def scan_backpack_for_items():
         debug_msg("Error scanning backpack: " + str(e))
         return []
 
+def get_packy_backpack_serial():
+    """Get the serial of the packhorse's backpack container.
+
+    Returns the backpack serial if valid, 0 otherwise.
+    """
+    packy = get_packy()
+    if not packy:
+        return 0
+
+    try:
+        packy_backpack = getattr(packy, 'Backpack', None)
+        if packy_backpack and hasattr(packy_backpack, 'Serial'):
+            return packy_backpack.Serial
+        return 0
+    except Exception as e:
+        debug_msg("Error getting packy backpack: " + str(e))
+        return 0
+
+def move_items_to_packy():
+    """Move matching items from backpack to packhorse.
+
+    Uses QueueMoveItem for efficient batch transfers.
+    Updates items_moved_session counter.
+    """
+    global items_moved_session
+
+    if not enabled:
+        errors.clear_error()
+        return
+
+    if packy_serial == 0:
+        errors.set_error("No packy set!")
+        return
+
+    packy = get_packy()
+    if not packy:
+        errors.set_error("Packy not found!")
+        return
+
+    # Check distance
+    if packy.Distance > MAX_DISTANCE:
+        errors.set_error("Packy too far!")
+        return
+
+    # Get packy's backpack
+    dest_serial = get_packy_backpack_serial()
+    if dest_serial == 0:
+        errors.set_error("Can't access packy inventory!")
+        return
+
+    # Scan for matching items
+    items = scan_backpack_for_items()
+    if not items:
+        errors.clear_error()
+        return
+
+    try:
+        moved_count = 0
+        for item in items:
+            item_serial = item.Serial
+            amount = getattr(item, 'Amount', 0)  # 0 = move all
+
+            debug_msg("Moving item " + str(item_serial) + " (amt: " + str(amount) + ") to packy " + str(dest_serial))
+
+            # Use QueueMoveItem for efficient batch transfers
+            API.QueueMoveItem(item_serial, dest_serial, amount)
+            moved_count += 1
+
+        if moved_count > 0:
+            # Small pause after queuing all moves to let them process
+            API.Pause(MOVE_PAUSE)
+
+            items_moved_session += moved_count
+            API.SysMsg("Moved " + str(moved_count) + " item(s) to packy", 68)
+            errors.clear_error()
+
+    except Exception as e:
+        errors.set_error("Move failed: " + str(e))
+        debug_msg("Error moving items: " + str(e))
+
 # ============ EXPAND/COLLAPSE ============
 def toggle_expand():
     """Toggle window expanded/collapsed state"""
@@ -473,10 +553,10 @@ while not API.StopRequested and not script_should_stop:
         # Track window position periodically
         pos_tracker.update()
 
-        # Placeholder: main scanning logic will be implemented in later subtask
-        # if enabled and time.time() >= next_scan:
-        #     scan_and_move_items()
-        #     next_scan = time.time() + SCAN_INTERVAL
+        # Scan and move items to packy
+        if enabled and time.time() >= next_scan:
+            move_items_to_packy()
+            next_scan = time.time() + SCAN_INTERVAL
 
         if time.time() >= next_display:
             update_display()
