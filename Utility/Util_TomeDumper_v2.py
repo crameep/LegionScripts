@@ -734,11 +734,36 @@ def dump_all_tomes():
     update_main_display()
 
 # ============ PERSISTENCE ============
+def _to_native(obj):
+    """Recursively convert CLR/IronPython types to native Python types for JSON serialization"""
+    if isinstance(obj, dict):
+        return {str(k): _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    if isinstance(obj, bool):
+        return bool(obj)
+    if isinstance(obj, int):
+        return int(obj)
+    if isinstance(obj, float):
+        return float(obj)
+    if isinstance(obj, str):
+        return str(obj)
+    # Unknown type (e.g. CLR integer from Legion API) - try numeric conversion
+    try:
+        return int(obj)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(obj)
+    except (TypeError, ValueError):
+        pass
+    return str(obj)
+
 def save_tome_list(tome_list, key):
     """Save list of tomes to persistence"""
     import json
     try:
-        tome_data = json.dumps(tome_list)
+        tome_data = json.dumps(_to_native(tome_list))
         API.SavePersistentVar(key, tome_data, API.PersistentVar.Char)
     except Exception as e:
         API.SysMsg("Error saving tomes: " + str(e), HUE_RED)
