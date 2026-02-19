@@ -509,7 +509,7 @@ def dump_single_tome(tome_config):
                         continue
 
                     # Get items from this container
-                    container_items = API.ItemsInContainer(container_serial, recursive=False)
+                    container_items = API.ItemsInContainer(container)
                     if not container_items:
                         API.SysMsg("Container 0x{:X} is empty".format(container_serial), 43)
                         continue
@@ -1658,14 +1658,14 @@ def build_config_gump():
     # Load position
     x, y = load_window_position(CONFIG_POS_KEY, 120, 120)
 
-    # Create gump
+    # Create gump (height will be adjusted after all widgets are placed)
     config_gump = API.Gumps.CreateGump()
     config_gump.SetRect(x, y, CONFIG_WIDTH, CONFIG_HEIGHT)
 
-    # Background
-    background = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-    background.SetRect(0, 0, CONFIG_WIDTH, CONFIG_HEIGHT)
-    config_gump.Add(background)
+    # Background - keep ref so we can resize it to match actual content height
+    config_bg = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
+    config_bg.SetRect(0, 0, CONFIG_WIDTH, CONFIG_HEIGHT)
+    config_gump.Add(config_bg)
 
     # Title
     titleLabel = API.Gumps.CreateGumpTTFLabel("Tome Configuration", 16, "#ffaa00")
@@ -2083,12 +2083,6 @@ def build_config_gump():
     list_y_pos += 25
 
     for i, tome in enumerate(tomes):
-        # Skip if we're past window bounds
-        if list_y_pos > CONFIG_HEIGHT - 30:
-            moreLabel = API.Gumps.CreateGumpTTFLabel("... (scroll down for more)", 15, "#888888")
-            moreLabel.SetPos(15, list_y_pos)
-            config_gump.Add(moreLabel)
-            break
 
         enabled_text = "[ON] " if tome.get("enabled", True) else "[OFF]"
         hue = "#00ff00" if tome.get("enabled", True) else "#888888"
@@ -2112,6 +2106,11 @@ def build_config_gump():
         API.Gumps.AddControlOnClick(delBtn, lambda idx=i: on_delete_tome_clicked(idx))
 
         list_y_pos += 22
+
+    # Resize gump and background to actual content height so background covers all widgets
+    final_height = list_y_pos + 10
+    config_gump.SetRect(x, y, CONFIG_WIDTH, final_height)
+    config_bg.SetRect(0, 0, CONFIG_WIDTH, final_height)
 
     # Close callback - bind current generation so stale async callbacks are ignored
     this_gen = _config_gump_gen
