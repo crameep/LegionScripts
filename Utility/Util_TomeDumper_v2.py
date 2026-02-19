@@ -1,5 +1,5 @@
-# Util_TomeDumper_v1.py
-# Highly configurable bag dumping utility for storage tomes
+# Util_TomeDumper_v2.py
+# Refactored bag dumping utility for storage tomes
 # by Coryigon for UO Unchained
 #
 # Features:
@@ -121,23 +121,75 @@ def debug_msg(text):
     """Debug message helper"""
     API.SysMsg("DEBUG: " + text, 88)
 
+def resolve_target_containers(tome_config, validate=False):
+    """Resolve target containers for container/multi_item modes.
+
+    Returns a list of container serials. If validate=True and any container
+    is missing, returns None.
+    """
+    targeting_mode = tome_config.get("targeting_mode", "container")
+    if targeting_mode not in ["container", "multi_item"]:
+        return []
+
+    containers = []
+
+    if tome_config.get("use_graphic_targeting", False):
+        target_graphic = tome_config.get("target_graphic", 0)
+        if target_graphic == 0:
+            return []
+
+        if not API.Player:
+            return []
+        backpack = API.Player.Backpack
+        if not backpack:
+            return []
+
+        backpack_serial = backpack.Serial if hasattr(backpack, 'Serial') else backpack
+        items = API.ItemsInContainer(backpack_serial, recursive=False)
+        if not items:
+            return []
+
+        for item in items:
+            if not hasattr(item, 'Graphic'):
+                continue
+            if item.Graphic != target_graphic:
+                continue
+
+            if tome_config.get("target_hue_specific", False):
+                target_hue = tome_config.get("target_hue", 0)
+                item_hue = getattr(item, 'Hue', 0)
+                if item_hue != target_hue:
+                    continue
+
+            containers.append(item.Serial)
+    else:
+        containers = tome_config.get("target_containers", [])
+        if not containers:
+            old_container = tome_config.get("target_container", 0)
+            if old_container > 0:
+                containers = [old_container]
+
+    if validate:
+        for container_serial in containers:
+            if not API.FindItem(container_serial):
+                return None
+
+    return containers
+
 def get_items_to_dump(tome_config):
     """Get items matching tome's filter from configured containers (or backpack if none)"""
     try:
         all_matching = []
 
-        # Determine which containers to check
-        containers_to_check = []
         targeting_mode = tome_config.get("targeting_mode", "container")
+        containers_to_check = resolve_target_containers(tome_config, validate=False)
 
-        # For multi_item and container modes, check configured containers
-        if targeting_mode in ["container", "multi_item"]:
-            target_containers = tome_config.get("target_containers", [])
-            if target_containers:
-                containers_to_check = target_containers
-
-        # Fallback to backpack if no containers configured
+        # For non-container modes, or if no containers resolved, check backpack
         if not containers_to_check:
+            if targeting_mode in ["container", "multi_item"]:
+                return []
+            if not API.Player:
+                return []
             backpack = API.Player.Backpack
             if backpack:
                 containers_to_check = [backpack.Serial]
@@ -225,9 +277,26 @@ def get_tome_gump_id(tome_serial):
         API.SysMsg("Error getting gump ID: " + str(e), 32)
         return 0
 
+def open_tome_and_get_gump_id(tome_serial, expected_gump_id=0, timeout=3.0):
+    """Open the tome and return the current gump ID (dynamic-safe)."""
+    API.UseObject(tome_serial, False)
+    API.Pause(0.8)
+
+    if expected_gump_id > 0:
+        wait_until = time.time() + timeout
+        while time.time() < wait_until:
+            if API.HasGump(expected_gump_id):
+                break
+            API.Pause(0.1)
+
+    # Always resolve current gump ID from the open tome
+    return get_tome_gump_id(tome_serial)
+
 def dump_single_tome(tome_config):
     """Dump items to a single tome"""
     global session_dumps, session_items, last_dump_result
+
+    current_gump_id = 0
 
     try:
         # Find tome item
@@ -263,90 +332,41 @@ def dump_single_tome(tome_config):
                 API.SysMsg("Cannot pathfind - tome too far", 32)
                 return False
 
-        # Count matching items
-        item_count = count_items_for_tome(tome_config)
-        if item_count == 0:
-            API.SysMsg("No items to dump for " + str(tome_config.get("name", "Unknown")), 90)
-            return True
-
         # Get target containers (for container mode and multi_item mode)
-        target_containers = []
         targeting_mode = tome_config.get("targeting_mode", "container")
 
         # Populate containers for both container and multi_item modes
         if targeting_mode in ["container", "multi_item"]:
-            # Check if using graphic targeting
-            if tome_config.get("use_graphic_targeting", False):
-                # Find containers by graphic/hue
+            target_containers = resolve_target_containers(tome_config, validate=True)
+            if target_containers is None:
+                error_mgr.set_error("Container not found for " + str(tome_config.get("name", "Unknown")))
+                return False
+
+            if not target_containers and targeting_mode == "container":
+                error_mgr.set_error("No target containers set for " + str(tome_config.get("name", "Unknown")))
+                return False
+
+            if not target_containers and tome_config.get("use_graphic_targeting", False):
                 target_graphic = tome_config.get("target_graphic", 0)
-                if target_graphic == 0:
-                    error_mgr.set_error("No target graphic set for " + str(tome_config.get("name", "Unknown")))
-                    return False
+                hue_info = " with hue 0x{:X}".format(tome_config.get("target_hue", 0)) if tome_config.get("target_hue_specific", False) else ""
+                API.SysMsg("No containers found with graphic 0x{:X}{}".format(target_graphic, hue_info), 43)
+                return True
+        else:
+            target_containers = []
 
-                # Search backpack for matching containers
-                backpack = API.Player.Backpack
-                if not backpack:
-                    error_mgr.set_error("No backpack found")
-                    return False
-
-                backpack_serial = backpack.Serial if hasattr(backpack, 'Serial') else backpack
-                items = API.ItemsInContainer(backpack_serial, recursive=False)
-
-                # Null safety check
-                if not items:
-                    error_mgr.set_error("No items in backpack")
-                    return False
-
-                for item in items:
-                    if not hasattr(item, 'Graphic'):
-                        continue
-
-                    if item.Graphic == target_graphic:
-                        # Check hue if hue-specific
-                        if tome_config.get("target_hue_specific", False):
-                            target_hue = tome_config.get("target_hue", 0)
-                            item_hue = getattr(item, 'Hue', 0)
-                            if item_hue != target_hue:
-                                continue
-
-                        target_containers.append(item.Serial)
-
-                if not target_containers:
-                    hue_info = " with hue 0x{:X}".format(tome_config.get("target_hue", 0)) if tome_config.get("target_hue_specific", False) else ""
-                    API.SysMsg("No containers found with graphic 0x{:X}{}".format(target_graphic, hue_info), 43)
-                    return True  # Not an error, just nothing to dump
-            else:
-                # Use specific container serials
-                target_containers = tome_config.get("target_containers", [])
-                if not target_containers:
-                    # Legacy support - convert old single container to list
-                    old_container = tome_config.get("target_container", 0)
-                    if old_container > 0:
-                        target_containers = [old_container]
-
-                # Only error if container mode requires containers
-                if not target_containers and targeting_mode == "container":
-                    error_mgr.set_error("No target containers set for " + str(tome_config.get("name", "Unknown")))
-                    return False
-
-                # Validate all containers exist
-                for container_serial in target_containers:
-                    container = API.FindItem(container_serial)
-                    if not container:
-                        error_mgr.set_error("Container 0x{:X} not found".format(container_serial))
-                        return False
+        # Count matching items after container resolution
+        item_count = count_items_for_tome(tome_config)
+        if item_count == 0:
+            API.SysMsg("No items to dump for " + str(tome_config.get("name", "Unknown")), 90)
+            return True
 
         # Handle different targeting modes
         # targeting_mode already declared above
 
         if targeting_mode == "none":
             # No targeting - just click button once
-            # Open tome
-            API.UseObject(tome.Serial, False)
-            API.Pause(0.8)
-
-            # Get current gump ID (handles dynamic IDs)
-            current_gump_id = get_tome_gump_id(tome.Serial)
+            # Open tome and resolve current gump ID (dynamic)
+            current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
             if current_gump_id == 0:
                 error_mgr.set_error("Could not get gump ID for: " + str(tome_config.get("name", "Unknown")))
                 return False
@@ -367,12 +387,8 @@ def dump_single_tome(tome_config):
             for i, container_serial in enumerate(target_containers):
                 API.SysMsg("Dumping from container " + str(i + 1) + "/" + str(len(target_containers)) + "...", 68)
 
-                # Open tome gump
-                API.UseObject(tome.Serial, False)
-                API.Pause(0.8)
-
-                # Get current gump ID (handles dynamic IDs)
-                current_gump_id = get_tome_gump_id(tome.Serial)
+                # Open tome gump and resolve current ID (dynamic)
+                current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
                 if current_gump_id == 0:
                     error_mgr.set_error("Could not get gump ID for: " + str(tome_config.get("name", "Unknown")))
                     break  # Stop processing remaining containers
@@ -412,21 +428,10 @@ def dump_single_tome(tome_config):
 
         elif targeting_mode == "single_item":
             # Single item mode - click button, target one item, done
-            if tome_config["gump_id"] > 0:
-                API.UseObject(tome.Serial, False)
-                API.Pause(0.8)
-
-                timeout = time.time() + 3.0
-                while time.time() < timeout:
-                    if API.HasGump(tome_config["gump_id"]):
-                        break
-                    API.Pause(0.1)
-
-                if not API.HasGump(tome_config.get("gump_id", 0)):
-                    error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
-                    return False
-
-                API.Pause(0.3)
+            current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
+            if current_gump_id == 0:
+                error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
+                return False
 
             # Click button
             if tome_config["fill_button_id"] > 0:
@@ -434,7 +439,7 @@ def dump_single_tome(tome_config):
                 cancel_all_targets()
                 API.Pause(0.2)
 
-                API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                 API.Pause(0.3)
 
                 # Wait for target cursor to be ready
@@ -466,21 +471,10 @@ def dump_single_tome(tome_config):
             # Check if we have containers configured
             has_containers = len(target_containers) > 0
 
-            if tome_config["gump_id"] > 0:
-                API.UseObject(tome.Serial, False)
-                API.Pause(0.8)
-
-                timeout = time.time() + 3.0
-                while time.time() < timeout:
-                    if API.HasGump(tome_config["gump_id"]):
-                        break
-                    API.Pause(0.1)
-
-                if not API.HasGump(tome_config.get("gump_id", 0)):
-                    error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
-                    return False
-
-                API.Pause(0.3)
+            current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
+            if current_gump_id == 0:
+                error_mgr.set_error("Gump timeout: " + str(tome_config.get("name", "Unknown")))
+                return False
 
             if has_containers:
                 # Container mode - search containers and auto-target matching items
@@ -537,25 +531,16 @@ def dump_single_tome(tome_config):
                         if not API.HasTarget():
                             API.SysMsg("  No target cursor, clicking button...", 88)
 
-                            if not API.HasGump(tome_config.get("gump_id", 0)):
+                            if current_gump_id == 0 or not API.HasGump(current_gump_id):
                                 API.SysMsg("  Gump not open, reopening tome...", 88)
-                                API.UseObject(tome.Serial, False)
-                                API.Pause(0.8)
-
-                                # Wait for gump
-                                gump_timeout = time.time() + 3.0
-                                while time.time() < gump_timeout:
-                                    if API.HasGump(tome_config["gump_id"]):
-                                        break
-                                    API.Pause(0.1)
-
-                                if not API.HasGump(tome_config.get("gump_id", 0)):
+                                current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
+                                if current_gump_id == 0:
                                     API.SysMsg("  Gump timeout, stopping", 32)
                                     break
 
                             if tome_config["fill_button_id"] > 0:
                                 API.SysMsg("  Clicking button " + str(tome_config["fill_button_id"]), 88)
-                                API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                                API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                                 API.Pause(0.3)
 
                                 # Verify cursor appeared after button click
@@ -607,7 +592,7 @@ def dump_single_tome(tome_config):
 
                 # Click button once
                 if tome_config["fill_button_id"] > 0:
-                    API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                    API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                     API.Pause(0.5)
 
                 # Wait for targets
@@ -626,11 +611,11 @@ def dump_single_tome(tome_config):
                         API.Pause(0.1)
                     else:
                         # Cursor just cleared - check if we actually targeted
-                        if previous_had_target and API.HasGump(tome_config.get("gump_id", 0)):
+                        if previous_had_target and current_gump_id > 0 and API.HasGump(current_gump_id):
                             items_targeted += 1
                             previous_had_target = False
                             API.Pause(0.3)  # Wait for potential auto-retarget
-                        elif not API.HasGump(tome_config.get("gump_id", 0)):
+                        elif current_gump_id == 0 or not API.HasGump(current_gump_id):
                             # Gump closed or user cancelled
                             break
                         else:
@@ -651,24 +636,15 @@ def dump_single_tome(tome_config):
                     API.Pause(0.2)
 
                     # Reopen gump if needed
-                    if not API.HasGump(tome_config.get("gump_id", 0)):
-                        API.UseObject(tome.Serial, False)
-                        API.Pause(0.5)
-
-                        # Wait for gump to appear
-                        gump_timeout = time.time() + 3.0
-                        while time.time() < gump_timeout:
-                            if API.HasGump(tome_config["gump_id"]):
-                                break
-                            API.Pause(0.1)
-
-                        if not API.HasGump(tome_config.get("gump_id", 0)):
+                    if current_gump_id == 0 or not API.HasGump(current_gump_id):
+                        current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
+                        if current_gump_id == 0:
                             API.SysMsg("Gump timeout", 32)
                             break
 
                     # Click button
                     if tome_config["fill_button_id"] > 0:
-                        API.ReplyGump(tome_config["fill_button_id"], tome_config["gump_id"])
+                        API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                         API.Pause(0.3)
 
                     # Wait for target cursor to be ready
@@ -705,7 +681,7 @@ def dump_single_tome(tome_config):
 
     finally:
         # CLEANUP: Close tome gump if it's open
-        gump_id = tome_config.get("gump_id", 0)
+        gump_id = current_gump_id
         if gump_id > 0 and API.HasGump(gump_id):
             try:
                 API.CloseGump(gump_id)
@@ -1512,12 +1488,12 @@ def build_main_gump():
         item_count = get_cached_item_count(i)
 
         tomeLabel = API.Gumps.CreateGumpTTFLabel(
-            enabled_text + str(tome.get("name", "Unknown")) + " (" + str(item_count) + ")", 11, hue
+            enabled_text + str(tome.get("name", "Unknown")) + " (" + str(item_count) + ")", 15, hue
         )
         tomeLabel.SetPos(15, y_pos)
         main_gump.Add(tomeLabel)
 
-        y_pos += 18
+        y_pos += 20
 
     # Action buttons
     main_controls["dump_enabled_btn"] = API.Gumps.CreateSimpleButton("[DUMP ENABLED]", 130, 22)
@@ -1541,7 +1517,7 @@ def build_main_gump():
     # Stats
     statsLabel = API.Gumps.CreateGumpTTFLabel(
         "Session: " + str(session_dumps) + " dumps, " + str(session_items) + " items",
-        11, "#ffcc00"
+        15, "#ffcc00"
     )
     statsLabel.SetPos(10, 370)
     main_gump.Add(statsLabel)
@@ -1565,8 +1541,8 @@ def build_config_gump():
         return
     if time.time() - last_config_build_time < CONFIG_BUILD_COOLDOWN:
         return
-    config_building = True
 
+    config_building = True
     # Dispose old window before creating new one
     old_gump = config_gump
     config_controls = {}
