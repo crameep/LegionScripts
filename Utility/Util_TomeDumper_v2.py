@@ -27,6 +27,8 @@ CONFIG_HEIGHT = 550
 TESTER_WIDTH = 320
 TESTER_HEIGHT = 200
 
+DEBUG_MODE = False  # Set True to enable verbose debug messages
+
 # Color hues
 HUE_RED = 32        # Danger/error
 HUE_GREEN = 68      # Success/active
@@ -77,6 +79,8 @@ config_building = False
 last_config_build_time = 0
 CONFIG_BUILD_COOLDOWN = 0.2
 _config_gump_gen = 0  # Incremented on each rebuild; on_config_closed ignores stale callbacks
+_main_gump_gen = 0    # Incremented on each rebuild; on_main_closed ignores stale callbacks
+_tester_gump_gen = 0  # Incremented on each rebuild; on_tester_closed ignores stale callbacks
 
 # Item count cache (to avoid expensive recalculation)
 item_count_cache = {}
@@ -120,7 +124,8 @@ hue_buttons = {
 # ============ UTILITY FUNCTIONS ============
 def debug_msg(text):
     """Debug message helper"""
-    API.SysMsg("DEBUG: " + text, 88)
+    if DEBUG_MODE:
+        API.SysMsg("DEBUG: " + text, 88)
 
 def resolve_target_containers(tome_config, validate=False):
     """Resolve target containers for container/multi_item modes.
@@ -254,7 +259,7 @@ def get_tome_gump_id(tome_serial):
                     return gump.ServerSerial
                 elif hasattr(gump, 'LocalSerial') and gump.LocalSerial:
                     return gump.LocalSerial
-        except:
+        except Exception:
             pass
 
         # Fallback: scan all gumps (less reliable but works)
@@ -270,7 +275,7 @@ def get_tome_gump_id(tome_serial):
                     return gump.LocalSerial
                 else:
                     return gump
-        except:
+        except Exception:
             pass
 
         return 0
@@ -286,6 +291,9 @@ def open_tome_and_get_gump_id(tome_serial, expected_gump_id=0, timeout=3.0):
     if expected_gump_id > 0:
         wait_until = time.time() + timeout
         while time.time() < wait_until:
+            API.ProcessCallbacks()
+            if API.StopRequested:
+                break
             if API.HasGump(expected_gump_id):
                 break
             API.Pause(0.1)
@@ -316,6 +324,9 @@ def dump_single_tome(tome_config):
                 # Wait for pathfinding to complete or timeout
                 timeout = time.time() + 5.0
                 while time.time() < timeout:
+                    API.ProcessCallbacks()
+                    if API.StopRequested:
+                        break
                     API.Pause(0.1)
                     if not API.Pathfinding():
                         break
@@ -402,12 +413,12 @@ def dump_single_tome(tome_config):
 
                 # Click button to create target cursor
                 if tome_config["fill_button_id"] > 0:
-                    API.SysMsg("Clicking button " + str(tome_config["fill_button_id"]) + "...", 88)
+                    debug_msg("Clicking button " + str(tome_config["fill_button_id"]) + "...")
                     API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                     API.Pause(0.3)
 
                     # Wait for target cursor to be ready
-                    API.SysMsg("Waiting for target cursor...", 88)
+                    debug_msg("Waiting for target cursor...")
                     if API.WaitForTarget(timeout=3.0):
                         # Target the container
                         API.SysMsg("Targeting container 0x{:X}...".format(container_serial), 68)
@@ -446,20 +457,27 @@ def dump_single_tome(tome_config):
                 # Wait for target cursor to be ready
                 if API.WaitForTarget(timeout=3.0):
                     API.SysMsg("Target item now (ESC to cancel)...", 68)
-                    # Wait for user to target
+                    # Wait for user to target or cancel
                     timeout = time.time() + 30.0
-                    targeted = False
+                    cursor_cleared = False
 
                     while time.time() < timeout:
                         if not API.HasTarget():
-                            targeted = True  # Cursor cleared - user targeted
+                            cursor_cleared = True  # Cursor cleared - could be target or ESC
                             break
                         API.Pause(0.1)
 
-                    if targeted:
-                        session_dumps += 1
-                        last_dump_result = "Single item to " + str(tome_config.get("name", "Unknown"))
-                        API.SysMsg(last_dump_result, 68)
+                    if cursor_cleared:
+                        # Verify the dump actually succeeded: gump should have closed when item was accepted
+                        API.Pause(0.2)
+                        dump_succeeded = current_gump_id == 0 or not API.HasGump(current_gump_id)
+                        if dump_succeeded:
+                            session_dumps += 1
+                            last_dump_result = "Single item to " + str(tome_config.get("name", "Unknown"))
+                            API.SysMsg(last_dump_result, 68)
+                        else:
+                            # Gump still open = ESC was pressed, not a real target
+                            API.SysMsg("Cancelled (ESC)", 90)
                     else:
                         API.SysMsg("Targeting timed out", 43)
                 else:
@@ -480,11 +498,11 @@ def dump_single_tome(tome_config):
             if has_containers:
                 # Container mode - search containers and auto-target matching items
                 API.SysMsg("Searching " + str(len(target_containers)) + " containers for items...", 68)
-                API.SysMsg("Container serials: " + ", ".join("0x{:X}".format(c) for c in target_containers), 88)
+                debug_msg("Container serials: " + ", ".join("0x{:X}".format(c) for c in target_containers))
                 items_targeted = 0
 
                 for container_idx, container_serial in enumerate(target_containers):
-                    API.SysMsg("Processing container " + str(container_idx + 1) + "/" + str(len(target_containers)) + ": 0x{:X}".format(container_serial), 88)
+                    debug_msg("Processing container " + str(container_idx + 1) + "/" + str(len(target_containers)) + ": 0x{:X}".format(container_serial))
                     container = API.FindItem(container_serial)
                     if not container:
                         API.SysMsg("Container 0x{:X} not found, skipping".format(container_serial), 32)
@@ -496,19 +514,19 @@ def dump_single_tome(tome_config):
                         API.SysMsg("Container 0x{:X} is empty".format(container_serial), 43)
                         continue
 
-                    API.SysMsg("Container 0x{:X} has {} items total".format(container_serial, len(container_items)), 88)
+                    debug_msg("Container 0x{:X} has {} items total".format(container_serial, len(container_items)))
 
                     # Filter by item graphics if specified
                     items_to_dump = []
                     filter_graphics = tome_config.get("item_graphics", [])
 
                     if filter_graphics:
-                        API.SysMsg("Filtering for graphics: " + ", ".join("0x{:X}".format(g) for g in filter_graphics), 88)
+                        debug_msg("Filtering for graphics: " + ", ".join("0x{:X}".format(g) for g in filter_graphics))
                         for item in container_items:
                             if hasattr(item, 'Graphic'):
                                 if item.Graphic in filter_graphics:
                                     items_to_dump.append(item)
-                                    API.SysMsg("  Found matching item: graphic 0x{:X}, serial 0x{:X}".format(item.Graphic, item.Serial), 88)
+                                    debug_msg("  Found matching item: graphic 0x{:X}, serial 0x{:X}".format(item.Graphic, item.Serial))
                     else:
                         API.SysMsg("No filter - will target ALL items", 43)
                         items_to_dump = list(container_items)
@@ -521,7 +539,7 @@ def dump_single_tome(tome_config):
 
                     # Target each item
                     for idx, item in enumerate(items_to_dump):
-                        API.SysMsg("Targeting item " + str(idx + 1) + "/" + str(len(items_to_dump)) + "...", 88)
+                        debug_msg("Targeting item " + str(idx + 1) + "/" + str(len(items_to_dump)) + "...")
 
                         # Verify item still exists before targeting
                         if not API.FindItem(item.Serial):
@@ -530,17 +548,17 @@ def dump_single_tome(tome_config):
 
                         # Click button if needed
                         if not API.HasTarget():
-                            API.SysMsg("  No target cursor, clicking button...", 88)
+                            debug_msg("  No target cursor, clicking button...")
 
                             if current_gump_id == 0 or not API.HasGump(current_gump_id):
-                                API.SysMsg("  Gump not open, reopening tome...", 88)
+                                debug_msg("  Gump not open, reopening tome...")
                                 current_gump_id = open_tome_and_get_gump_id(tome.Serial, tome_config.get("gump_id", 0))
                                 if current_gump_id == 0:
                                     API.SysMsg("  Gump timeout, stopping", 32)
                                     break
 
                             if tome_config["fill_button_id"] > 0:
-                                API.SysMsg("  Clicking button " + str(tome_config["fill_button_id"]), 88)
+                                debug_msg("  Clicking button " + str(tome_config["fill_button_id"]))
                                 API.ReplyGump(tome_config["fill_button_id"], current_gump_id)
                                 API.Pause(0.3)
 
@@ -554,14 +572,14 @@ def dump_single_tome(tome_config):
                         API.Pause(0.2)
 
                         if API.HasTarget():
-                            API.SysMsg("  Targeting item serial 0x{:X}".format(item.Serial), 68)
+                            debug_msg("  Targeting item serial 0x{:X}".format(item.Serial))
                             API.Target(item.Serial)
                             items_targeted += 1
                             API.Pause(0.5)
 
                             # If auto-retarget, wait for cursor to reappear
                             if auto_retarget:
-                                API.SysMsg("  Waiting for auto-retarget...", 88)
+                                debug_msg("  Waiting for auto-retarget...")
                                 retarget_timeout = time.time() + 2.0
                                 cursor_reappeared = False
                                 while time.time() < retarget_timeout:
@@ -578,7 +596,7 @@ def dump_single_tome(tome_config):
                             break
 
                     # Finished processing this container
-                    API.SysMsg("Finished processing container 0x{:X}".format(container_serial), 88)
+                    debug_msg("Finished processing container 0x{:X}".format(container_serial))
 
                 # Finished processing all containers
                 session_dumps += items_targeted
@@ -828,28 +846,23 @@ def on_dump_all_clicked():
     """Dump to all tomes"""
     dump_all_tomes()
 
-def on_main_closed():
+def on_main_closed(gen=None):
     """Main window closed - stop the script"""
     global main_gump, main_controls
-    save_window_position(MAIN_POS_KEY, main_gump)
+
+    # Ignore stale callbacks from old gumps that fired after a programmatic rebuild
+    if gen is not None and gen != _main_gump_gen:
+        return
+
+    # Save position if gump is still available (user-close path; programmatic rebuild saves before dispose)
+    if main_gump:
+        save_window_position(MAIN_POS_KEY, main_gump)
     save_tomes()
     main_gump = None
     main_controls = {}
     API.Stop()
 
 # ============ GUI CALLBACKS - CONFIG WINDOW ============
-def on_name_changed():
-    """Handle name text input change"""
-    global editing_dirty
-
-    if not editing_tome or "name_input" not in config_controls:
-        return
-
-    new_name = config_controls["name_input"].Text.strip()
-    if new_name != editing_tome["name"]:
-        editing_tome["name"] = new_name
-        editing_dirty = True
-
 def on_add_tome_clicked():
     """Start adding new tome"""
     global editing_tome, editing_index, editing_dirty
@@ -1036,6 +1049,7 @@ def on_targeting_mode_set(mode):
         editing_tome["targeting_mode"] = mode
         # Set needs_targeting based on mode for backward compatibility
         editing_tome["needs_targeting"] = (mode != "none")
+        # needs_targeting mirrors (targeting_mode != "none") - kept for save compatibility
         editing_dirty = True
 
         # Update button colors directly
@@ -1238,6 +1252,28 @@ def on_hue_specific_set(value):
 
         API.SysMsg("Hue specific: " + ("YES" if value else "NO"), 68)
 
+def capture_item_graphics():
+    """Target a container and return list of unique item graphic IDs found inside"""
+    API.SysMsg("Target a container to capture item graphics...", 68)
+    target = request_target(timeout=15)
+    if not target:
+        API.SysMsg("Cancelled", 90)
+        return None
+    container = API.FindItem(target)
+    if not container:
+        API.SysMsg("Invalid container", 32)
+        return None
+    items = API.ItemsInContainer(container)
+    if not items:
+        API.SysMsg("Container is empty", 43)
+        return []
+    graphics = []
+    for item in items:
+        g = int(item.Graphic)
+        if g not in graphics:
+            graphics.append(g)
+    return graphics
+
 def on_capture_items_clicked():
     """Capture item graphics"""
     global capturing_items, editing_dirty
@@ -1401,7 +1437,7 @@ def on_test_custom_button():
     try:
         button_id = int(tester_controls["custom_input"].Text.strip())
         on_test_button_number(button_id)
-    except:
+    except Exception:
         API.SysMsg("Invalid button ID", 32)
 
 def on_set_custom_button():
@@ -1434,7 +1470,7 @@ def on_set_custom_button():
                 tester_gump.Dispose()
         else:
             API.SysMsg("No tome being edited", 32)
-    except:
+    except Exception:
         API.SysMsg("Invalid button ID", 32)
 
 def on_use_button_clicked(button_id):
@@ -1461,25 +1497,35 @@ def on_use_button_clicked(button_id):
         if tester_gump:
             tester_gump.Dispose()
 
-def on_tester_closed():
+def on_tester_closed(gen=None):
     """Tester window closed"""
     global tester_gump, tester_controls
 
-    save_window_position(TESTER_POS_KEY, tester_gump)
+    # Ignore stale callbacks from old gumps that fired after a programmatic rebuild
+    if gen is not None and gen != _tester_gump_gen:
+        return
+
+    # Save position if gump is still available (user-close path; programmatic rebuild saves before dispose)
+    if tester_gump:
+        save_window_position(TESTER_POS_KEY, tester_gump)
     tester_gump = None
     tester_controls = {}
 
 # ============ BUILD GUI - MAIN WINDOW ============
 def build_main_gump():
     """Build main window"""
-    global main_gump, main_controls
-
-    # Dispose old window
-    if main_gump:
-        main_gump.Dispose()
+    global main_gump, main_controls, _main_gump_gen
 
     # Clear controls
     main_controls = {}
+
+    # Dispose old window with generation guard so on_main_closed ignores the programmatic close
+    if main_gump:
+        save_window_position(MAIN_POS_KEY, main_gump)  # Save BEFORE dispose
+        _main_gump_gen += 1
+        old_gump = main_gump
+        main_gump = None
+        old_gump.Dispose()
 
     # Load position
     x, y = load_window_position(MAIN_POS_KEY, 100, 100)
@@ -1511,8 +1557,18 @@ def build_main_gump():
     main_gump.Add(listLabel)
 
     # Tome list (uses cached counts to avoid lag)
+    # Stop rendering when y_pos would reach 310 (where dump buttons start)
+    TOME_LIST_MAX_Y = 310
     y_pos = 50
+    tomes_shown = 0
     for i, tome in enumerate(tomes):
+        if y_pos + 20 > TOME_LIST_MAX_Y:
+            remaining = len(tomes) - tomes_shown
+            moreLabel = API.Gumps.CreateGumpTTFLabel("+" + str(remaining) + " more (use Config to manage)", 15, "#888888")
+            moreLabel.SetPos(15, y_pos)
+            main_gump.Add(moreLabel)
+            break
+
         enabled_text = "> " if tome.get("enabled", True) else "  "
         hue = "#00ff00" if tome.get("enabled", True) else "#888888"
 
@@ -1526,6 +1582,7 @@ def build_main_gump():
         main_gump.Add(tomeLabel)
 
         y_pos += 20
+        tomes_shown += 1
 
     # Action buttons
     main_controls["dump_enabled_btn"] = API.Gumps.CreateSimpleButton("[DUMP ENABLED]", 130, 22)
@@ -1555,8 +1612,9 @@ def build_main_gump():
     main_gump.Add(statsLabel)
     main_controls["stats_label"] = statsLabel
 
-    # Close callback
-    API.Gumps.AddControlOnDisposed(main_gump, on_main_closed)
+    # Close callback - bind current generation so stale async callbacks are ignored
+    this_gen = _main_gump_gen
+    API.Gumps.AddControlOnDisposed(main_gump, lambda gen=this_gen: on_main_closed(gen))
 
     # Display
     API.Gumps.AddGump(main_gump)
@@ -1570,6 +1628,9 @@ def build_config_gump():
     # Note: Text box .Text property doesn't update as you type in Legion
     # User must click [SET] button next to name field to save their typed name
 
+    # Safety: auto-clear stale config_building flag (e.g. if previous build threw an exception)
+    if config_building and time.time() - last_config_build_time > 5.0:
+        config_building = False
     if config_building:
         return
     if time.time() - last_config_build_time < CONFIG_BUILD_COOLDOWN:
@@ -2059,19 +2120,23 @@ def build_config_gump():
     # Display
     API.Gumps.AddGump(config_gump)
     last_config_build_time = time.time()
-    config_building = False
+    config_building = False  # Always reset here (finally-equivalent at end of normal flow)
 
 # ============ BUILD GUI - TESTER WINDOW ============
 def build_tester_gump():
     """Build button tester window"""
-    global tester_gump, tester_controls
-
-    # Dispose old window
-    if tester_gump:
-        tester_gump.Dispose()
+    global tester_gump, tester_controls, _tester_gump_gen
 
     # Clear controls
     tester_controls = {}
+
+    # Dispose old window with generation guard so on_tester_closed ignores the programmatic close
+    if tester_gump:
+        save_window_position(TESTER_POS_KEY, tester_gump)  # Save BEFORE dispose
+        _tester_gump_gen += 1
+        old_tester = tester_gump
+        tester_gump = None
+        old_tester.Dispose()
 
     # Load position
     x, y = load_window_position(TESTER_POS_KEY, 140, 140)
@@ -2082,7 +2147,7 @@ def build_tester_gump():
 
     # Background
     background = API.Gumps.CreateGumpColorBox(0.85, "#1a1a2e")
-    background.SetRect(0, 0, TESTER_WIDTH, TESTER_HEIGHT + 50)
+    background.SetRect(0, 0, TESTER_WIDTH, TESTER_HEIGHT + 80)
     tester_gump.Add(background)
 
     # Title
@@ -2159,8 +2224,9 @@ def build_tester_gump():
     tester_gump.Add(resultLabel)
     tester_controls["result_label"] = resultLabel
 
-    # Close callback
-    API.Gumps.AddControlOnDisposed(tester_gump, on_tester_closed)
+    # Close callback - bind current generation so stale async callbacks are ignored
+    this_gen = _tester_gump_gen
+    API.Gumps.AddControlOnDisposed(tester_gump, lambda gen=this_gen: on_tester_closed(gen))
 
     # Display
     API.Gumps.AddGump(tester_gump)
@@ -2175,15 +2241,21 @@ def cleanup():
 
     if main_gump:
         save_window_position(MAIN_POS_KEY, main_gump)
-        main_gump.Dispose()
+        _g = main_gump
+        main_gump = None  # Null before dispose so on_main_closed guard skips API.Stop()
+        _g.Dispose()
 
     if config_gump:
         save_window_position(CONFIG_POS_KEY, config_gump)
-        config_gump.Dispose()
+        _g = config_gump
+        config_gump = None
+        _g.Dispose()
 
     if tester_gump:
         save_window_position(TESTER_POS_KEY, tester_gump)
-        tester_gump.Dispose()
+        _g = tester_gump
+        tester_gump = None
+        _g.Dispose()
 
 # ============ INITIALIZATION ============
 load_tomes()
