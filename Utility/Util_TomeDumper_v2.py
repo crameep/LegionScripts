@@ -831,30 +831,38 @@ def set_clipboard(text):
 
 def get_clipboard():
     """Read text from clipboard (Windows, macOS, Linux)"""
-    import subprocess, sys
+    import sys
     try:
         if sys.platform == "win32":
-            result = subprocess.run(
-                ['powershell', '-command', 'Get-Clipboard'],
-                capture_output=True, text=True, timeout=5
-            )
-            return result.stdout.strip()
+            # Use ctypes Win32 API directly - more reliable than PowerShell
+            import ctypes
+            CF_UNICODETEXT = 13
+            ctypes.windll.user32.OpenClipboard(0)
+            try:
+                handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
+                if not handle:
+                    return None
+                text = ctypes.wstring_at(handle)
+            finally:
+                ctypes.windll.user32.CloseClipboard()
+            return text.strip()
         elif sys.platform == "darwin":
-            result = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=5)
-            return result.stdout.strip()
+            import subprocess
+            result = subprocess.run(['pbpaste'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
+            return result.stdout.decode('utf-8', errors='ignore').strip()
         else:
-            # Linux - try xclip then xsel
+            import subprocess
             try:
                 result = subprocess.run(
                     ['xclip', '-selection', 'clipboard', '-o'],
-                    capture_output=True, text=True, timeout=5
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
                 )
-            except FileNotFoundError:
+            except OSError:
                 result = subprocess.run(
                     ['xsel', '--clipboard', '--output'],
-                    capture_output=True, text=True, timeout=5
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
                 )
-            return result.stdout.strip()
+            return result.stdout.decode('utf-8', errors='ignore').strip()
     except Exception as e:
         API.SysMsg("Clipboard read error: " + str(e), 32)
         return None
