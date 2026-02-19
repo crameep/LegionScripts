@@ -76,6 +76,7 @@ MAIN_DISPLAY_INTERVAL = 1.0
 config_building = False
 last_config_build_time = 0
 CONFIG_BUILD_COOLDOWN = 0.2
+_config_gump_gen = 0  # Incremented on each rebuild; on_config_closed ignores stale callbacks
 
 # Item count cache (to avoid expensive recalculation)
 item_count_cache = {}
@@ -1329,9 +1330,13 @@ def on_toggle_tome_clicked(index):
     build_config_gump()
     build_main_gump()
 
-def on_config_closed():
+def on_config_closed(gen=None):
     """Config window closed"""
     global config_gump, config_controls
+
+    # Ignore stale callbacks from old gumps that fired after a programmatic rebuild
+    if gen is not None and gen != _config_gump_gen:
+        return
 
     if config_gump:
         save_window_position(CONFIG_POS_KEY, config_gump)
@@ -1533,6 +1538,7 @@ def build_main_gump():
 def build_config_gump():
     """Build config window"""
     global config_gump, config_controls, editing_tome, config_building, last_config_build_time
+    global _config_gump_gen
 
     # Note: Text box .Text property doesn't update as you type in Legion
     # User must click [SET] button next to name field to save their typed name
@@ -1548,9 +1554,12 @@ def build_config_gump():
     config_controls = {}
 
     if old_gump:
+        # Save position before dispose (on_config_closed will be ignored for this programmatic close)
+        save_window_position(CONFIG_POS_KEY, old_gump)
+        # Increment generation BEFORE dispose so any sync/async on_config_closed callbacks are ignored
+        _config_gump_gen += 1
         try:
             old_gump.Dispose()
-            # Disposal is synchronous - no pause needed
         except Exception as e:
             API.SysMsg("Config window close failed: " + str(e), 32)
             config_building = False
@@ -2016,8 +2025,9 @@ def build_config_gump():
 
         list_y_pos += 22
 
-    # Close callback
-    API.Gumps.AddControlOnDisposed(config_gump, on_config_closed)
+    # Close callback - bind current generation so stale async callbacks are ignored
+    this_gen = _config_gump_gen
+    API.Gumps.AddControlOnDisposed(config_gump, lambda gen=this_gen: on_config_closed(gen))
 
     # Display
     API.Gumps.AddGump(config_gump)
