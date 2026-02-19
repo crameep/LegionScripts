@@ -804,11 +804,13 @@ def on_dump_all_clicked():
     dump_all_tomes()
 
 def on_main_closed():
-    """Main window closed"""
+    """Main window closed - stop the script"""
     global main_gump, main_controls
     save_window_position(MAIN_POS_KEY, main_gump)
+    save_tomes()
     main_gump = None
     main_controls = {}
+    API.Stop()
 
 # ============ GUI CALLBACKS - CONFIG WINDOW ============
 def on_name_changed():
@@ -2144,6 +2146,7 @@ def cleanup():
     global main_gump, config_gump, tester_gump
 
     cancel_all_targets()
+    save_tomes()
 
     if main_gump:
         save_window_position(MAIN_POS_KEY, main_gump)
