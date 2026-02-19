@@ -806,6 +806,30 @@ def load_tomes():
     global tomes
     tomes = load_tome_list(TOMES_KEY)
 
+def set_clipboard(text):
+    """Write text to Windows clipboard via clip.exe"""
+    import subprocess
+    try:
+        proc = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
+        proc.communicate(text.encode('utf-8'))
+        return True
+    except Exception as e:
+        API.SysMsg("Clipboard write error: " + str(e), 32)
+        return False
+
+def get_clipboard():
+    """Read text from Windows clipboard via PowerShell"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['powershell', '-command', 'Get-Clipboard'],
+            capture_output=True, text=True, timeout=5
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        API.SysMsg("Clipboard read error: " + str(e), 32)
+        return None
+
 # ============ DISPLAY UPDATES ============
 def update_main_display():
     """Update main window display (rate-limited)"""
@@ -863,6 +887,57 @@ def on_main_closed(gen=None):
     API.Stop()
 
 # ============ GUI CALLBACKS - CONFIG WINDOW ============
+def on_export_tomes_clicked():
+    """Export all tomes to clipboard as JSON"""
+    import json
+    if not tomes:
+        API.SysMsg("No tomes to export", 43)
+        return
+    try:
+        json_str = json.dumps(_to_native(tomes), indent=2)
+        if set_clipboard(json_str):
+            API.SysMsg("Exported " + str(len(tomes)) + " tome(s) to clipboard", 68)
+    except Exception as e:
+        API.SysMsg("Export error: " + str(e), 32)
+
+def on_import_tomes_clicked():
+    """Import tomes from clipboard JSON, merging with existing (skips duplicate serials)"""
+    global tomes
+    import json
+    try:
+        text = get_clipboard()
+        if not text:
+            API.SysMsg("Clipboard is empty", 43)
+            return
+        imported = json.loads(text)
+        if not isinstance(imported, list):
+            API.SysMsg("Invalid format - expected JSON array", 32)
+            return
+        existing_serials = {t.get("tome_serial", 0) for t in tomes}
+        added = 0
+        skipped = 0
+        for tome in imported:
+            if not isinstance(tome, dict) or "tome_serial" not in tome:
+                skipped += 1
+                continue
+            if tome["tome_serial"] in existing_serials:
+                skipped += 1
+                continue
+            tomes.append(tome)
+            existing_serials.add(tome["tome_serial"])
+            added += 1
+        if added:
+            save_tomes()
+            API.SysMsg("Imported " + str(added) + " tome(s)" + (" (skipped " + str(skipped) + " duplicates)" if skipped else ""), 68)
+            build_config_gump()
+            build_main_gump()
+        else:
+            API.SysMsg("Nothing new to import (all duplicates or invalid)", 43)
+    except ValueError:
+        API.SysMsg("Invalid JSON in clipboard", 32)
+    except Exception as e:
+        API.SysMsg("Import error: " + str(e), 32)
+
 def on_add_tome_clicked():
     """Start adding new tome"""
     global editing_tome, editing_index, editing_dirty
@@ -1683,6 +1758,19 @@ def build_config_gump():
     config_controls["add_tome_btn"].SetBackgroundHue(68)
     config_gump.Add(config_controls["add_tome_btn"])
     API.Gumps.AddControlOnClick(config_controls["add_tome_btn"], on_add_tome_clicked)
+
+    # Export / Import buttons
+    config_controls["export_btn"] = API.Gumps.CreateSimpleButton("[EXPORT]", 75, 22)
+    config_controls["export_btn"].SetPos(160, 30)
+    config_controls["export_btn"].SetBackgroundHue(90)
+    config_gump.Add(config_controls["export_btn"])
+    API.Gumps.AddControlOnClick(config_controls["export_btn"], on_export_tomes_clicked)
+
+    config_controls["import_btn"] = API.Gumps.CreateSimpleButton("[IMPORT]", 75, 22)
+    config_controls["import_btn"].SetPos(245, 30)
+    config_controls["import_btn"].SetBackgroundHue(90)
+    config_gump.Add(config_controls["import_btn"])
+    API.Gumps.AddControlOnClick(config_controls["import_btn"], on_import_tomes_clicked)
 
     # Edit panel (shown when editing_tome is not None)
     y_pos = 60
