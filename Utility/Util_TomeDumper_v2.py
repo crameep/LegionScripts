@@ -965,14 +965,19 @@ def on_detect_gump_clicked():
 
     try:
         detecting_gump = True
-        API.SysMsg("Open tome now...", 68)
 
         # Update button text directly instead of rebuilding entire gump
         if "detect_gump_btn" in config_controls:
             config_controls["detect_gump_btn"].SetText("[DETECTING...]")
             config_controls["detect_gump_btn"].SetBackgroundHue(43)
 
-        gump_id = gump_capture.detect_new_gump(None, timeout=10)
+        tome_serial = editing_tome.get("tome_serial", 0) if editing_tome else 0
+        if tome_serial:
+            API.SysMsg("Opening tome to detect gump...", 68)
+        else:
+            API.SysMsg("No tome serial set - open tome manually now...", 43)
+
+        gump_id = gump_capture.detect_new_gump(tome_serial if tome_serial else None, timeout=10)
 
         if gump_id > 0 and editing_tome:
             editing_tome["gump_id"] = int(gump_id)
