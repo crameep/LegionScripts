@@ -706,7 +706,7 @@ def all_kill():
 def all_guard_me():
     """Send All Guard Me command."""
     try:
-        API.Say("all guard me")
+        API.Msg("all guard me")
         API.Pause(0.5)
         return True
     except:
@@ -715,7 +715,7 @@ def all_guard_me():
 def all_follow_me():
     """Send All Follow Me command."""
     try:
-        API.Say("all follow me")
+        API.Msg("all follow me")
         API.Pause(0.5)
         return True
     except:
