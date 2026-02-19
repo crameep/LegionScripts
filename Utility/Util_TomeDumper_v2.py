@@ -834,25 +834,13 @@ def get_clipboard():
     import sys
     try:
         if sys.platform == "win32":
-            # Win32: GetClipboardData returns HGLOBAL handle, must GlobalLock to get pointer
-            import ctypes
-            CF_UNICODETEXT = 13
-            text = None
-            if not ctypes.windll.user32.OpenClipboard(0):
-                API.SysMsg("Clipboard open failed", 32)
-                return None
-            try:
-                handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
-                if handle:
-                    ptr = ctypes.windll.kernel32.GlobalLock(handle)
-                    if ptr:
-                        try:
-                            text = ctypes.wstring_at(ptr)
-                        finally:
-                            ctypes.windll.kernel32.GlobalUnlock(handle)
-            finally:
-                ctypes.windll.user32.CloseClipboard()
-            return text.strip() if text else None
+            import subprocess
+            proc = subprocess.Popen(
+                ['powershell', '-NoProfile', '-NonInteractive', '-command', 'Get-Clipboard'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            stdout, _ = proc.communicate(timeout=5)
+            return stdout.decode('utf-8', errors='ignore').strip()
         elif sys.platform == "darwin":
             import subprocess
             result = subprocess.run(['pbpaste'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
