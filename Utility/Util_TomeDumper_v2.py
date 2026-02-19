@@ -807,25 +807,54 @@ def load_tomes():
     tomes = load_tome_list(TOMES_KEY)
 
 def set_clipboard(text):
-    """Write text to Windows clipboard via clip.exe"""
-    import subprocess
+    """Write text to clipboard (Windows, macOS, Linux)"""
+    import subprocess, sys
     try:
-        proc = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
-        proc.communicate(text.encode('utf-8'))
+        if sys.platform == "win32":
+            proc = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
+            proc.communicate(text.encode('utf-8'))
+        elif sys.platform == "darwin":
+            proc = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+            proc.communicate(text.encode('utf-8'))
+        else:
+            # Linux - try xclip then xsel
+            try:
+                proc = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                proc.communicate(text.encode('utf-8'))
+            except FileNotFoundError:
+                proc = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
+                proc.communicate(text.encode('utf-8'))
         return True
     except Exception as e:
         API.SysMsg("Clipboard write error: " + str(e), 32)
         return False
 
 def get_clipboard():
-    """Read text from Windows clipboard via PowerShell"""
-    import subprocess
+    """Read text from clipboard (Windows, macOS, Linux)"""
+    import subprocess, sys
     try:
-        result = subprocess.run(
-            ['powershell', '-command', 'Get-Clipboard'],
-            capture_output=True, text=True, timeout=5
-        )
-        return result.stdout.strip()
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ['powershell', '-command', 'Get-Clipboard'],
+                capture_output=True, text=True, timeout=5
+            )
+            return result.stdout.strip()
+        elif sys.platform == "darwin":
+            result = subprocess.run(['pbpaste'], capture_output=True, text=True, timeout=5)
+            return result.stdout.strip()
+        else:
+            # Linux - try xclip then xsel
+            try:
+                result = subprocess.run(
+                    ['xclip', '-selection', 'clipboard', '-o'],
+                    capture_output=True, text=True, timeout=5
+                )
+            except FileNotFoundError:
+                result = subprocess.run(
+                    ['xsel', '--clipboard', '--output'],
+                    capture_output=True, text=True, timeout=5
+                )
+            return result.stdout.strip()
     except Exception as e:
         API.SysMsg("Clipboard read error: " + str(e), 32)
         return None
